@@ -1,0 +1,349 @@
+{
+    "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+    "m_RootObjectIdentifier": {
+        "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+        "m_PersistentID": 5460402562081127354
+    },
+    "VersionMap": [
+        {
+            "first": 1503796268,
+            "second": 4
+        },
+        {
+            "first": 427551168,
+            "second": 2
+        },
+        {
+            "first": 2213946675,
+            "second": 3
+        },
+        {
+            "first": 3151843439,
+            "second": 1
+        },
+        {
+            "first": 539149080,
+            "second": 2
+        },
+        {
+            "first": 3920237265,
+            "second": 3
+        },
+        {
+            "first": 2373077648,
+            "second": 3
+        },
+        {
+            "first": 1743228860,
+            "second": 3
+        }
+    ],
+    "m_IdentifierMap": [
+        {
+            "first": {
+                "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+                "m_PersistentID": 3790220685001403574
+            },
+            "second": 1
+        },
+        {
+            "first": {
+                "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+                "m_PersistentID": 4689491292174609604
+            },
+            "second": 4
+        },
+        {
+            "first": {
+                "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+                "m_PersistentID": 5460402562081127354
+            },
+            "second": 0
+        },
+        {
+            "first": {
+                "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+                "m_PersistentID": 5818034568738977154
+            },
+            "second": 6
+        },
+        {
+            "first": {
+                "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+                "m_PersistentID": 6282450814010787061
+            },
+            "second": 3
+        },
+        {
+            "first": {
+                "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+                "m_PersistentID": 6711014330744190215
+            },
+            "second": 5
+        },
+        {
+            "first": {
+                "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4",
+                "m_PersistentID": 6887165572459739002
+            },
+            "second": 2
+        },
+        {
+            "first": {
+                "m_GUID": "d629de9e6f471c841ad49b54b5b3b624",
+                "m_PersistentID": 1
+            },
+            "second": 7
+        }
+    ],
+    "m_ObjectList": [
+        {
+            "m_TypeID": 4,
+            "m_ObjectIndex": 0,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 202,
+            "m_ObjectIndex": 1,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 4,
+            "m_ObjectIndex": 2,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 202,
+            "m_ObjectIndex": 3,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 228,
+            "m_ObjectIndex": 4,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 203,
+            "m_ObjectIndex": 5,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 240,
+            "m_ObjectIndex": 6,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 9,
+            "m_ObjectIndex": 7,
+            "m_ObjectFlag": 2
+        }
+    ],
+    "m_Object_0": {
+        "GameObject": {
+            "EditorExtensionTransfer": {
+                "EditorGameObject": {
+                    "m_HideFlags": 0,
+                    "m_FbxPath": "",
+                    "m_FbxResType": 0
+                }
+            },
+            "m_Name": "cam",
+            "m_Layer": 0,
+            "m_Tag": "",
+            "Attr": 811558250,
+            "m_Component": [
+                {
+                    "m_PersistentID": 3790220685001403574,
+                    "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4"
+                },
+                {
+                    "m_PersistentID": 5818034568738977154,
+                    "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4"
+                }
+            ]
+        }
+    },
+    "m_Object_1": {
+        "Transform": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "transformData": {
+                "m_LocalRotation": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                    "w": 1.0
+                },
+                "m_LocalPosition": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0
+                },
+                "m_LocalScale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "m_IsActive": true
+            },
+            "m_ChildrenGameObjects": [
+                {
+                    "m_PersistentID": 6887165572459739002,
+                    "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4"
+                }
+            ]
+        }
+    },
+    "m_Object_2": {
+        "GameObject": {
+            "EditorExtensionTransfer": {
+                "EditorGameObject": {
+                    "m_HideFlags": 0,
+                    "m_FbxPath": "",
+                    "m_FbxResType": 874971136
+                }
+            },
+            "m_Name": "Main Camera",
+            "m_Layer": 0,
+            "m_Tag": "",
+            "Attr": 3670070,
+            "m_Component": [
+                {
+                    "m_PersistentID": 6282450814010787061,
+                    "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4"
+                },
+                {
+                    "m_PersistentID": 4689491292174609604,
+                    "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4"
+                },
+                {
+                    "m_PersistentID": 6711014330744190215,
+                    "m_GUID": "fe46aac0afc94db47a8d0459a7ae13b4"
+                }
+            ]
+        }
+    },
+    "m_Object_3": {
+        "Transform": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "transformData": {
+                "m_LocalRotation": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                    "w": 1.0
+                },
+                "m_LocalPosition": {
+                    "x": 74.5,
+                    "y": 90.0,
+                    "z": -631.5
+                },
+                "m_LocalScale": {
+                    "x": 1.0,
+                    "y": 1.0,
+                    "z": 1.0
+                },
+                "m_IsActive": true
+            },
+            "m_ChildrenGameObjects": []
+        }
+    },
+    "m_Object_4": {
+        "AudioListener": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true
+        }
+    },
+    "m_Object_5": {
+        "Camera": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "m_ClearMask": 7,
+            "m_BackGroundColor": {
+                "r": 0.0,
+                "g": 0.0,
+                "b": 0.0,
+                "a": 0.0
+            },
+            "m_ProjectionMatrixMode": 1,
+            "m_GateFitMode": 2,
+            "m_FOVAxisMode": 0,
+            "m_SensorSize": {
+                "x": 36.0,
+                "y": 24.0
+            },
+            "m_LensShift": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "m_FocalLength": 50,
+            "m_NormalizedViewPortRect": {
+                "x": 0.0,
+                "y": 0.0,
+                "width": 1.0,
+                "height": 1.0
+            },
+            "m_NearClip": 30.0,
+            "m_FarClip": 100000.0,
+            "m_FieldOfView": 30.0,
+            "m_Orthographic": false,
+            "m_OrthographicSize": 5.0,
+            "m_Depth": 0.0,
+            "m_CullingMask": 0,
+            "m_TargetDisplay": 0,
+            "m_TargetEye": 3,
+            "m_AllowMSAA": true,
+            "m_AllowDynamicResolution": false,
+            "m_StereoConvergence": 10.0,
+            "m_StereoSeparation": 0.02199999988079071,
+            "m_RenderFeatureFlags": 71,
+            "m_RenderSettingConfigData": {
+                "m_PersistentID": 0,
+                "m_GUID": "00000000000000000000000000000000"
+            },
+            "LayerMasks": 4,
+            "_typelessdata": "dfffff7f"
+        }
+    },
+    "m_Object_6": {
+        "AttributeAnimation": {
+            "EditorExtensionTransfer": {
+                "EditorAttributeAnimation": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "m_WrapMode": 0,
+            "m_PlayAutomatically": true,
+            "m_AnimationClips": [
+                {
+                    "m_PersistentID": 1,
+                    "m_GUID": "d629de9e6f471c841ad49b54b5b3b624"
+                }
+            ],
+            "m_CullingType": 3,
+            "m_Leader": {
+                "m_PersistentID": 0,
+                "m_GUID": "00000000000000000000000000000000"
+            },
+            "m_mapSyncStatesName": []
+        }
+    }
+}

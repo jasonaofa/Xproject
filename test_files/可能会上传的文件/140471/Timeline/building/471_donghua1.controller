@@ -1,0 +1,237 @@
+{
+    "m_GUID": "c239022ba79bd6c4fb87456b6fcec5ad",
+    "m_RootObjectIdentifier": {
+        "m_GUID": "c239022ba79bd6c4fb87456b6fcec5ad",
+        "m_PersistentID": 5525188091013172524
+    },
+    "VersionMap": [
+        {
+            "first": 2739445159,
+            "second": 3
+        },
+        {
+            "first": 2992601726,
+            "second": 3
+        },
+        {
+            "first": 2516956839,
+            "second": 1
+        },
+        {
+            "first": 2853267277,
+            "second": 4
+        },
+        {
+            "first": 2325203860,
+            "second": 6
+        },
+        {
+            "first": 1503796268,
+            "second": 4
+        },
+        {
+            "first": 2638109235,
+            "second": 3
+        },
+        {
+            "first": 3850029326,
+            "second": 1
+        },
+        {
+            "first": 915556205,
+            "second": 4
+        },
+        {
+            "first": 1743228860,
+            "second": 3
+        },
+        {
+            "first": 2730636476,
+            "second": 2
+        }
+    ],
+    "m_IdentifierMap": [
+        {
+            "first": {
+                "m_GUID": "0892a9134bd052949a0d9186c3833124",
+                "m_PersistentID": 1
+            },
+            "second": 1
+        },
+        {
+            "first": {
+                "m_GUID": "c239022ba79bd6c4fb87456b6fcec5ad",
+                "m_PersistentID": 5525188091013172524
+            },
+            "second": 0
+        }
+    ],
+    "m_ObjectList": [
+        {
+            "m_TypeID": 233,
+            "m_ObjectIndex": 0,
+            "m_ObjectFlag": 1
+        },
+        {
+            "m_TypeID": 10,
+            "m_ObjectIndex": 1,
+            "m_ObjectFlag": 2
+        }
+    ],
+    "m_Object_0": {
+        "AnimatorControllerData": {
+            "EditorExtensionTransfer": {
+                "EditorAnimatorControllerData": {
+                    "m_HideFlags": 0,
+                    "m_editorStateMachineCount": 0,
+                    "m_StatePositions": []
+                }
+            },
+            "m_LayerCount": 1,
+            "Layer0": {
+                "m_ClipInfoCount": 1,
+                "m_ClipInfo0": {
+                    "m_ClipName": "State_1",
+                    "m_Clip": {
+                        "m_PersistentID": 1,
+                        "m_GUID": "0892a9134bd052949a0d9186c3833124"
+                    },
+                    "bLoop": false
+                },
+                "m_ClipInfoName0": "Base Layer.State_1",
+                "m_LayerName": "Base Layer",
+                "m_DefaultStateName": "",
+                "m_LayerWeight": 1.0,
+                "m_Mask": {
+                    "m_PersistentID": 0,
+                    "m_GUID": "00000000000000000000000000000000"
+                },
+                "m_SourceLayerName": "",
+                "m_Blending": 0,
+                "m_BlendTreeClipCollection": []
+            },
+            "m_StateMachineCount": 1,
+            "stateMachine0": {
+                "m_FullName": "Base Layer",
+                "m_Name": "Base Layer",
+                "m_ChildCount": 0,
+                "stateCount": 3,
+                "State0": {
+                    "m_FullName": "Base Layer.Entry",
+                    "m_Speed": 1.0,
+                    "TransitionCount": 1,
+                    "TransitionName": {
+                        "m_ConditionCount": 0,
+                        "m_SourceName": "Base Layer.Entry",
+                        "m_TargetName": "Base Layer.State_1",
+                        "m_SourceMachineName": "Base Layer",
+                        "m_TargetMachineName": "Base Layer",
+                        "m_SourceStateName": "Entry",
+                        "m_TargetStateName": "State_1",
+                        "LayerIndex": 0
+                    },
+                    "transitionSerializeProperty": [
+                        {
+                            "bSolo": false,
+                            "bMute": false,
+                            "bHasExitTime": true,
+                            "m_NormalizedExitTime": 0.75,
+                            "bFixedDuration": true,
+                            "m_TransitionDrutation": 0.25,
+                            "m_TimeOffset": 0.0,
+                            "m_TransitionTime": 0.0,
+                            "m_InterruptionSource": 0,
+                            "m_OrderedInterruption": true
+                        }
+                    ],
+                    "m_BlackList": [],
+                    "_position": {
+                        "x": 0.0,
+                        "y": 0.0
+                    },
+                    "m_EditorAnimatorStateData": {
+                        "LockOverride": false
+                    },
+                    "m_Multiplier": 1.0,
+                    "m_MultiplierName": ""
+                },
+                "State1": {
+                    "m_FullName": "Base Layer.Exit",
+                    "m_Speed": 1.0,
+                    "TransitionCount": 0,
+                    "transitionSerializeProperty": [],
+                    "m_BlackList": [],
+                    "_position": {
+                        "x": 0.0,
+                        "y": 16.0
+                    },
+                    "m_EditorAnimatorStateData": {
+                        "LockOverride": false
+                    },
+                    "m_Multiplier": 1.0,
+                    "m_MultiplierName": ""
+                },
+                "State2": {
+                    "m_FullName": "Base Layer.State_1",
+                    "m_Speed": 1.0,
+                    "TransitionCount": 1,
+                    "TransitionName": {
+                        "m_ConditionCount": 0,
+                        "m_SourceName": "Base Layer.State_1",
+                        "m_TargetName": "Base Layer.Entry",
+                        "m_SourceMachineName": "Base Layer",
+                        "m_TargetMachineName": "Base Layer",
+                        "m_SourceStateName": "State_1",
+                        "m_TargetStateName": "Entry",
+                        "LayerIndex": 0
+                    },
+                    "transitionSerializeProperty": [
+                        {
+                            "bSolo": false,
+                            "bMute": false,
+                            "bHasExitTime": true,
+                            "m_NormalizedExitTime": 0.75,
+                            "bFixedDuration": true,
+                            "m_TransitionDrutation": 0.25,
+                            "m_TimeOffset": 0.0,
+                            "m_TransitionTime": 0.0,
+                            "m_InterruptionSource": 0,
+                            "m_OrderedInterruption": true
+                        }
+                    ],
+                    "m_BlackList": [],
+                    "_position": {
+                        "x": 10.0,
+                        "y": 7.0
+                    },
+                    "m_EditorAnimatorStateData": {
+                        "LockOverride": false
+                    },
+                    "m_Multiplier": 1.0,
+                    "m_MultiplierName": ""
+                },
+                "_position": {
+                    "x": 0.0,
+                    "y": 0.0
+                },
+                "_view_position": {
+                    "x": -130.0,
+                    "y": -130.0
+                },
+                "m_AnyStateTransitionCount": 0
+            },
+            "m_AnyStateTransitionCount": 0,
+            "m_Parameters": {
+                "mParameters": []
+            },
+            "AnyState_Position": {
+                "x": 0.0,
+                "y": 0.0
+            },
+            "AnyState_view_position": {
+                "x": 0.0,
+                "y": 0.0
+            }
+        }
+    }
+}

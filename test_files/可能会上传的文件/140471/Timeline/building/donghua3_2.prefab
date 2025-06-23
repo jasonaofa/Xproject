@@ -1,0 +1,518 @@
+{
+    "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+    "m_RootObjectIdentifier": {
+        "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+        "m_PersistentID": 5523564103707027469
+    },
+    "VersionMap": [
+        {
+            "first": 2739445159,
+            "second": 3
+        },
+        {
+            "first": 2179894251,
+            "second": 3
+        },
+        {
+            "first": 3151843439,
+            "second": 1
+        },
+        {
+            "first": 4243271479,
+            "second": 3
+        },
+        {
+            "first": 1612270196,
+            "second": 3
+        },
+        {
+            "first": 2325203860,
+            "second": 6
+        },
+        {
+            "first": 1503796268,
+            "second": 4
+        },
+        {
+            "first": 2232473970,
+            "second": 4
+        },
+        {
+            "first": 2977795361,
+            "second": 3
+        },
+        {
+            "first": 3850029326,
+            "second": 1
+        },
+        {
+            "first": 915556205,
+            "second": 4
+        },
+        {
+            "first": 1743228860,
+            "second": 3
+        },
+        {
+            "first": 1842158755,
+            "second": 3
+        },
+        {
+            "first": 1099699221,
+            "second": 3
+        },
+        {
+            "first": 2992601726,
+            "second": 3
+        },
+        {
+            "first": 2516956839,
+            "second": 1
+        },
+        {
+            "first": 3201641093,
+            "second": 3
+        },
+        {
+            "first": 2451956310,
+            "second": 2
+        },
+        {
+            "first": 2853267277,
+            "second": 4
+        },
+        {
+            "first": 88415505,
+            "second": 4
+        },
+        {
+            "first": 1298313767,
+            "second": 3
+        },
+        {
+            "first": 427551168,
+            "second": 2
+        },
+        {
+            "first": 2213946675,
+            "second": 3
+        },
+        {
+            "first": 2638109235,
+            "second": 3
+        },
+        {
+            "first": 3641444210,
+            "second": 2
+        },
+        {
+            "first": 2730636476,
+            "second": 2
+        }
+    ],
+    "m_IdentifierMap": [
+        {
+            "first": {
+                "m_GUID": "6cecd33097ad6ea4aa8a30fb6c9da3b0",
+                "m_PersistentID": 1
+            },
+            "second": 12
+        },
+        {
+            "first": {
+                "m_GUID": "6cecd33097ad6ea4aa8a30fb6c9da3b0",
+                "m_PersistentID": 2
+            },
+            "second": 11
+        },
+        {
+            "first": {
+                "m_GUID": "697cd9618d1132649a2d4f83808234f3",
+                "m_PersistentID": 1
+            },
+            "second": 10
+        },
+        {
+            "first": {
+                "m_GUID": "697cd9618d1132649a2d4f83808234f3",
+                "m_PersistentID": 2
+            },
+            "second": 9
+        },
+        {
+            "first": {
+                "m_GUID": "d69df02577f0cde43a9eba7933f21057",
+                "m_PersistentID": 1
+            },
+            "second": 7
+        },
+        {
+            "first": {
+                "m_GUID": "463ecd95f25d4f241a1befec6d16a71f",
+                "m_PersistentID": 1
+            },
+            "second": 5
+        },
+        {
+            "first": {
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+                "m_PersistentID": 229215470281319728
+            },
+            "second": 8
+        },
+        {
+            "first": {
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+                "m_PersistentID": 1294479670578521685
+            },
+            "second": 2
+        },
+        {
+            "first": {
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+                "m_PersistentID": 1965428119514708421
+            },
+            "second": 4
+        },
+        {
+            "first": {
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+                "m_PersistentID": 4436670036916211651
+            },
+            "second": 1
+        },
+        {
+            "first": {
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+                "m_PersistentID": 4490176536755104927
+            },
+            "second": 6
+        },
+        {
+            "first": {
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+                "m_PersistentID": 5281878072147436130
+            },
+            "second": 3
+        },
+        {
+            "first": {
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc",
+                "m_PersistentID": 5523564103707027469
+            },
+            "second": 0
+        }
+    ],
+    "m_ObjectList": [
+        {
+            "m_TypeID": 4,
+            "m_ObjectIndex": 0,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 202,
+            "m_ObjectIndex": 1,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 4,
+            "m_ObjectIndex": 2,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 202,
+            "m_ObjectIndex": 3,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 214,
+            "m_ObjectIndex": 4,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 8,
+            "m_ObjectIndex": 5,
+            "m_ObjectFlag": 2
+        },
+        {
+            "m_TypeID": 223,
+            "m_ObjectIndex": 6,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 215,
+            "m_ObjectIndex": 7,
+            "m_ObjectFlag": 2
+        },
+        {
+            "m_TypeID": 234,
+            "m_ObjectIndex": 8,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 14,
+            "m_ObjectIndex": 9,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 13,
+            "m_ObjectIndex": 10,
+            "m_ObjectFlag": 2
+        },
+        {
+            "m_TypeID": 14,
+            "m_ObjectIndex": 11,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 13,
+            "m_ObjectIndex": 12,
+            "m_ObjectFlag": 2
+        }
+    ],
+    "m_Object_0": {
+        "GameObject": {
+            "EditorExtensionTransfer": {
+                "EditorGameObject": {
+                    "m_HideFlags": 0,
+                    "m_FbxPath": "",
+                    "m_FbxResType": 0
+                }
+            },
+            "m_Name": "donghua3_2",
+            "m_Layer": 0,
+            "m_Tag": "",
+            "Attr": 1056964608,
+            "m_Component": [
+                {
+                    "m_PersistentID": 4436670036916211651,
+                    "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+                },
+                {
+                    "m_PersistentID": 4490176536755104927,
+                    "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+                },
+                {
+                    "m_PersistentID": 229215470281319728,
+                    "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+                }
+            ]
+        }
+    },
+    "m_Object_1": {
+        "Transform": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "transformData": {
+                "m_LocalRotation": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.0,
+                    "w": 1.0
+                },
+                "m_LocalPosition": {
+                    "x": 24.556900024414064,
+                    "y": 8.708000183105469,
+                    "z": -192.66481018066407
+                },
+                "m_LocalScale": {
+                    "x": 0.800000011920929,
+                    "y": 0.800000011920929,
+                    "z": 0.800000011920929
+                },
+                "m_IsActive": true
+            },
+            "m_ChildrenGameObjects": [
+                {
+                    "m_PersistentID": 1294479670578521685,
+                    "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+                }
+            ]
+        }
+    },
+    "m_Object_2": {
+        "GameObject": {
+            "EditorExtensionTransfer": {
+                "EditorGameObject": {
+                    "m_HideFlags": 0,
+                    "m_FbxPath": "",
+                    "m_FbxResType": 0
+                }
+            },
+            "m_Name": "Plane.007",
+            "m_Layer": 0,
+            "m_Tag": "",
+            "Attr": 3539044,
+            "m_Component": [
+                {
+                    "m_PersistentID": 5281878072147436130,
+                    "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+                },
+                {
+                    "m_PersistentID": 1965428119514708421,
+                    "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+                }
+            ]
+        }
+    },
+    "m_Object_3": {
+        "Transform": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "transformData": {
+                "m_LocalRotation": {
+                    "x": 0.5279500484466553,
+                    "y": 0.5608879923820496,
+                    "z": 0.46435707807540896,
+                    "w": 0.4370880126953125
+                },
+                "m_LocalPosition": {
+                    "x": -173.5110626220703,
+                    "y": 147.91839599609376,
+                    "z": 203.1230010986328
+                },
+                "m_LocalScale": {
+                    "x": 100.0,
+                    "y": 100.0,
+                    "z": 100.0
+                },
+                "m_IsActive": true
+            },
+            "m_ChildrenGameObjects": []
+        }
+    },
+    "m_Object_4": {
+        "SkinMeshRenderer": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "m_CullingMask": 65535,
+            "m_CullPolicy": 0,
+            "m_Hide": 0,
+            "m_CastShadow": 1,
+            "m_ReceiveShadow": 1,
+            "m_IsAffectedByFog": 1,
+            "m_IsAffectedByLight": 1,
+            "m_Materials": [
+                {
+                    "m_PersistentID": 6195518528492922808,
+                    "m_GUID": "6cecd33097ad6ea4aa8a30fb6c9da3b0"
+                }
+            ],
+            "m_SortingOrder": 0,
+            "m_Bounds": {
+                "m_Center": {
+                    "x": -19.820531845092775,
+                    "y": 0.08749999850988388,
+                    "z": 0.2418999969959259
+                },
+                "m_Extent": {
+                    "x": 20.0580997467041,
+                    "y": 1.5200999975204468,
+                    "z": 6.304500102996826
+                }
+            },
+            "m_Mesh": {
+                "m_PersistentID": 1,
+                "m_GUID": "463ecd95f25d4f241a1befec6d16a71f"
+            },
+            "m_SkeletonComp": {
+                "m_PersistentID": 4490176536755104927,
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+            },
+            "m_RootBoneId": 0,
+            "m_UserId": 0
+        }
+    },
+    "m_Object_6": {
+        "SkinnedSkeleton": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "m_Rig": {
+                "m_PersistentID": 1,
+                "m_GUID": "d69df02577f0cde43a9eba7933f21057"
+            },
+            "m_Attachments": []
+        }
+    },
+    "m_Object_8": {
+        "Animator": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "m_AnimatorControllerData": {
+                "m_PersistentID": 5525188091013172524,
+                "m_GUID": "697cd9618d1132649a2d4f83808234f3"
+            },
+            "m_CullingMode": 1,
+            "m_SkeletonComp": {
+                "m_PersistentID": 4490176536755104927,
+                "m_GUID": "0c0791aeb2a4b7c4cb479446864e58dc"
+            },
+            "m_mapSyncStatesName": [],
+            "m_ApplyRootMotion": false
+        }
+    },
+    "m_Object_9": {
+        "PrefabInstance": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_RootObjectTypeID": 233,
+            "m_SourcePrefabGUID": "697cd9618d1132649a2d4f83808234f3",
+            "Debug_Path": "F:/miniproject_art/Assets/entity/140471/Timeline/building/471_donghua3_2.controller",
+            "m_RootObject": {
+                "m_PersistentID": 5525188091013172524,
+                "m_GUID": "697cd9618d1132649a2d4f83808234f3"
+            },
+            "m_ModificationContianer": {
+                "m_Modifications": [],
+                "m_RemovedObjects": [],
+                "m_AddGameObjects": []
+            },
+            "m_IsVariant": false
+        }
+    },
+    "m_Object_11": {
+        "PrefabInstance": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_RootObjectTypeID": 207,
+            "m_SourcePrefabGUID": "6cecd33097ad6ea4aa8a30fb6c9da3b0",
+            "Debug_Path": "F:/miniproject_art/Assets/entity/140471/Timeline/building/Material/NPR_Tranclucent_bj.mat",
+            "m_RootObject": {
+                "m_PersistentID": 6195518528492922808,
+                "m_GUID": "6cecd33097ad6ea4aa8a30fb6c9da3b0"
+            },
+            "m_ModificationContianer": {
+                "m_Modifications": [],
+                "m_RemovedObjects": [],
+                "m_AddGameObjects": []
+            },
+            "m_IsVariant": false
+        }
+    }
+}

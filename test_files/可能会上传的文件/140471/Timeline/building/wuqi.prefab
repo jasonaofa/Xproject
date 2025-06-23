@@ -1,0 +1,258 @@
+{
+    "m_GUID": "2c7c8ee27e11e6243ad6334d4722c314",
+    "m_RootObjectIdentifier": {
+        "m_GUID": "2c7c8ee27e11e6243ad6334d4722c314",
+        "m_PersistentID": 3612075805904456157
+    },
+    "VersionMap": [
+        {
+            "first": 2179894251,
+            "second": 3
+        },
+        {
+            "first": 3151843439,
+            "second": 1
+        },
+        {
+            "first": 1612270196,
+            "second": 3
+        },
+        {
+            "first": 3201641093,
+            "second": 3
+        },
+        {
+            "first": 2451956310,
+            "second": 2
+        },
+        {
+            "first": 88415505,
+            "second": 4
+        },
+        {
+            "first": 1298313767,
+            "second": 3
+        },
+        {
+            "first": 1503796268,
+            "second": 4
+        },
+        {
+            "first": 2232473970,
+            "second": 4
+        },
+        {
+            "first": 427551168,
+            "second": 2
+        },
+        {
+            "first": 2213946675,
+            "second": 3
+        },
+        {
+            "first": 1743228860,
+            "second": 3
+        },
+        {
+            "first": 1842158755,
+            "second": 3
+        },
+        {
+            "first": 3641444210,
+            "second": 2
+        }
+    ],
+    "m_IdentifierMap": [
+        {
+            "first": {
+                "m_GUID": "2c7c8ee27e11e6243ad6334d4722c314",
+                "m_PersistentID": 483548974344439859
+            },
+            "second": 1
+        },
+        {
+            "first": {
+                "m_GUID": "2c7c8ee27e11e6243ad6334d4722c314",
+                "m_PersistentID": 3612075805904456157
+            },
+            "second": 0
+        },
+        {
+            "first": {
+                "m_GUID": "2c7c8ee27e11e6243ad6334d4722c314",
+                "m_PersistentID": 6343233006342271795
+            },
+            "second": 2
+        },
+        {
+            "first": {
+                "m_GUID": "be8e6a2b53ed85542b9cedcc7a8222a4",
+                "m_PersistentID": 1
+            },
+            "second": 5
+        },
+        {
+            "first": {
+                "m_GUID": "be8e6a2b53ed85542b9cedcc7a8222a4",
+                "m_PersistentID": 2
+            },
+            "second": 4
+        },
+        {
+            "first": {
+                "m_GUID": "0e79241db98e56a4da0e55f866fa957d",
+                "m_PersistentID": 1
+            },
+            "second": 3
+        }
+    ],
+    "m_ObjectList": [
+        {
+            "m_TypeID": 4,
+            "m_ObjectIndex": 0,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 202,
+            "m_ObjectIndex": 1,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 213,
+            "m_ObjectIndex": 2,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 8,
+            "m_ObjectIndex": 3,
+            "m_ObjectFlag": 2
+        },
+        {
+            "m_TypeID": 14,
+            "m_ObjectIndex": 4,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 13,
+            "m_ObjectIndex": 5,
+            "m_ObjectFlag": 2
+        }
+    ],
+    "m_Object_0": {
+        "GameObject": {
+            "EditorExtensionTransfer": {
+                "EditorGameObject": {
+                    "m_HideFlags": 0,
+                    "m_FbxPath": "C:/Users/yinzhiyou/Desktop/wuqi.fbx",
+                    "m_FbxResType": 0
+                }
+            },
+            "m_Name": "wuqi",
+            "m_Layer": 0,
+            "m_Tag": "",
+            "Attr": 6619186,
+            "m_Component": [
+                {
+                    "m_PersistentID": 483548974344439859,
+                    "m_GUID": "2c7c8ee27e11e6243ad6334d4722c314"
+                },
+                {
+                    "m_PersistentID": 6343233006342271795,
+                    "m_GUID": "2c7c8ee27e11e6243ad6334d4722c314"
+                }
+            ]
+        }
+    },
+    "m_Object_1": {
+        "Transform": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "transformData": {
+                "m_LocalRotation": {
+                    "x": 3.0908619663705397e-8,
+                    "y": 0.7071067094802856,
+                    "z": 0.7071068286895752,
+                    "w": -3.0908616110991718e-8
+                },
+                "m_LocalPosition": {
+                    "x": 0.00009999999747378752,
+                    "y": -18.858373641967775,
+                    "z": 1535.8946533203125
+                },
+                "m_LocalScale": {
+                    "x": 100.0,
+                    "y": 100.0,
+                    "z": 100.0
+                },
+                "m_IsActive": true
+            },
+            "m_ChildrenGameObjects": []
+        }
+    },
+    "m_Object_2": {
+        "MeshRenderer": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_Enable": true,
+            "m_CullingMask": 65535,
+            "m_CullPolicy": 0,
+            "m_Hide": 0,
+            "m_CastShadow": 1,
+            "m_ReceiveShadow": 1,
+            "m_IsAffectedByFog": 1,
+            "m_IsAffectedByLight": 1,
+            "m_Materials": [
+                {
+                    "m_PersistentID": 2712637200553734330,
+                    "m_GUID": "be8e6a2b53ed85542b9cedcc7a8222a4"
+                }
+            ],
+            "m_SortingOrder": 0,
+            "m_Mesh": {
+                "m_PersistentID": 1,
+                "m_GUID": "0e79241db98e56a4da0e55f866fa957d"
+            },
+            "m_Bounds": {
+                "m_Center": {
+                    "x": 0.0,
+                    "y": 0.0,
+                    "z": 0.9998999834060669
+                },
+                "m_Extent": {
+                    "x": 7.475900173187256,
+                    "y": 0.0,
+                    "z": 1.0
+                }
+            }
+        }
+    },
+    "m_Object_4": {
+        "PrefabInstance": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_RootObjectTypeID": 207,
+            "m_SourcePrefabGUID": "be8e6a2b53ed85542b9cedcc7a8222a4",
+            "Debug_Path": "F:/5.6.9/EngineResource/Assets/SystemDefault/Materials/DefaultMaterial.mat",
+            "m_RootObject": {
+                "m_PersistentID": 2712637200553734330,
+                "m_GUID": "be8e6a2b53ed85542b9cedcc7a8222a4"
+            },
+            "m_ModificationContianer": {
+                "m_Modifications": [],
+                "m_RemovedObjects": [],
+                "m_AddGameObjects": []
+            },
+            "m_IsVariant": false
+        }
+    }
+}

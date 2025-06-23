@@ -1,0 +1,1087 @@
+{
+    "m_GUID": "c4bfdd6f1475d5840aeff8fa80ba3c5b",
+    "m_RootObjectIdentifier": {
+        "m_GUID": "c4bfdd6f1475d5840aeff8fa80ba3c5b",
+        "m_PersistentID": 1053930892349534227
+    },
+    "VersionMap": [
+        {
+            "first": 1503796268,
+            "second": 4
+        },
+        {
+            "first": 2232473970,
+            "second": 4
+        },
+        {
+            "first": 2179894251,
+            "second": 2
+        },
+        {
+            "first": 2977795361,
+            "second": 3
+        },
+        {
+            "first": 1743228860,
+            "second": 3
+        },
+        {
+            "first": 3641444210,
+            "second": 2
+        },
+        {
+            "first": 3201641093,
+            "second": 3
+        },
+        {
+            "first": 2451956310,
+            "second": 2
+        },
+        {
+            "first": 88415505,
+            "second": 4
+        },
+        {
+            "first": 1298313767,
+            "second": 3
+        }
+    ],
+    "m_IdentifierMap": [
+        {
+            "first": {
+                "m_GUID": "00000000000000001000000000000000",
+                "m_PersistentID": 1
+            },
+            "second": 1
+        },
+        {
+            "first": {
+                "m_GUID": "bf3bbc25c96d98846a911bbfc7fd74b6",
+                "m_PersistentID": 1
+            },
+            "second": 4
+        },
+        {
+            "first": {
+                "m_GUID": "bf3bbc25c96d98846a911bbfc7fd74b6",
+                "m_PersistentID": 2
+            },
+            "second": 3
+        },
+        {
+            "first": {
+                "m_GUID": "f30762b643f89e04fa66e3c3cce28b25",
+                "m_PersistentID": 1
+            },
+            "second": 2
+        },
+        {
+            "first": {
+                "m_GUID": "c4bfdd6f1475d5840aeff8fa80ba3c5b",
+                "m_PersistentID": 1053930892349534227
+            },
+            "second": 0
+        }
+    ],
+    "m_ObjectList": [
+        {
+            "m_TypeID": 207,
+            "m_ObjectIndex": 0,
+            "m_ObjectFlag": 1
+        },
+        {
+            "m_TypeID": 101,
+            "m_ObjectIndex": 1,
+            "m_ObjectFlag": 2
+        },
+        {
+            "m_TypeID": 101,
+            "m_ObjectIndex": 2,
+            "m_ObjectFlag": 2
+        },
+        {
+            "m_TypeID": 14,
+            "m_ObjectIndex": 3,
+            "m_ObjectFlag": 0
+        },
+        {
+            "m_TypeID": 13,
+            "m_ObjectIndex": 4,
+            "m_ObjectFlag": 2
+        }
+    ],
+    "m_Object_0": {
+        "MaterialInstance": {
+            "EditorExtensionTransfer": {
+                "EditorMaterialInstance": {
+                    "m_HideFlags": 0,
+                    "m_propertyMaps": {
+                        "_gradientTex": "Texture2D",
+                        "_gradientTexColor": "ColorRGBAf",
+                        "_gradientTexRotate": "Float",
+                        "_gradient_intensity": "Float",
+                        "_mainTex": "Texture2D",
+                        "_mainTexColor": "ColorRGBAf",
+                        "_mainTexRotate": "Float",
+                        "_mainTexUvSpeedX": "Float",
+                        "_mainTexUvSpeedY": "Float",
+                        "_maskAlpha": "Float",
+                        "_maskRotate": "Float",
+                        "_maskSpeedX": "Float",
+                        "_maskSpeedY": "Float",
+                        "_maskTex": "Texture2D"
+                    },
+                    "m_floatRanges": [],
+                    "_vectorParamList": [
+                        {
+                            "name": "AlbedoColor",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 1.0,
+                                "w": 1.0
+                            }
+                        },
+                        {
+                            "name": "EmissionColor",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 1.0
+                            }
+                        },
+                        {
+                            "name": "Albedo_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Albedo_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "Albedo_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Emission_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Emission_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "Emission_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Metallic_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Metallic_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "Metallic_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Normal_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Normal_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "Normal_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Occlusion_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Occlusion_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "Occlusion_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Roughness_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Roughness_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "Roughness_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Specular_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "Specular_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "Specular_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_mainTexUvSpeedX",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_maskSpeedX",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_maskSpeedY",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveColorRange",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveIntensity",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveRotate",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveSpeedX",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveSpeedY",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveType",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolve_main_texture_decay",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_mainTexRotate",
+                            "data": {
+                                "x": 180.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_mainTexUvSpeedY",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_maskAlpha",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_maskRotate",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveRimColor",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 1.0,
+                                "w": 1.0
+                            }
+                        },
+                        {
+                            "name": "_mainTexColor",
+                            "data": {
+                                "x": 0.9959999918937683,
+                                "y": 0.6704999804496765,
+                                "z": 0.5529000163078308,
+                                "w": 1.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveDirTex_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveDirTex_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveDirTex_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveTex_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveTex_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "_dissolveTex_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_mainTex_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_mainTex_TexelSize",
+                            "data": {
+                                "x": 0.0038999998942017557,
+                                "y": 0.0038999998942017557,
+                                "z": 256.0,
+                                "w": 256.0
+                            }
+                        },
+                        {
+                            "name": "_mainTex_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_maskTex_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_maskTex_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "_maskTex_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_gradientTexRotate",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_gradient_intensity",
+                            "data": {
+                                "x": 1.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_gradientTexColor",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 1.0,
+                                "w": 1.0
+                            }
+                        },
+                        {
+                            "name": "_gradientTex_ST",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_gradientTex_TexelSize",
+                            "data": {
+                                "x": 0.25,
+                                "y": 0.25,
+                                "z": 4.0,
+                                "w": 4.0
+                            }
+                        },
+                        {
+                            "name": "_gradientTex_HDR",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_fresnelAlpha",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_fresnelBias",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_fresnelIntensity",
+                            "data": {
+                                "x": 0.0,
+                                "y": 0.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            }
+                        },
+                        {
+                            "name": "_fresnelColor",
+                            "data": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 1.0,
+                                "w": 1.0
+                            }
+                        }
+                    ],
+                    "_textureParamList": [
+                        {
+                            "texturePropName": "Albedo",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "Emission",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "Metallic",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "Normal",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000009000000000000000"
+                        },
+                        {
+                            "texturePropName": "Occlusion",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "Roughness",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "Specular",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "_dissolveDirTex",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "_dissolveTex",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "_mainTex",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "f30762b643f89e04fa66e3c3cce28b25"
+                        },
+                        {
+                            "texturePropName": "_maskTex",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        },
+                        {
+                            "texturePropName": "_gradientTex",
+                            "scaleAndOffsetPropName": "",
+                            "scaleAndOffset": {
+                                "x": 1.0,
+                                "y": 1.0,
+                                "z": 0.0,
+                                "w": 0.0
+                            },
+                            "textureDimension": 2,
+                            "textureGuid": "00000000000000001000000000000000"
+                        }
+                    ],
+                    "_propertyDescribeList": [],
+                    "m_LatestFeatures": {
+                        "m_Items": [
+                            {
+                                "m_IsMask": true,
+                                "m_IsMutable": true,
+                                "m_Values": [
+                                    {
+                                        "first": "MASK",
+                                        "second": false
+                                    }
+                                ]
+                            },
+                            {
+                                "m_IsMask": false,
+                                "m_IsMutable": true,
+                                "m_Values": [
+                                    {
+                                        "first": "None",
+                                        "second": true
+                                    },
+                                    {
+                                        "first": "CustomData",
+                                        "second": false
+                                    },
+                                    {
+                                        "first": "GRADIENT",
+                                        "second": false
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    "m_FeatureValues": [
+                        {
+                            "first": "GRADIENT",
+                            "second": false
+                        },
+                        {
+                            "first": "None",
+                            "second": true
+                        },
+                        {
+                            "first": "MASK",
+                            "second": false
+                        },
+                        {
+                            "first": "CustomData",
+                            "second": false
+                        }
+                    ],
+                    "m_UseNewFeature": true
+                }
+            },
+            "m_Name": "",
+            "MaterialData": {
+                "m_ShaderKeywordSet": {
+                    "keyWorkSet": 32,
+                    "_typelessdata": "0000000000000000000000000000000000000000000000000200000000000000"
+                },
+                "m_CullMode": 2,
+                "m_RenderGroup": 128,
+                "m_DepthBias": 0,
+                "m_SlopeScaledDepthBias": 0.0,
+                "m_DepthFunc": 0,
+                "m_DepthWrite": 0,
+                "m_StencilRef": 0,
+                "m_StencilReadMask": 255,
+                "m_StencilWriteMask": 255,
+                "m_StencilCompFunc": 8,
+                "m_StencilPass": 0,
+                "m_StencilFail": 0,
+                "m_StencilZFail": 0,
+                "m_WriteMask": 255
+            },
+            "m_SerializedPropertySheet": {
+                "m_TexEnvs": [
+                    {
+                        "first": "_gradientTex",
+                        "second": {
+                            "m_Scale": {
+                                "x": 1.0,
+                                "y": 1.0
+                            },
+                            "m_Offset": {
+                                "x": 0.0,
+                                "y": 0.0
+                            },
+                            "m_SampleTypeBits": 49,
+                            "m_Texture": {
+                                "m_PersistentID": 1,
+                                "m_GUID": "00000000000000001000000000000000"
+                            }
+                        }
+                    },
+                    {
+                        "first": "_mainTex",
+                        "second": {
+                            "m_Scale": {
+                                "x": 1.0,
+                                "y": 1.0
+                            },
+                            "m_Offset": {
+                                "x": 0.0,
+                                "y": 0.0
+                            },
+                            "m_SampleTypeBits": 1,
+                            "m_Texture": {
+                                "m_PersistentID": 1,
+                                "m_GUID": "f30762b643f89e04fa66e3c3cce28b25"
+                            }
+                        }
+                    },
+                    {
+                        "first": "_maskTex",
+                        "second": {
+                            "m_Scale": {
+                                "x": 1.0,
+                                "y": 1.0
+                            },
+                            "m_Offset": {
+                                "x": 0.0,
+                                "y": 0.0
+                            },
+                            "m_SampleTypeBits": 49,
+                            "m_Texture": {
+                                "m_PersistentID": 1,
+                                "m_GUID": "00000000000000001000000000000000"
+                            }
+                        }
+                    }
+                ],
+                "m_Floats": [
+                    {
+                        "first": "_gradientTexRotate",
+                        "second": 0.0
+                    },
+                    {
+                        "first": "_gradient_intensity",
+                        "second": 1.0
+                    },
+                    {
+                        "first": "_mainTexRotate",
+                        "second": 180.0
+                    },
+                    {
+                        "first": "_mainTexUvSpeedX",
+                        "second": 0.0
+                    },
+                    {
+                        "first": "_mainTexUvSpeedY",
+                        "second": 0.0
+                    },
+                    {
+                        "first": "_maskAlpha",
+                        "second": 0.0
+                    },
+                    {
+                        "first": "_maskRotate",
+                        "second": 0.0
+                    },
+                    {
+                        "first": "_maskSpeedX",
+                        "second": 0.0
+                    },
+                    {
+                        "first": "_maskSpeedY",
+                        "second": 0.0
+                    }
+                ],
+                "m_Colors": [
+                    {
+                        "first": "_gradientTexColor",
+                        "second": {
+                            "r": 1.0,
+                            "g": 1.0,
+                            "b": 1.0,
+                            "a": 1.0
+                        }
+                    },
+                    {
+                        "first": "_mainTexColor",
+                        "second": {
+                            "r": 0.9960784316062927,
+                            "g": 0.6705882549285889,
+                            "b": 0.5529412031173706,
+                            "a": 1.0
+                        }
+                    }
+                ]
+            },
+            "m_Parent": {
+                "m_PersistentID": 4281365995766209796,
+                "m_GUID": "bf3bbc25c96d98846a911bbfc7fd74b6"
+            },
+            "m_NextPass": {
+                "m_PersistentID": 0,
+                "m_GUID": "00000000000000000000000000000000"
+            },
+            "LastFeatures": {
+                "m_Items": [
+                    {
+                        "m_IsMask": true,
+                        "m_IsMutable": true,
+                        "m_Values": [
+                            {
+                                "first": "MASK",
+                                "second": false
+                            }
+                        ]
+                    },
+                    {
+                        "m_IsMask": false,
+                        "m_IsMutable": true,
+                        "m_Values": [
+                            {
+                                "first": "None",
+                                "second": true
+                            },
+                            {
+                                "first": "CustomData",
+                                "second": false
+                            },
+                            {
+                                "first": "GRADIENT",
+                                "second": false
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    },
+    "m_Object_3": {
+        "PrefabInstance": {
+            "EditorExtensionTransfer": {
+                "EditorExtension": {
+                    "m_HideFlags": 0
+                }
+            },
+            "m_RootObjectTypeID": 206,
+            "m_SourcePrefabGUID": "bf3bbc25c96d98846a911bbfc7fd74b6",
+            "Debug_Path": "C:/5.6.8/EngineResource/Assets/Materials/MiniGame/MaterialTemplate/FX/fx_basic_TRANSLUCENT.templatemat",
+            "m_RootObject": {
+                "m_PersistentID": 4281365995766209796,
+                "m_GUID": "bf3bbc25c96d98846a911bbfc7fd74b6"
+            },
+            "m_ModificationContianer": {
+                "m_Modifications": [],
+                "m_RemovedObjects": [],
+                "m_AddGameObjects": []
+            },
+            "m_IsVariant": false
+        }
+    }
+}
