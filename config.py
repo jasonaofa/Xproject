@@ -12,7 +12,6 @@ class ConfigManager:
             "svn_path": "E:/newprefab04",
             "git_path": "E:/git8a/assetruntimenew/CommonResource", 
             "editor_path": "E:/RPGame5.6.9a",
-            "target_directory": "CommonResource",
             "window_geometry": {
                 "x": 100,
                 "y": 100,
@@ -94,12 +93,6 @@ class ConfigManager:
     
     def set_editor_path(self, path: str):
         self.set("editor_path", path)
-    
-    def get_target_directory(self) -> str:
-        return self.get("target_directory", "CommonResource")
-    
-    def set_target_directory(self, directory: str):
-        self.set("target_directory", directory)
     
     def get_window_geometry(self) -> Dict[str, int]:
         return self.get("window_geometry", {"x": 100, "y": 100, "width": 1200, "height": 800})

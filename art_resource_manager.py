@@ -1,24 +1,44 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import sys
-if sys.platform == "win32":
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 import os
 import json
 import yaml
 import re
 import subprocess
 import shutil
+import time
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Any
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
-                             QWidget, QPushButton, QLabel, QLineEdit, QTextEdit, 
-                             QFileDialog, QComboBox, QCheckBox, QMessageBox, 
-                             QProgressBar, QSplitter, QGroupBox, QGridLayout,
-                             QListWidget, QListWidgetItem, QTabWidget, QDialog, QCompleter)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QStringListModel
-from PyQt5.QtGui import QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent
-from config import ConfigManager
+
+# 添加错误处理和调试信息
+def debug_print(msg):
+    print(f"DEBUG: {msg}")
+
+try:
+    debug_print("开始导入PyQt5...")
+    from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
+                                 QWidget, QPushButton, QLabel, QLineEdit, QTextEdit, 
+                                 QFileDialog, QComboBox, QCheckBox, QMessageBox, 
+                                 QProgressBar, QSplitter, QGroupBox, QGridLayout,
+                                 QListWidget, QListWidgetItem, QTabWidget, QDialog, QCompleter,
+                                 QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout,
+                                 QInputDialog, QSpinBox, QAbstractItemView)
+    from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QStringListModel
+    from PyQt5.QtGui import QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent
+    debug_print("PyQt5导入成功")
+    
+    debug_print("导入配置管理器...")
+    from config import ConfigManager
+    debug_print("配置管理器导入成功")
+    
+except Exception as e:
+    print(f"导入错误: {e}")
+    import traceback
+    traceback.print_exc()
+    input("按Enter键退出...")
+    sys.exit(1)
 
 
 class ResourceDependencyAnalyzer:
@@ -41,13 +61,22 @@ class ResourceDependencyAnalyzer:
     def parse_meta_file(self, meta_path: str) -> str:
         """解析meta文件获取GUID"""
         try:
-            with open(meta_path, 'r', encoding='utf-8') as f:
+            with open(meta_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-                # 支持YAML和JSON格式
-                guid_match = re.search(r'guid:\s*([a-f0-9]{32})', content) or \
-                           re.search(r'"m_GUID":\s*"([a-f0-9]{32})"', content)
-                if guid_match:
-                    return guid_match.group(1)
+                
+                # 支持YAML格式 - guid: xxxxx
+                yaml_match = re.search(r'guid:\s*([a-f0-9]{32})', content, re.IGNORECASE)
+                if yaml_match:
+                    return yaml_match.group(1).lower()
+                
+                # 支持JSON格式 - "m_GUID": "xxxxx" (字符串形式)
+                json_match = re.search(r'"m_GUID":\s*"([a-f0-9]{32})"', content, re.IGNORECASE)
+                if json_match:
+                    return json_match.group(1).lower()
+                
+                # 忽略对象形式的GUID (如 "m_GUID": { "data[0]": ... })
+                # 这种格式我们选择忽略，不进行处理
+                
         except Exception as e:
             print(f"解析meta文件失败: {meta_path}, 错误: {e}")
         return None
@@ -358,19 +387,125 @@ class ResourceDependencyAnalyzer:
         git_guids = set()
         
         if not self.git_manager.git_path or not os.path.exists(self.git_manager.git_path):
+            self.status_updated.emit(f"❌ Git仓库路径无效: {self.git_manager.git_path}")
             return git_guids
+        
+        self.status_updated.emit(f"🔍 开始扫描Git仓库: {self.git_manager.git_path}")
+        
+        # 统计信息
+        scan_stats = {
+            'directories_scanned': 0,
+            'meta_files_found': 0,
+            'meta_files_parsed_success': 0,
+            'meta_files_parsed_failed': 0,
+            'guids_extracted': 0,
+            'failed_files': [],
+            'sample_success_files': [],
+            'sample_guids': []
+        }
         
         try:
             # 扫描Git仓库中的.meta文件
             for root, dirs, files in os.walk(self.git_manager.git_path):
+                scan_stats['directories_scanned'] += 1
+                
+                # 每扫描100个目录输出一次进度
+                if scan_stats['directories_scanned'] % 100 == 0:
+                    self.status_updated.emit(f"  📁 已扫描 {scan_stats['directories_scanned']} 个目录...")
+                
+                # 记录深层目录（用于调试）
+                relative_path = os.path.relpath(root, self.git_manager.git_path)
+                depth = len(relative_path.split(os.sep)) if relative_path != '.' else 0
+                
                 for file in files:
                     if file.endswith('.meta'):
+                        scan_stats['meta_files_found'] += 1
                         meta_path = os.path.join(root, file)
-                        guid = self.analyzer.parse_meta_file(meta_path)
-                        if guid:
-                            git_guids.add(guid)
+                        
+                        # 记录特定文件（用于调试）
+                        if 'Character_NPR_Opaque.templatemat.meta' in file:
+                            self.status_updated.emit(f"  🎯 找到目标文件: {meta_path}")
+                            self.status_updated.emit(f"     相对路径: {relative_path}")
+                            self.status_updated.emit(f"     目录深度: {depth}")
+                        
+                        try:
+                            guid = self.analyzer.parse_meta_file(meta_path)
+                            if guid:
+                                git_guids.add(guid)
+                                scan_stats['meta_files_parsed_success'] += 1
+                                scan_stats['guids_extracted'] += 1
+                                
+                                # 记录成功解析的样本
+                                if len(scan_stats['sample_success_files']) < 5:
+                                    scan_stats['sample_success_files'].append({
+                                        'file': os.path.relpath(meta_path, self.git_manager.git_path),
+                                        'guid': guid
+                                    })
+                                
+                                # 记录特定GUID
+                                if guid == 'a52adbec141594d439747c542824c830':
+                                    self.status_updated.emit(f"  ✅ 找到目标GUID: {guid}")
+                                    self.status_updated.emit(f"     文件路径: {meta_path}")
+                                
+                                # 记录样本GUID
+                                if len(scan_stats['sample_guids']) < 10:
+                                    scan_stats['sample_guids'].append(guid)
+                            else:
+                                scan_stats['meta_files_parsed_failed'] += 1
+                                scan_stats['failed_files'].append({
+                                    'file': os.path.relpath(meta_path, self.git_manager.git_path),
+                                    'reason': 'GUID解析失败'
+                                })
+                        except Exception as e:
+                            scan_stats['meta_files_parsed_failed'] += 1
+                            scan_stats['failed_files'].append({
+                                'file': os.path.relpath(meta_path, self.git_manager.git_path),
+                                'reason': f'异常: {str(e)}'
+                            })
+                            self.status_updated.emit(f"  ❌ 解析meta文件异常: {meta_path}")
+                            self.status_updated.emit(f"     错误: {e}")
+                            
         except Exception as e:
-            print(f"获取Git仓库GUID失败: {e}")
+            self.status_updated.emit(f"❌ 扫描Git仓库异常: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # 输出详细统计信息
+        print(f"\n📊 Git仓库扫描完成统计:")
+        print(f"   📁 扫描目录数: {scan_stats['directories_scanned']}")
+        print(f"   📄 找到meta文件数: {scan_stats['meta_files_found']}")
+        print(f"   ✅ 解析成功: {scan_stats['meta_files_parsed_success']}")
+        print(f"   ❌ 解析失败: {scan_stats['meta_files_parsed_failed']}")
+        print(f"   🔑 提取GUID数: {scan_stats['guids_extracted']}")
+        
+        # 显示成功解析的样本
+        if scan_stats['sample_success_files']:
+            print(f"\n📝 成功解析的样本文件:")
+            for sample in scan_stats['sample_success_files']:
+                print(f"   {sample['file']} -> {sample['guid']}")
+        
+        # 显示解析失败的文件（最多5个）
+        if scan_stats['failed_files']:
+            print(f"\n⚠️  解析失败的文件样本:")
+            for failed in scan_stats['failed_files'][:5]:
+                print(f"   {failed['file']}: {failed['reason']}")
+            if len(scan_stats['failed_files']) > 5:
+                print(f"   ... 还有 {len(scan_stats['failed_files']) - 5} 个失败文件")
+        
+        # 显示样本GUID
+        if scan_stats['sample_guids']:
+            print(f"\n🔑 样本GUID:")
+            for guid in scan_stats['sample_guids'][:5]:
+                print(f"   {guid}")
+        
+        # 检查特定GUID是否存在
+        target_guid = 'a52adbec141594d439747c542824c830'
+        if target_guid in git_guids:
+            print(f"\n✅ 目标GUID {target_guid} 已找到!")
+        else:
+            print(f"\n❌ 目标GUID {target_guid} 未找到!")
+        
+        print(f"\n🎯 最终结果: 从Git仓库中提取了 {len(git_guids)} 个唯一GUID")
         
         return git_guids
     
@@ -446,81 +581,389 @@ class ResourceDependencyAnalyzer:
 
 
 class GitSvnManager:
-    """Git和SVN操作管理器"""
+    """Git和SVN仓库管理器"""
     
     def __init__(self):
         self.git_path = ""
         self.svn_path = ""
         self.current_branch = ""
+        
+        # 分支缓存系统
+        self.branch_cache = {}
+        self.cache_timeout = 300  # 5分钟缓存
+        self._branch_cache = []
+        self._cache_timestamp = 0
+        self._cache_timeout = 300  # 5分钟缓存有效期
+        
+        # 🎯 路径映射配置系统
+        self.path_mapping_enabled = True
+        self.path_mapping_rules = self._load_default_mapping_rules()
+        self._load_path_mapping_config()
+    
+    def _load_default_mapping_rules(self) -> dict:
+        """加载默认路径映射规则"""
+        return {
+            "entity_to_minigame": {
+                "name": "实体资源映射",
+                "description": "将entity目录映射到Resources/minigame/entity",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\\/]entity($|[\\\/])",
+                "target_pattern": "Assets\\Resources\\minigame\\entity\\",
+                "priority": 1
+            },
+            "ui_mapping": {
+                "name": "UI资源映射", 
+                "description": "将ui目录映射到Resources/ui",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\\/]ui($|[\\\/])",
+                "target_pattern": "Assets\\Resources\\ui\\",
+                "priority": 2
+            },
+            "audio_mapping": {
+                "name": "音频资源映射",
+                "description": "将audio目录映射到Resources/audio", 
+                "enabled": True,
+                "source_pattern": r"^Assets[\\\/]audio($|[\\\/])",
+                "target_pattern": "Assets\\Resources\\audio\\",
+                "priority": 3
+            },
+            "texture_mapping": {
+                "name": "贴图资源映射",
+                "description": "将texture目录映射到Resources/textures",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\\/]texture($|[\\\/])",
+                "target_pattern": "Assets\\Resources\\textures\\",
+                "priority": 4
+            }
+        }
+    
+    def _load_path_mapping_config(self):
+        """从配置文件加载路径映射设置"""
+        try:
+            config_path = "path_mapping_config.json"
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    
+                self.path_mapping_enabled = config.get('enabled', True)
+                
+                # 合并用户自定义规则和默认规则
+                user_rules = config.get('rules', {})
+                for rule_id, rule_data in user_rules.items():
+                    if rule_id in self.path_mapping_rules:
+                        # 更新现有规则
+                        self.path_mapping_rules[rule_id].update(rule_data)
+                    else:
+                        # 添加新规则
+                        self.path_mapping_rules[rule_id] = rule_data
+                        
+                print(f"📋 [CONFIG] 加载路径映射配置: {len(self.path_mapping_rules)} 条规则")
+            else:
+                print(f"📋 [CONFIG] 使用默认路径映射配置")
+                self._save_path_mapping_config()  # 保存默认配置
+                
+        except Exception as e:
+            print(f"❌ [CONFIG] 加载路径映射配置失败: {e}")
+            print(f"📋 [CONFIG] 使用默认配置")
+    
+    def _save_path_mapping_config(self):
+        """保存路径映射配置到文件"""
+        try:
+            config = {
+                "enabled": self.path_mapping_enabled,
+                "rules": self.path_mapping_rules,
+                "version": "1.0",
+                "description": "美术资源管理工具 - 路径映射配置"
+            }
+            
+            config_path = "path_mapping_config.json"
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
+                
+            print(f"💾 [CONFIG] 路径映射配置已保存到: {config_path}")
+            
+        except Exception as e:
+            print(f"❌ [CONFIG] 保存路径映射配置失败: {e}")
+    
+    def apply_path_mapping(self, assets_path: str) -> str:
+        """
+        应用路径映射规则
+        
+        Args:
+            assets_path: 原始Assets路径，如 "Assets\\entity\\100060\\..."
+            
+        Returns:
+            str: 映射后的路径，如 "Assets\\Resources\\minigame\\entity\\100060\\..."
+        """
+        if not self.path_mapping_enabled:
+            print(f"   ⏸️ 路径映射已禁用，使用原始路径")
+            return assets_path
+            
+        print(f"🔄 [MAPPING] ========== 路径映射处理 ==========")
+        print(f"   原始路径: {assets_path}")
+        
+        # 按优先级排序规则
+        sorted_rules = sorted(
+            [(rule_id, rule) for rule_id, rule in self.path_mapping_rules.items() if rule.get('enabled', True)],
+            key=lambda x: x[1].get('priority', 999)
+        )
+        
+        for rule_id, rule in sorted_rules:
+            try:
+                import re
+                source_pattern = rule['source_pattern']
+                target_pattern = rule['target_pattern']
+                
+                if re.match(source_pattern, assets_path):
+                    # 应用映射规则 - 使用更精确的替换
+                    # 先匹配到entity部分，然后替换为目标路径 + 剩余路径
+                    match = re.match(source_pattern, assets_path)
+                    if match:
+                        # 获取匹配的部分长度
+                        matched_part = match.group(0)
+                        remaining_path = assets_path[len(matched_part):].lstrip('\\/')
+                        
+                        # 构建映射后的路径
+                        if remaining_path:
+                            mapped_path = target_pattern + remaining_path
+                        else:
+                            mapped_path = target_pattern.rstrip('\\')
+                    else:
+                        # 兜底：使用简单替换
+                        mapped_path = re.sub(source_pattern, target_pattern, assets_path)
+                    
+                    print(f"   ✅ 匹配规则: {rule['name']}")
+                    print(f"   📝 规则描述: {rule['description']}")
+                    print(f"   🔍 匹配模式: {source_pattern}")
+                    print(f"   🎯 替换模式: {target_pattern}")
+                    print(f"   🔄 映射结果: {mapped_path}")
+                    print(f"   ==========================================")
+                    
+                    return mapped_path
+                    
+            except Exception as e:
+                print(f"   ❌ 规则 {rule_id} 处理失败: {e}")
+                continue
+        
+        print(f"   ⚠️ 没有匹配的映射规则，使用原始路径")
+        print(f"   ==========================================")
+        return assets_path
+    
+    def get_path_mapping_rules(self) -> dict:
+        """获取当前路径映射规则"""
+        return self.path_mapping_rules.copy()
+    
+    def update_path_mapping_rule(self, rule_id: str, rule_data: dict):
+        """更新路径映射规则"""
+        self.path_mapping_rules[rule_id] = rule_data
+        self._save_path_mapping_config()
+        print(f"📝 [CONFIG] 更新映射规则: {rule_id}")
+    
+    def add_path_mapping_rule(self, rule_id: str, rule_data: dict):
+        """添加新的路径映射规则"""
+        self.path_mapping_rules[rule_id] = rule_data
+        self._save_path_mapping_config()
+        print(f"➕ [CONFIG] 添加映射规则: {rule_id}")
+    
+    def remove_path_mapping_rule(self, rule_id: str):
+        """删除路径映射规则"""
+        if rule_id in self.path_mapping_rules:
+            del self.path_mapping_rules[rule_id]
+            self._save_path_mapping_config()
+            print(f"🗑️ [CONFIG] 删除映射规则: {rule_id}")
+    
+    def set_path_mapping_enabled(self, enabled: bool):
+        """启用/禁用路径映射"""
+        self.path_mapping_enabled = enabled
+        self._save_path_mapping_config()
+        print(f"🔧 [CONFIG] 路径映射: {'启用' if enabled else '禁用'}")
+    
+    def test_path_mapping(self, test_path: str) -> str:
+        """测试路径映射效果"""
+        print(f"🧪 [TEST] ========== 路径映射测试 ==========")
+        print(f"   测试路径: {test_path}")
+        
+        # 如果是完整路径，提取Assets相对路径
+        if 'Assets' in test_path:
+            assets_index = test_path.find('Assets')
+            if assets_index != -1:
+                # 提取从Assets开始的相对路径
+                assets_relative_path = test_path[assets_index:].replace('/', '\\')
+                print(f"   提取的Assets路径: {assets_relative_path}")
+                
+                # 对Assets相对路径进行映射测试
+                mapped_result = self.apply_path_mapping(assets_relative_path)
+                print(f"   映射结果: {mapped_result}")
+                
+                if mapped_result != assets_relative_path:
+                    print(f"   ✅ 映射成功!")
+                    print(f"   原始: {assets_relative_path}")
+                    print(f"   映射: {mapped_result}")
+                else:
+                    print(f"   ❌ 映射失败，没有匹配的规则")
+                
+                print(f"   ==========================================")
+                return mapped_result
+            else:
+                print(f"   ❌ 路径中未找到Assets目录")
+        else:
+            print(f"   ❌ 路径中未包含Assets目录")
+            
+        print(f"   ==========================================")
+        return test_path
     
     def set_paths(self, git_path: str, svn_path: str):
         """设置Git和SVN路径"""
+        # 如果路径发生变化，清除缓存
+        if self.git_path != git_path:
+            self._clear_branch_cache()
+            
         self.git_path = git_path
         self.svn_path = svn_path
     
-    def get_git_branches(self) -> List[str]:
-        """获取Git分支列表"""
+    def _clear_branch_cache(self):
+        """清除分支缓存"""
+        self._branch_cache = []
+        self._cache_timestamp = 0
+        print("🗑️ [DEBUG] 分支缓存已清除")
+    
+    def get_git_branches(self, fetch_remote: bool = True, use_cache: bool = True) -> List[str]:
+        """
+        获取Git分支列表
+        
+        Args:
+            fetch_remote: 是否获取远程分支信息
+            use_cache: 是否使用缓存
+            
+        Returns:
+            List[str]: 分支名称列表
+        """
         if not self.git_path or not os.path.exists(self.git_path):
-            print(f"Git路径无效: {self.git_path}")
             return []
         
+        # 检查缓存是否有效
+        import time
+        current_time = time.time()
+        if use_cache and self._branch_cache and (current_time - self._cache_timestamp) < self._cache_timeout:
+            print(f"📦 [DEBUG] 使用缓存的分支列表({len(self._branch_cache)}个分支)")
+            return self._branch_cache.copy()
+        
+        branches = []
+        
         try:
-            # 先fetch最新的远程分支信息
-            fetch_result = subprocess.run(['git', 'fetch'], 
-                          cwd=self.git_path, 
-                          capture_output=True, 
-                          text=True,
-                          encoding='utf-8',
-                          errors='ignore')
+            # 检测是否为子仓库，调整超时策略
+            is_submodule = self._detect_submodule()
             
-            if fetch_result.returncode != 0:
-                print(f"git fetch 警告: {fetch_result.stderr}")
+            if fetch_remote:
+                print(f"🌐 [DEBUG] 获取远程分支信息...")
+                if is_submodule:
+                    print(f"   📦 子仓库模式：使用较长超时时间")
+                    fetch_timeout = 60  # 子仓库使用60秒超时
+                else:
+                    print(f"   📁 普通仓库模式：使用标准超时时间")
+                    fetch_timeout = 30  # 普通仓库使用30秒超时
+                
+                # 尝试获取远程信息
+                try:
+                    result = subprocess.run(['git', 'fetch'], 
+                                          cwd=self.git_path, 
+                                          capture_output=True, 
+                                          text=True,
+                                          encoding='utf-8',
+                                          errors='ignore',
+                                          timeout=fetch_timeout)
+                    
+                    if result.returncode == 0:
+                        print(f"   ✅ 远程信息获取成功")
+                    else:
+                        print(f"   ⚠️ 远程信息获取失败，但继续获取本地分支")
+                        print(f"       错误信息: {result.stderr}")
+                        
+                except subprocess.TimeoutExpired:
+                    print(f"   ⏰ 远程信息获取超时({fetch_timeout}秒)，使用本地分支")
+                except Exception as e:
+                    print(f"   ❌ 网络操作异常: {e}")
+            else:
+                print(f"   📍 跳过远程信息获取，仅使用本地分支")
             
-            # 获取所有分支（本地 + 远程）
-            branches = set()
-            
-            # 1. 获取本地分支
-            result = subprocess.run(['git', 'branch'], 
+            # 获取所有分支（本地+远程）
+            print(f"   📋 获取分支列表...")
+            result = subprocess.run(['git', 'branch', '-a'], 
                                   cwd=self.git_path, 
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
-                                  errors='ignore')
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    line = line.strip()
-                    if line:
-                        # 移除当前分支标记 '*'
-                        branch = line.replace('* ', '').strip()
-                        if branch:
-                            branches.add(branch)
-            else:
-                print(f"获取本地分支失败: {result.stderr}")
+                                  errors='ignore',
+                                  timeout=15)  # 获取分支列表用较短超时
             
-            # 2. 获取远程分支
-            result = subprocess.run(['git', 'branch', '-r'], 
-                                  cwd=self.git_path, 
-                                  capture_output=True, 
-                                  text=True,
-                                  encoding='utf-8',
-                                  errors='ignore')
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    line = line.strip()
-                    if line and not line.startswith('origin/HEAD'):
-                        # 移除 'origin/' 前缀
-                        branch = line.replace('origin/', '').strip()
-                        if branch:
-                            branches.add(branch)
-            else:
-                print(f"获取远程分支失败: {result.stderr}")
+            if result.returncode != 0:
+                print(f"   ❌ 获取分支列表失败: {result.stderr}")
+                return []
             
-            final_branches = sorted(list(branches))
-            return final_branches
+            # 解析分支名称
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # 跳过当前分支标记
+                if line.startswith('*'):
+                    line = line[1:].strip()
+                
+                # 处理远程分支
+                if line.startswith('remotes/origin/'):
+                    branch_name = line.replace('remotes/origin/', '')
+                    # 跳过HEAD指针
+                    if branch_name != 'HEAD':
+                        branches.append(branch_name)
+                elif not line.startswith('remotes/'):
+                    # 本地分支
+                    branches.append(line)
+            
+            # 去重并排序
+            branches = sorted(list(set(branches)))
+            print(f"   ✅ 找到 {len(branches)} 个分支")
+            
+            # 更新缓存
+            if use_cache:
+                self._branch_cache = branches.copy()
+                self._cache_timestamp = current_time
+                print(f"   💾 分支列表已缓存")
+            
+            return branches
+            
+        except subprocess.TimeoutExpired as e:
+            print(f"   ⏰ Git操作超时: {e}")
+            # 超时时尝试获取本地分支
+            try:
+                print(f"   🔄 尝试仅获取本地分支...")
+                result = subprocess.run(['git', 'branch'], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=10)
+                
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        line = line.strip()
+                        if line and not line.startswith('*'):
+                            branches.append(line)
+                        elif line.startswith('*'):
+                            branches.append(line[1:].strip())
+                    
+                    print(f"   ✅ 获取到 {len(branches)} 个本地分支")
+                    return sorted(list(set(branches)))
+                    
+            except Exception as fallback_e:
+                print(f"   ❌ 获取本地分支也失败: {fallback_e}")
+            
+            return []
             
         except Exception as e:
-            print(f"获取Git分支异常: {e}")
-        return []
+            print(f"   ❌ 获取分支列表异常: {e}")
+            return []
     
     def get_current_branch(self) -> str:
         """获取当前Git分支"""
@@ -533,42 +976,149 @@ class GitSvnManager:
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
-                                  errors='ignore')
+                                  errors='ignore',
+                                  timeout=5)  # 5秒超时
             if result.returncode == 0:
                 self.current_branch = result.stdout.strip()
                 return self.current_branch
+        except subprocess.TimeoutExpired as e:
+            print(f"⏰ 获取当前分支超时: {e}")
         except Exception as e:
             print(f"获取当前分支失败: {e}")
         return ""
     
     def checkout_branch(self, branch_name: str) -> bool:
-        """切换Git分支"""
+        """
+        切换到指定分支
+        
+        Args:
+            branch_name: 分支名称
+            
+        Returns:
+            bool: 是否成功切换
+        """
         if not self.git_path or not os.path.exists(self.git_path):
+            print(f"Git路径无效: {self.git_path}")
+            return False
+        
+        if not branch_name:
+            print("分支名称为空")
             return False
         
         try:
-            # 先fetch最新的远程分支
-            subprocess.run(['git', 'fetch'], 
-                          cwd=self.git_path, 
-                          check=True,
-                          encoding='utf-8',
-                          errors='ignore')
+            print(f"🔄 [DEBUG] 切换分支: {branch_name}")
             
-            # 切换分支
-            result = subprocess.run(['git', 'checkout', branch_name], 
-                                  cwd=self.git_path, 
-                                  capture_output=True, 
-                                  text=True,
-                                  encoding='utf-8',
-                                  errors='ignore')
+            # 检测是否为子仓库，调整超时策略
+            is_submodule = self._detect_submodule()
+            if is_submodule:
+                print(f"   📦 子仓库模式：使用较长超时时间")
+                checkout_timeout = 90  # 子仓库使用90秒超时
+            else:
+                print(f"   📁 普通仓库模式：使用标准超时时间")
+                checkout_timeout = 45  # 普通仓库使用45秒超时
+            
+            # 首先检查分支是否存在
+            print(f"   🔍 检查分支是否存在...")
+            check_result = subprocess.run(['git', 'branch', '-a'], 
+                                        cwd=self.git_path, 
+                                        capture_output=True, 
+                                        text=True,
+                                        encoding='utf-8',
+                                        errors='ignore',
+                                        timeout=15)
+            
+            if check_result.returncode != 0:
+                print(f"   ❌ 无法检查分支列表: {check_result.stderr}")
+                return False
+            
+            # 检查目标分支是否存在
+            branch_exists = False
+            is_remote_branch = False
+            
+            for line in check_result.stdout.split('\n'):
+                line = line.strip()
+                if line.endswith(branch_name) or line == f"* {branch_name}":
+                    branch_exists = True
+                    break
+                elif line == f"remotes/origin/{branch_name}":
+                    branch_exists = True
+                    is_remote_branch = True
+                    break
+            
+            if not branch_exists:
+                print(f"   ❌ 分支 '{branch_name}' 不存在")
+                return False
+            
+            print(f"   ✅ 分支存在，准备切换...")
+            
+            # 如果是远程分支，需要先创建本地跟踪分支
+            if is_remote_branch:
+                print(f"   🌐 创建本地跟踪分支...")
+                result = subprocess.run(['git', 'checkout', '-b', branch_name, f'origin/{branch_name}'], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=checkout_timeout)
+            else:
+                # 本地分支直接切换
+                print(f"   📍 切换到本地分支...")
+                result = subprocess.run(['git', 'checkout', branch_name], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=checkout_timeout)
+            
             if result.returncode == 0:
-                self.current_branch = branch_name
+                print(f"   ✅ 成功切换到分支: {branch_name}")
                 return True
             else:
-                print(f"切换分支失败: {result.stderr}")
+                print(f"   ❌ 分支切换失败: {result.stderr}")
+                
+                # 如果切换失败，尝试强制切换
+                if "Your local changes" in result.stderr or "would be overwritten" in result.stderr:
+                    print(f"   🔧 检测到本地更改冲突，尝试强制切换...")
+                    
+                    # 先保存当前更改
+                    stash_result = subprocess.run(['git', 'stash'], 
+                                                cwd=self.git_path, 
+                                                capture_output=True, 
+                                                text=True,
+                                                encoding='utf-8',
+                                                errors='ignore',
+                                                timeout=30)
+                    
+                    if stash_result.returncode == 0:
+                        print(f"   💾 本地更改已暂存")
+                        
+                        # 再次尝试切换
+                        retry_result = subprocess.run(['git', 'checkout', branch_name], 
+                                                    cwd=self.git_path, 
+                                                    capture_output=True, 
+                                                    text=True,
+                                                    encoding='utf-8',
+                                                    errors='ignore',
+                                                    timeout=checkout_timeout)
+                        
+                        if retry_result.returncode == 0:
+                            print(f"   ✅ 强制切换成功")
+                            return True
+                        else:
+                            print(f"   ❌ 强制切换仍然失败: {retry_result.stderr}")
+                    else:
+                        print(f"   ❌ 无法暂存本地更改: {stash_result.stderr}")
+                
+                return False
+            
+        except subprocess.TimeoutExpired as e:
+            print(f"   ⏰ 分支切换超时({checkout_timeout}秒): {e}")
+            return False
         except Exception as e:
-            print(f"切换分支异常: {e}")
-        return False
+            print(f"   ❌ 分支切换异常: {e}")
+            return False
     
     def reset_git_repository(self) -> Tuple[bool, str]:
         """快速重置Git本地仓库"""
@@ -674,6 +1224,18 @@ class GitSvnManager:
         Returns:
             Tuple[bool, str]: (是否成功, 消息)
         """
+        # 🔍 详细调试输出：函数参数
+        print(f"📋 [FUNC_DEBUG] ========== push_files_to_git 函数调用 ==========")
+        print(f"   函数: GitSvnManager.push_files_to_git()")
+        print(f"   参数 - source_files: {len(source_files)} 个文件")
+        for i, file_path in enumerate(source_files):
+            print(f"     {i+1}. {file_path}")
+        print(f"   参数 - target_directory: '{target_directory}'")
+        print(f"   当前Git路径: {self.git_path}")
+        print(f"   当前SVN路径: {self.svn_path}")
+        print(f"   Git路径是否存在: {os.path.exists(self.git_path) if self.git_path else False}")
+        print(f"   ====================================================")
+        
         if not self.git_path or not os.path.exists(self.git_path):
             return False, "Git仓库路径无效"
         
@@ -681,15 +1243,40 @@ class GitSvnManager:
             return False, "没有要推送的文件"
         
         try:
-            # 1. 确保目标目录存在
-            target_base_path = os.path.join(self.git_path, target_directory)
+            start_time = time.time()
+            print(f"🚀 [DEBUG] ========== 开始推送操作 ==========")
+            print(f"   开始时间: {time.strftime('%H:%M:%S')}")
+            print(f"   文件数量: {len(source_files)}")
+            
+            # 1. 检测是否为子仓库
+            print(f"🔍 [DEBUG] 检测仓库类型...")
+            is_submodule = self._detect_submodule()
+            if is_submodule:
+                print(f"   📦 检测到子仓库/子模块")
+            else:
+                print(f"   📁 普通Git仓库")
+            
+            # 2. 确定目标基础路径
+            print(f"🔍 [DEBUG] 路径计算调试:")
+            print(f"   原始Git路径: {self.git_path}")
+            print(f"   目标目录参数: {target_directory}")
+            
+            # 直接使用git_path作为基础路径
+            target_base_path = self.git_path
+            print(f"   ✅ 最终target_base_path: {target_base_path}")
+            print(f"   📝 说明: 直接使用git_path，避免路径重复")
             
             copied_files = []
             failed_files = []
             
-            # 2. 复制文件到Git仓库
-            for source_file in source_files:
+            # 3. 批量复制文件
+            print(f"📄 [DEBUG] 开始批量复制文件...")
+            copy_start_time = time.time()
+            
+            for i, source_file in enumerate(source_files):
                 try:
+                    print(f"   处理文件 {i+1}/{len(source_files)}: {os.path.basename(source_file)}")
+                    
                     # 计算目标路径
                     target_file_path = self._calculate_target_path(source_file, target_base_path)
                     
@@ -699,72 +1286,234 @@ class GitSvnManager:
                     
                     # 确保目标目录存在
                     target_dir = os.path.dirname(target_file_path)
+                    
+                    # 🔍 详细调试输出：目录创建位置
+                    print(f"📁 [MKDIR_DEBUG] ========== 目录创建调试信息 ==========")
+                    print(f"   调用函数: GitSvnManager.push_files_to_git()")
+                    print(f"   源文件: {source_file}")
+                    print(f"   目标文件路径: {target_file_path}")
+                    print(f"   目标目录: {target_dir}")
+                    print(f"   目标目录绝对路径: {os.path.abspath(target_dir)}")
+                    print(f"   目录是否存在: {os.path.exists(target_dir)}")
+                    
+                    # 检查路径中的CommonResource重复
+                    if target_dir.count('CommonResource') > 1:
+                        print(f"   ❌ 警告：检测到重复的CommonResource目录！")
+                        commonresource_positions = []
+                        start = 0
+                        while True:
+                            pos = target_dir.find('CommonResource', start)
+                            if pos == -1:
+                                break
+                            commonresource_positions.append(pos)
+                            start = pos + 1
+                        print(f"   CommonResource出现位置: {commonresource_positions}")
+                    
+                    # 显示路径组成部分
+                    path_parts = target_dir.split(os.sep)
+                    print(f"   路径组成部分: {' -> '.join(path_parts)}")
+                    
+                    # 检查Git配置路径
+                    print(f"   当前Git路径配置: {self.git_path}")
+                    print(f"   target_base_path参数: {target_base_path}")
+                    
+                    if not os.path.exists(target_dir):
+                        print(f"   🔨 即将创建目录: {target_dir}")
+                        print(f"   🔨 创建目录的绝对路径: {os.path.abspath(target_dir)}")
+                    else:
+                        print(f"   ✅ 目录已存在，无需创建")
+                    
+                    print(f"   ================================================")
+                    
                     os.makedirs(target_dir, exist_ok=True)
                     
                     # 复制文件
                     import shutil
                     shutil.copy2(source_file, target_file_path)
                     copied_files.append(target_file_path)
+                    print(f"   ✅ 复制成功: {os.path.basename(source_file)}")
                     
                 except Exception as e:
-                    failed_files.append(f"{os.path.basename(source_file)}: {str(e)}")
+                    error_msg = f"{os.path.basename(source_file)}: {str(e)}"
+                    failed_files.append(error_msg)
+                    print(f"   ❌ 复制失败: {error_msg}")
+            
+            copy_time = time.time() - copy_start_time
+            print(f"   📊 文件复制耗时: {copy_time:.2f}秒")
             
             if not copied_files:
                 return False, f"所有文件复制失败: {'; '.join(failed_files)}"
             
-            # 3. 添加文件到Git
+            # 4. Git操作优化
+            print(f"📝 [DEBUG] 开始Git操作...")
+            git_start_time = time.time()
+            
+            # 4.1. 批量添加文件到Git（使用相对路径）
+            print(f"   批量添加 {len(copied_files)} 个文件到Git...")
+            relative_paths = []
             for file_path in copied_files:
-                # 计算相对于Git仓库根目录的路径
                 relative_path = os.path.relpath(file_path, self.git_path)
-                
-                result = subprocess.run(['git', 'add', relative_path], 
+                relative_paths.append(relative_path)
+            
+            # 使用git add . 或批量添加来提高性能
+            if len(relative_paths) > 10:  # 文件较多时使用批量操作
+                print(f"   使用批量添加模式...")
+                # 切换到Git目录并添加所有相关文件
+                result = subprocess.run(['git', 'add'] + relative_paths, 
                                       cwd=self.git_path, 
                                       capture_output=True, 
                                       text=True,
                                       encoding='utf-8',
-                                      errors='ignore')
-                if result.returncode != 0:
-                    return False, f"添加文件到Git失败: {result.stderr}"
+                                      errors='ignore',
+                                      timeout=60)  # 60秒超时
+            else:
+                print(f"   使用逐个添加模式...")
+                # 逐个添加文件
+                for relative_path in relative_paths:
+                    result = subprocess.run(['git', 'add', relative_path], 
+                                          cwd=self.git_path, 
+                                          capture_output=True, 
+                                          text=True,
+                                          encoding='utf-8',
+                                          errors='ignore',
+                                          timeout=30)
+                    if result.returncode != 0:
+                        print(f"   ❌ 添加文件失败: {relative_path} - {result.stderr}")
+                        return False, f"添加文件到Git失败: {result.stderr}"
             
-            # 4. 提交更改
+            if result.returncode != 0:
+                print(f"   ❌ 批量添加失败: {result.stderr}")
+                return False, f"添加文件到Git失败: {result.stderr}"
+            else:
+                print(f"   ✅ 文件添加成功")
+            
+            # 4.2. 检查Git状态（简化）
+            print(f"   检查Git状态...")
+            result = subprocess.run(['git', 'status', '--porcelain'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=15)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                changed_files = len(result.stdout.strip().split('\n'))
+                print(f"   📊 检测到 {changed_files} 个文件更改")
+            else:
+                print(f"   ⚠️ 没有检测到更改或状态检查失败")
+            
+            # 4.3. 提交更改
             commit_message = f"Add {len(copied_files)} resource files via Art Resource Manager"
+            print(f"   提交更改: {commit_message}")
+            
             result = subprocess.run(['git', 'commit', '-m', commit_message], 
                                   cwd=self.git_path, 
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
-                                  errors='ignore')
-            if result.returncode != 0:
-                # 检查是否是没有更改的情况
-                if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
-                    return False, "没有新的更改需要提交（文件可能已存在且内容相同）"
-                return False, f"提交更改失败: {result.stderr}"
+                                  errors='ignore',
+                                  timeout=60)  # 60秒超时
             
-            # 5. 推送到远程仓库
+            if result.returncode != 0:
+                if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
+                    print(f"   ⚠️ 没有新的更改需要提交")
+                    return False, "没有新的更改需要提交（文件可能已存在且内容相同）"
+                print(f"   ❌ 提交失败: {result.stderr}")
+                return False, f"提交更改失败: {result.stderr}"
+            else:
+                print(f"   ✅ 提交成功")
+            
+            git_time = time.time() - git_start_time
+            print(f"   📊 Git操作耗时: {git_time:.2f}秒")
+            
+            # 5. 推送到远程仓库（优化）
             current_branch = self.get_current_branch()
             if not current_branch:
                 return False, "无法获取当前分支"
             
-            result = subprocess.run(['git', 'push', 'origin', current_branch], 
+            print(f"🚀 [DEBUG] 推送到远程...")
+            push_start_time = time.time()
+            
+            # 针对子仓库的特殊处理
+            if is_submodule:
+                print(f"   🔧 子仓库推送模式")
+                # 子仓库可能需要特殊的推送策略
+                result = subprocess.run(['git', 'push', 'origin', current_branch], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=120)  # 2分钟超时
+            else:
+                print(f"   🔧 普通仓库推送模式")
+                result = subprocess.run(['git', 'push', 'origin', current_branch], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=90)  # 1.5分钟超时
+            
+            push_time = time.time() - push_start_time
+            print(f"   📊 推送耗时: {push_time:.2f}秒")
+            
+            if result.returncode != 0:
+                print(f"   ❌ 推送失败: {result.stderr}")
+                return False, f"推送到远程仓库失败: {result.stderr}"
+            else:
+                print(f"   ✅ 推送成功")
+            
+            # 6. 生成成功消息
+            total_time = time.time() - start_time
+            print(f"📊 [DEBUG] ========== 推送完成 ==========")
+            print(f"   总耗时: {total_time:.2f}秒")
+            print(f"   文件复制: {copy_time:.2f}秒")
+            print(f"   Git操作: {git_time:.2f}秒") 
+            print(f"   远程推送: {push_time:.2f}秒")
+            print(f"   结束时间: {time.strftime('%H:%M:%S')}")
+            
+            success_msg = f"成功推送 {len(copied_files)} 个文件到分支 {current_branch} (耗时 {total_time:.1f}秒)"
+            if failed_files:
+                success_msg += f"，{len(failed_files)} 个文件失败"
+            
+            return True, success_msg
+            
+        except subprocess.TimeoutExpired as e:
+            return False, f"推送操作超时: {str(e)}"
+        except Exception as e:
+            return False, f"推送过程中发生异常: {str(e)}"
+    
+    def _detect_submodule(self) -> bool:
+        """检测当前仓库是否为子模块"""
+        try:
+            # 检查是否存在.gitmodules文件（在父仓库中）
+            parent_dir = os.path.dirname(self.git_path)
+            while parent_dir and parent_dir != os.path.dirname(parent_dir):
+                gitmodules_path = os.path.join(parent_dir, '.gitmodules')
+                if os.path.exists(gitmodules_path):
+                    return True
+                parent_dir = os.path.dirname(parent_dir)
+            
+            # 检查Git配置中是否有子模块相关信息
+            result = subprocess.run(['git', 'config', '--get', 'remote.origin.url'], 
                                   cwd=self.git_path, 
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
-                                  errors='ignore')
-            if result.returncode != 0:
-                return False, f"推送到远程仓库失败: {result.stderr}"
+                                  errors='ignore',
+                                  timeout=10)
             
-            # 6. 生成成功消息
-            success_msg = f"成功推送 {len(copied_files)} 个文件到分支 {current_branch}"
-            if failed_files:
-                success_msg += f"，{len(failed_files)} 个文件失败: {'; '.join(failed_files[:3])}"
-                if len(failed_files) > 3:
-                    success_msg += f" 等{len(failed_files)}个"
+            if result.returncode == 0 and result.stdout.strip():
+                url = result.stdout.strip()
+                # 如果URL包含子仓库的典型特征
+                if 'CommonResource' in url or 'assetruntime' in url.lower():
+                    return True
             
-            return True, success_msg
-            
-        except Exception as e:
-            return False, f"推送过程中发生异常: {str(e)}"
+            return False
+        except Exception:
+            return False
     
     def _calculate_target_path(self, source_file: str, target_base_path: str) -> str:
         """
@@ -772,53 +1521,193 @@ class GitSvnManager:
         
         Args:
             source_file: 源文件路径
-            target_base_path: 目标基础路径
+            target_base_path: 目标基础路径（已经是完整的Git仓库路径）
             
         Returns:
             str: 目标文件路径，如果无法计算则返回None
         """
         try:
+            print(f"📁 [DEBUG] ==========路径计算详细分析==========")
+            print(f"   源文件: {source_file}")
+            print(f"   目标基础路径: {target_base_path}")
+            
+            # 检查target_base_path是否已经包含CommonResource
+            target_base_normalized = os.path.normpath(target_base_path).replace('/', '\\')
+            print(f"   标准化目标基础路径: {target_base_normalized}")
+            
+            if 'CommonResource' in target_base_normalized:
+                print(f"   ✅ 目标路径已包含CommonResource，无需额外添加")
+            else:
+                print(f"   ⚠️ 目标路径不包含CommonResource")
+            
             if not self.svn_path:
                 # 如果没有SVN路径，直接使用文件名
                 filename = os.path.basename(source_file)
-                return os.path.join(target_base_path, filename)
+                result = os.path.join(target_base_path, filename)
+                print(f"   ⚠️ 没有SVN路径，使用文件名: {result}")
+                print(f"   ========================================")
+                return result
             
             # 规范化路径分隔符
-            source_path = source_file.replace('/', '\\')
-            svn_path = self.svn_path.replace('/', '\\')
+            source_path = os.path.normpath(source_file).replace('/', '\\')
+            svn_path = os.path.normpath(self.svn_path).replace('/', '\\')
+            
+            print(f"   标准化源文件路径: {source_path}")
+            print(f"   标准化SVN路径: {svn_path}")
             
             # 检查文件是否在SVN仓库内
             if not source_path.startswith(svn_path):
                 # 文件不在SVN仓库内，直接使用文件名
                 filename = os.path.basename(source_file)
-                return os.path.join(target_base_path, filename)
+                result = os.path.join(target_base_path, filename)
+                print(f"   ⚠️ 文件不在SVN仓库内，使用文件名: {result}")
+                print(f"   ========================================")
+                return result
             
             # 计算相对于SVN仓库根的路径
             relative_to_svn = source_path[len(svn_path):].lstrip('\\')
+            print(f"   相对于SVN的路径: {relative_to_svn}")
             
-            # 查找Assets目录位置
+            # 🔧 关键修复：查找Assets目录，但保留Assets之后的完整路径结构
             assets_index = relative_to_svn.find('Assets\\')
             if assets_index == -1:
                 # 没有Assets目录，直接使用文件名
                 filename = os.path.basename(source_file)
-                return os.path.join(target_base_path, filename)
+                result = os.path.join(target_base_path, filename)
+                print(f"   ⚠️ 没有Assets目录，使用文件名: {result}")
+                print(f"   ========================================")
+                return result
             
-            # 提取Assets后面的路径部分
-            assets_relative_path = relative_to_svn[assets_index + len('Assets\\'):]
+            # 🎯 重要：提取从Assets开始的完整路径（包含所有中间目录）
+            # 比如：Assets\Resources\minigame\entity\100028\file.prefab
+            assets_full_path = relative_to_svn[assets_index:]
+            print(f"   Assets完整路径: {assets_full_path}")
             
-            # 构建目标路径：target_base_path + Assets\Resources\minigame + assets_relative_path
-            target_path = os.path.join(
-                target_base_path,
-                "Assets",
-                "Resources",
-                "minigame",
-                assets_relative_path
-            )
+            # 🔄 应用路径映射规则
+            mapped_assets_path = self.apply_path_mapping(assets_full_path)
+            if mapped_assets_path != assets_full_path:
+                print(f"   🎯 路径映射生效:")
+                print(f"      原始路径: {assets_full_path}")
+                print(f"      映射路径: {mapped_assets_path}")
+                assets_full_path = mapped_assets_path
+            else:
+                print(f"   ⚠️ 未应用路径映射，使用原始路径")
+            
+            # 分析路径结构
+            path_parts = assets_full_path.split('\\')
+            print(f"   路径组成部分: {path_parts}")
+            
+            # 验证路径结构是否合理
+            if len(path_parts) < 2:
+                print(f"   ⚠️ 路径结构异常，部分太少")
+            else:
+                print(f"   📂 Assets目录: {path_parts[0]}")
+                if len(path_parts) > 1:
+                    print(f"   📂 第二级目录: {path_parts[1]}")
+                if len(path_parts) > 2:
+                    print(f"   📂 第三级目录: {path_parts[2]}")
+                if len(path_parts) > 3:
+                    print(f"   📂 更深层目录: {' -> '.join(path_parts[3:])}")
+            
+            # 构建最终目标路径：target_base_path + 映射后的Assets路径
+            # 这样可以保证正确的路径结构，如：Assets\Resources\minigame\entity\100028
+            target_path = os.path.join(target_base_path, assets_full_path)
+            
+            print(f"   🎯 最终目标路径: {target_path}")
+            
+            # 验证路径是否合理
+            if target_path.count('CommonResource') > 1:
+                print(f"   ❌ 警告：检测到重复的CommonResource目录！")
+                print(f"       这可能是路径计算错误")
+            else:
+                print(f"   ✅ 路径验证通过，无重复目录")
+            
+            # 验证Unity资源路径结构
+            if 'Assets\\Resources\\' in target_path:
+                print(f"   ✅ 检测到标准Unity Resources路径结构")
+            elif 'Assets\\' in target_path and 'Resources' not in target_path:
+                print(f"   ⚠️ 注意：路径中包含Assets但没有Resources目录")
+                print(f"       这可能是特殊的Unity资源类型")
+            
+            print(f"   ========================================")
             
             return target_path
             
         except Exception as e:
+            print(f"   ❌ 路径计算异常: {e}")
+            print(f"   ========================================")
             return None
+
+    def test_path_mapping(self, test_file_path: str) -> str:
+        """
+        测试路径映射功能 - 用于调试
+        
+        Args:
+            test_file_path: 测试文件路径
+            
+        Returns:
+            str: 映射后的目标路径
+        """
+        print(f"🧪 [TEST] ========== 路径映射测试 ==========")
+        print(f"   测试文件: {test_file_path}")
+        print(f"   当前SVN路径配置: {self.svn_path}")
+        print(f"   当前Git路径配置: {self.git_path}")
+        
+        target_path = self._calculate_target_path(test_file_path, self.git_path)
+        
+        print(f"   🎯 映射结果: {target_path}")
+        print(f"   ==========================================")
+        
+        return target_path
+
+
+class BranchSwitchThread(QThread):
+    """分支切换线程"""
+    
+    progress_updated = pyqtSignal(int)
+    status_updated = pyqtSignal(str)
+    switch_completed = pyqtSignal(bool, str, str, str)  # success, selected_branch, current_branch, message
+    
+    def __init__(self, git_manager, selected_branch, current_branch):
+        super().__init__()
+        self.git_manager = git_manager
+        self.selected_branch = selected_branch
+        self.current_branch = current_branch
+    
+    def run(self):
+        """执行分支切换"""
+        try:
+            self.progress_updated.emit(10)
+            self.status_updated.emit(f"🔄 准备切换分支: {self.current_branch} -> {self.selected_branch}")
+            
+            # 模拟准备阶段
+            self.msleep(500)  # 0.5秒
+            self.progress_updated.emit(30)
+            
+            # 执行分支切换
+            self.status_updated.emit("🌐 正在获取远程分支信息...")
+            self.progress_updated.emit(50)
+            
+            success = self.git_manager.checkout_branch(self.selected_branch)
+            
+            self.progress_updated.emit(90)
+            self.msleep(300)  # 0.3秒
+            
+            self.progress_updated.emit(100)
+            
+            if success:
+                message = f"成功切换到分支: {self.selected_branch}"
+                self.status_updated.emit(f"✅ {message}")
+            else:
+                message = f"无法切换到分支: {self.selected_branch}"
+                self.status_updated.emit(f"❌ {message}")
+            
+            self.switch_completed.emit(success, self.selected_branch, self.current_branch, message)
+            
+        except Exception as e:
+            error_msg = f"分支切换线程异常: {str(e)}"
+            self.status_updated.emit(f"❌ {error_msg}")
+            self.switch_completed.emit(False, self.selected_branch, self.current_branch, error_msg)
 
 
 class ResourceChecker(QThread):
@@ -894,10 +1783,18 @@ class ResourceChecker(QThread):
             
             self.progress_updated.emit(100)
             
-            if all_issues:
-                self.check_completed.emit(False, f"发现 {len(all_issues)} 个问题，请查看详细报告")
+            # 区分阻塞性错误和警告
+            # meta_missing_git 类型的问题是警告，不阻塞推送操作
+            blocking_issues = [issue for issue in all_issues if issue.get('type') != 'meta_missing_git']
+            warning_issues = [issue for issue in all_issues if issue.get('type') == 'meta_missing_git']
+            
+            if blocking_issues:
+                self.check_completed.emit(False, f"发现 {len(blocking_issues)} 个阻塞性问题，请查看详细报告")
             else:
-                self.check_completed.emit(True, f"所有 {len(self.upload_files)} 个文件检查通过")
+                if warning_issues:
+                    self.check_completed.emit(True, f"检查通过！发现 {len(warning_issues)} 个警告（推送时会自动处理）")
+                else:
+                    self.check_completed.emit(True, f"所有 {len(self.upload_files)} 个文件检查通过")
                 
         except Exception as e:
             self.check_completed.emit(False, f"检查过程中发生错误: {str(e)}")
@@ -943,8 +1840,8 @@ class ResourceChecker(QThread):
                 git_guid = None
                 
                 try:
-                    # 直接使用Git路径作为基础路径，不再添加target_directory
-                    # 因为git_path已经包含了CommonResource目录
+                    # 重要：与push_files_to_git保持一致，直接使用git_path作为基础路径
+                    # 不再拼接target_directory，因为git_path已经是完整路径
                     git_file_path = self.git_manager._calculate_target_path(file_path, self.git_manager.git_path)
                     
                     if git_file_path:
@@ -1178,49 +2075,228 @@ class ResourceChecker(QThread):
         return issues
 
     def _check_guid_references(self) -> List[Dict[str, str]]:
-        """检查GUID引用"""
+        """检查GUID引用完整性"""
         issues = []
         
-        # 获取Git仓库中的所有GUID
         try:
-            git_guids = self.analyzer._get_git_repository_guids()
-        except:
-            git_guids = set()
-        
-        for file_path in self.upload_files:
-            try:
-                _, ext = os.path.splitext(file_path.lower())
-                if ext in self.high_priority_types or ext in self.medium_priority_types:
+            self.status_updated.emit("🔍 开始GUID引用检查...")
+            
+            # 验证必要的属性和方法
+            if not hasattr(self, 'analyzer'):
+                raise AttributeError("缺少analyzer属性")
+            
+            if not hasattr(self.analyzer, '_get_git_repository_guids'):
+                raise AttributeError("analyzer缺少_get_git_repository_guids方法")
+            
+            if not hasattr(self, '_analyze_missing_guid'):
+                raise AttributeError("缺少_analyze_missing_guid方法")
+            
+            if not hasattr(self, '_check_internal_dependencies'):
+                raise AttributeError("缺少_check_internal_dependencies方法")
+            
+            self.status_updated.emit("✅ 方法验证通过")
+            
+            # 收集本次推送文件的GUID
+            self.status_updated.emit("收集本次推送文件的GUID...")
+            local_guids = {}
+            
+            for file_path in self.upload_files:
+                if file_path.endswith('.meta'):
+                    guid = self.analyzer.parse_meta_file(file_path)
+                    if guid:
+                        local_guids[guid] = file_path
+                        self.status_updated.emit(f"找到本地GUID: {guid[:8]}... ({os.path.basename(file_path)})")
+                else:
+                    # 检查对应的meta文件
+                    meta_path = file_path + '.meta'
+                    if os.path.exists(meta_path):
+                        guid = self.analyzer.parse_meta_file(meta_path)
+                        if guid:
+                            local_guids[guid] = meta_path
+                            self.status_updated.emit(f"找到本地GUID: {guid[:8]}... ({os.path.basename(meta_path)})")
+            
+            self.status_updated.emit(f"本次推送包含 {len(local_guids)} 个GUID")
+            
+            # 获取Git仓库中的所有GUID
+            self.status_updated.emit("开始扫描Git仓库GUID...")
+            git_guids = self._get_git_repository_guids()
+            self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
+            
+            # 检查GUID引用
+            self.status_updated.emit("分析文件间的GUID引用关系...")
+            
+            for file_path in self.upload_files:
+                if not file_path.endswith('.meta'):
                     try:
+                        # 分析文件中引用的GUID
                         referenced_guids = self.analyzer.parse_unity_asset(file_path)
                         
-                        for guid in referenced_guids:
-                            if guid not in self.builtin_guids and guid not in git_guids:
-                                issues.append({
-                                    'file': file_path,
-                                    'type': 'guid_reference_missing',
-                                    'message': f'引用的GUID不存在: {guid}'
-                                })
-                                
+                        if referenced_guids:
+                            self.status_updated.emit(f"文件 {os.path.basename(file_path)} 引用了 {len(referenced_guids)} 个GUID")
+                            
+                            for ref_guid in referenced_guids:
+                                # 检查引用的GUID是否存在
+                                if ref_guid not in local_guids and ref_guid not in git_guids:
+                                    # 分析缺失的GUID
+                                    analysis = self._analyze_missing_guid(ref_guid, file_path)
+                                    
+                                    issues.append({
+                                        'type': 'guid_reference_missing',
+                                        'file': file_path,
+                                        'description': f'引用的GUID {ref_guid} 不存在',
+                                        'guid': ref_guid,
+                                        'analysis': analysis
+                                    })
+                                    
+                                    self.status_updated.emit(f"⚠️ 缺失GUID引用: {ref_guid[:8]}... 在文件 {os.path.basename(file_path)}")
+                                else:
+                                    # 找到引用，记录来源
+                                    if ref_guid in local_guids:
+                                        source = f"本地文件: {os.path.basename(local_guids[ref_guid])}"
+                                    else:
+                                        source = "Git仓库"
+                                    self.status_updated.emit(f"✅ GUID引用正常: {ref_guid[:8]}... -> {source}")
+                        else:
+                            self.status_updated.emit(f"文件 {os.path.basename(file_path)} 没有GUID引用")
+                            
                     except Exception as e:
+                        error_msg = f"分析文件失败: {os.path.basename(file_path)} - {str(e)}"
+                        self.status_updated.emit(f"❌ {error_msg}")
                         issues.append({
+                            'type': 'analysis_error',
                             'file': file_path,
-                            'type': 'guid_reference_error',
-                            'message': f'GUID引用检查失败: {str(e)}'
+                            'description': error_msg
                         })
+            
+            # 检查内部依赖完整性
+            self.status_updated.emit("检查内部依赖完整性...")
+            internal_issues = self._check_internal_dependencies(local_guids)
+            issues.extend(internal_issues)
+            
+            if issues:
+                self.status_updated.emit(f"GUID引用检查完成，发现 {len(issues)} 个问题")
+            else:
+                self.status_updated.emit("✅ GUID引用检查通过，所有引用都完整")
+            
+        except Exception as e:
+            error_msg = f"GUID引用检查异常: {str(e)}"
+            self.status_updated.emit(f"❌ {error_msg}")
+            
+            # 添加详细的异常信息
+            import traceback
+            tb_str = traceback.format_exc()
+            self.status_updated.emit(f"详细异常信息: {tb_str}")
+            
+            issues.append({
+                'type': 'check_error',
+                'file': 'system',
+                'description': error_msg,
+                'traceback': tb_str
+            })
+            
+            # 打印到控制台以便调试
+            print(f"GUID引用检查异常: {error_msg}")
+            print(f"异常详情: {tb_str}")
+        
+        return issues
+    
+    def _analyze_missing_guid(self, missing_guid: str, referencing_file: str) -> str:
+        """分析缺失的GUID可能对应的文件类型和建议"""
+        try:
+            _, ext = os.path.splitext(referencing_file.lower())
+            
+            # 根据引用文件类型推测缺失文件类型
+            if ext == '.controller':
+                return "可能是动画文件(.skAnim)或状态机相关资源"
+            elif ext == '.prefab':
+                return "可能是材质(.mat)、模型(.mesh)、纹理(.png/.jpg)或其他组件"
+            elif ext == '.mat':
+                return "可能是纹理文件(.png/.jpg/.tga)或着色器"
+            elif ext == '.asset':
+                return "可能是配置文件或其他资源文件"
+            else:
+                return "未知类型的依赖资源"
+                
+        except:
+            return "无法分析的依赖资源"
+    
+    def _check_internal_dependencies(self, local_guids: dict) -> List[Dict[str, str]]:
+        """检查本次推送文件包内部的依赖完整性"""
+        issues = []
+        
+        try:
+            # 分析每个文件的依赖关系
+            file_dependencies = {}  # {file_path: set(referenced_guids)}
+            
+            for file_path in self.upload_files:
+                if file_path.lower().endswith('.meta'):
+                    continue
+                
+                try:
+                    _, ext = os.path.splitext(file_path.lower())
+                    if ext in self.high_priority_types or ext in self.medium_priority_types:
+                        referenced_guids = self.analyzer.parse_unity_asset(file_path)
+                        file_dependencies[file_path] = referenced_guids
+                except:
+                    continue
+            
+            # 检查内部引用的完整性
+            for file_path, referenced_guids in file_dependencies.items():
+                for guid in referenced_guids:
+                    # 如果这个GUID在本次推送的文件中
+                    if guid in local_guids:
+                        referenced_file = local_guids[guid]
                         
-            except Exception as e:
-                issues.append({
-                    'file': file_path,
-                    'type': 'guid_ref_check_error',
-                    'message': f'GUID引用检查失败: {str(e)}'
-                })
+                        # 检查被引用的文件是否真的在推送列表中
+                        if referenced_file not in self.upload_files:
+                            issues.append({
+                                'file': file_path,
+                                'type': 'internal_dependency_missing',
+                                'message': f'内部依赖文件缺失: {os.path.basename(referenced_file)}',
+                                'missing_file': referenced_file,
+                                'missing_guid': guid,
+                                'dependency_info': f'{os.path.basename(file_path)} 依赖 {os.path.basename(referenced_file)}'
+                            })
+            
+            # 检查是否有孤立的文件（被引用但没有引用者）
+            referenced_files = set()
+            for referenced_guids in file_dependencies.values():
+                for guid in referenced_guids:
+                    if guid in local_guids:
+                        referenced_files.add(local_guids[guid])
+            
+            # 找出可能的孤立文件（在推送列表中但没有被引用的文件）
+            all_files_with_guids = set(local_guids.values())
+            potentially_orphaned = all_files_with_guids - referenced_files
+            
+            # 对于孤立文件，检查它们是否是入口文件（如prefab、controller等）
+            for file_path in potentially_orphaned:
+                _, ext = os.path.splitext(file_path.lower())
+                if ext in {'.png', '.jpg', '.jpeg', '.tga', '.mesh', '.mat'}:  # 通常被引用的文件
+                    # 这些文件类型通常应该被其他文件引用
+                    issues.append({
+                        'file': file_path,
+                        'type': 'potentially_orphaned_file',
+                        'message': f'文件可能未被引用: {os.path.basename(file_path)}',
+                        'orphan_info': f'此{ext}文件在本次推送中未被其他文件引用，请确认是否需要'
+                    })
+                        
+        except Exception as e:
+            issues.append({
+                'file': 'SYSTEM',
+                'type': 'internal_dependency_check_error',
+                'message': f'内部依赖检查失败: {str(e)}'
+            })
         
         return issues
 
     def _generate_detailed_report(self, all_issues: List[Dict[str, str]], total_files: int) -> Dict[str, Any]:
         """生成详细报告"""
         try:
+            # 区分阻塞性错误和警告
+            blocking_issues = [issue for issue in all_issues if issue.get('type') != 'meta_missing_git']
+            warning_issues = [issue for issue in all_issues if issue.get('type') == 'meta_missing_git']
+            
             # 按类型分组问题
             issues_by_type = {}
             for issue in all_issues:
@@ -1237,6 +2313,13 @@ class ResourceChecker(QThread):
             report_lines.append(f"检查时间: {self._get_current_time()}")
             report_lines.append(f"检查文件总数: {total_files}")
             report_lines.append(f"发现问题总数: {len(all_issues)}")
+            if blocking_issues and warning_issues:
+                report_lines.append(f"  - 阻塞性错误: {len(blocking_issues)} 个")
+                report_lines.append(f"  - 警告: {len(warning_issues)} 个")
+            elif blocking_issues:
+                report_lines.append(f"  - 阻塞性错误: {len(blocking_issues)} 个")
+            elif warning_issues:
+                report_lines.append(f"  - 警告: {len(warning_issues)} 个")
             report_lines.append("")
             
             # 显示检查的文件列表
@@ -1253,14 +2336,15 @@ class ResourceChecker(QThread):
             report_lines.append("  ✓ 中文字符检查 - 检查文件名是否包含中文字符")
             report_lines.append("  ✓ 图片尺寸检查 - 检查图片尺寸是否为2的幂次且不超过2048")
             report_lines.append("  ✓ GUID一致性检查 - 检查是否存在重复的GUID")
-            report_lines.append("  ✓ GUID引用检查 - 检查引用的GUID是否存在于Git仓库中")
+            report_lines.append("  ✓ GUID引用完整性检查 - 确保每个引用的GUID都能找到对应文件")
+            report_lines.append("  ✓ 内部依赖完整性检查 - 检查本次推送文件包的依赖关系")
             report_lines.append("")
             
             if all_issues:
                 report_lines.append("问题分类统计:")
                 report_lines.append("-" * 40)
                 
-                # 问题类型说明 - 更新以支持新的Meta检查类型
+                # 问题类型说明 - 更新以支持新的Meta检查类型和GUID引用类型
                 type_descriptions = {
                     # 新的Meta检查类型
                     'meta_missing_both': 'SVN和Git中都缺少.meta文件 - 需要生成.meta文件',
@@ -1277,6 +2361,15 @@ class ResourceChecker(QThread):
                     'git_meta_read_error': 'Git中的.meta文件读取失败',
                     'git_path_calc_error': '计算Git路径失败',
                     
+                    # 新的GUID引用检查类型
+                    'guid_reference_missing': 'GUID引用缺失 - 引用了不存在的资源GUID，需要添加对应文件',
+                    'guid_reference_parse_error': 'GUID引用解析错误 - 无法解析文件中的GUID引用',
+                    'guid_reference_check_error': 'GUID引用检查错误 - 检查过程中发生异常',
+                    'guid_reference_system_error': 'GUID引用系统错误 - 检查系统发生严重错误',
+                    'internal_dependency_missing': '内部依赖缺失 - 本次推送文件包内部依赖不完整',
+                    'potentially_orphaned_file': '可能的孤立文件 - 文件未被其他文件引用，请确认必要性',
+                    'internal_dependency_check_error': '内部依赖检查错误 - 检查过程中发生异常',
+                    
                     # 原有的检查类型
                     'meta_missing': 'Meta文件缺失 - 资源文件没有对应的.meta文件',
                     'meta_empty': 'Meta文件为空 - .meta文件存在但内容为空',
@@ -1291,10 +2384,7 @@ class ResourceChecker(QThread):
                     'image_check_error': '图片检查错误 - 检查过程中发生异常',
                     'image_size_check_error': '图片尺寸检查错误 - 检查过程中发生异常',
                     'guid_duplicate': 'GUID重复 - 多个文件使用了相同的GUID',
-                    'guid_consistency_error': 'GUID一致性检查错误 - 检查过程中发生异常',
-                    'guid_reference_missing': 'GUID引用缺失 - 引用了不存在的资源GUID',
-                    'guid_reference_error': 'GUID引用检查错误 - 检查过程中发生异常',
-                    'guid_ref_check_error': 'GUID引用检查错误 - 检查过程中发生异常'
+                    'guid_consistency_error': 'GUID一致性检查错误 - 检查过程中发生异常'
                 }
                 
                 for issue_type, issues in issues_by_type.items():
@@ -1329,6 +2419,20 @@ class ResourceChecker(QThread):
                             report_lines.append(f"    SVN GUID: {issue['svn_guid']}")
                         if 'git_guid' in issue:
                             report_lines.append(f"    Git GUID: {issue['git_guid']}")
+                        
+                        # 显示GUID引用问题的详细信息
+                        if 'missing_guid' in issue:
+                            report_lines.append(f"    缺失GUID: {issue['missing_guid']}")
+                        if 'missing_info' in issue:
+                            report_lines.append(f"    缺失类型: {issue['missing_info']}")
+                        if 'reference_context' in issue:
+                            report_lines.append(f"    引用上下文: {issue['reference_context']}")
+                        if 'missing_file' in issue:
+                            report_lines.append(f"    缺失文件: {issue['missing_file']}")
+                        if 'dependency_info' in issue:
+                            report_lines.append(f"    依赖关系: {issue['dependency_info']}")
+                        if 'orphan_info' in issue:
+                            report_lines.append(f"    孤立信息: {issue['orphan_info']}")
                         
                         report_lines.append("")
                 
@@ -1368,6 +2472,26 @@ class ResourceChecker(QThread):
                     report_lines.append("  2. 常用尺寸: 32, 64, 128, 256, 512, 1024, 2048")
                     report_lines.append("  3. 在Unity Import Settings中设置合适的压缩格式")
                 
+                if 'guid_reference_missing' in issues_by_type:
+                    report_lines.append("\n【guid_reference_missing】修复建议:")
+                    report_lines.append("  1. 找到缺失的资源文件并添加到推送列表中")
+                    report_lines.append("  2. 检查资源文件是否已存在于Git仓库中")
+                    report_lines.append("  3. 如果是Unity内置资源，请检查GUID是否正确")
+                    report_lines.append("  4. 考虑是否需要重新生成资源的依赖关系")
+                
+                if 'internal_dependency_missing' in issues_by_type:
+                    report_lines.append("\n【internal_dependency_missing】修复建议:")
+                    report_lines.append("  1. 将缺失的依赖文件添加到推送列表中")
+                    report_lines.append("  2. 确保所有相关文件都一起推送")
+                    report_lines.append("  3. 检查文件路径是否正确")
+                
+                if 'potentially_orphaned_file' in issues_by_type:
+                    report_lines.append("\n【potentially_orphaned_file】修复建议:")
+                    report_lines.append("  1. 确认这些文件是否真的需要推送")
+                    report_lines.append("  2. 检查是否有其他文件引用了这些资源")
+                    report_lines.append("  3. 如果确实不需要，可以从推送列表中移除")
+                    report_lines.append("  4. 如果是入口文件（如prefab），则可以忽略此警告")
+            
             else:
                 report_lines.append("🎉 所有检查项目都通过了！")
                 report_lines.append("")
@@ -1403,6 +2527,135 @@ class ResourceChecker(QThread):
         """获取当前时间字符串"""
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    def _get_git_repository_guids(self) -> Set[str]:
+        """扫描Git仓库获取所有GUID"""
+        git_guids = set()
+        
+        if not self.git_manager.git_path or not os.path.exists(self.git_manager.git_path):
+            self.status_updated.emit(f"❌ Git仓库路径无效: {self.git_manager.git_path}")
+            return git_guids
+        
+        self.status_updated.emit(f"🔍 开始扫描Git仓库: {self.git_manager.git_path}")
+        
+        # 统计信息
+        scan_stats = {
+            'directories_scanned': 0,
+            'meta_files_found': 0,
+            'valid_guids': 0,
+            'invalid_guids': 0,
+            'parse_errors': 0,
+            'sample_guids': [],
+            'deep_directories': []
+        }
+        
+        try:
+            for root, dirs, files in os.walk(self.git_manager.git_path):
+                scan_stats['directories_scanned'] += 1
+                
+                # 计算目录深度（用于调试）
+                relative_root = os.path.relpath(root, self.git_manager.git_path)
+                depth = relative_root.count(os.sep) if relative_root != '.' else 0
+                
+                # 记录深层目录（超过10层的目录）
+                if depth > 10:
+                    scan_stats['deep_directories'].append({
+                        'path': relative_root,
+                        'depth': depth
+                    })
+                
+                # 每扫描100个目录输出一次进度
+                if scan_stats['directories_scanned'] % 100 == 0:
+                    self.status_updated.emit(f"  📁 已扫描 {scan_stats['directories_scanned']} 个目录...")
+                
+                # 记录深层目录（用于调试）
+                if depth > 15:
+                    self.status_updated.emit(f"  🔍 深层目录: {relative_root} (深度: {depth})")
+                
+                for file in files:
+                    if file.endswith('.meta'):
+                        scan_stats['meta_files_found'] += 1
+                        meta_path = os.path.join(root, file)
+                        relative_path = os.path.relpath(meta_path, self.git_manager.git_path)
+                        
+                        # 记录特定文件（用于调试）
+                        if 'Character_NPR_Opaque.templatemat.meta' in file:
+                            self.status_updated.emit(f"  🎯 找到目标文件: {meta_path}")
+                            self.status_updated.emit(f"     相对路径: {relative_path}")
+                            self.status_updated.emit(f"     目录深度: {depth}")
+                        
+                        try:
+                            # 使用ResourceDependencyAnalyzer的parse_meta_file方法
+                            analyzer = ResourceDependencyAnalyzer()
+                            guid = analyzer.parse_meta_file(meta_path)
+                            
+                            if guid and len(guid) == 32:  # 有效的GUID长度
+                                git_guids.add(guid)
+                                scan_stats['valid_guids'] += 1
+                                
+                                # 记录特定GUID
+                                if guid == 'a52adbec141594d439747c542824c830':
+                                    self.status_updated.emit(f"  ✅ 找到目标GUID: {guid}")
+                                    self.status_updated.emit(f"     文件路径: {meta_path}")
+                                
+                                # 记录样本GUID
+                                if len(scan_stats['sample_guids']) < 10:
+                                    scan_stats['sample_guids'].append({
+                                        'guid': guid,
+                                        'file': relative_path,
+                                        'depth': depth
+                                    })
+                            else:
+                                scan_stats['invalid_guids'] += 1
+                                # 记录无效GUID的详细信息
+                                if scan_stats['invalid_guids'] <= 5:  # 只记录前5个无效GUID
+                                    self.status_updated.emit(f"  ⚠️ 无效GUID: '{guid}' 在文件 {relative_path}")
+                        
+                        except Exception as e:
+                            scan_stats['parse_errors'] += 1
+                            # 记录解析错误的详细信息
+                            if scan_stats['parse_errors'] <= 5:  # 只记录前5个错误
+                                scan_stats['sample_guids'].append({
+                                    'guid': 'ERROR',
+                                    'file': relative_path,
+                                    'error': str(e),
+                                    'reason': f'异常: {str(e)}'
+                                })
+                            self.status_updated.emit(f"  ❌ 解析meta文件异常: {meta_path}")
+                            self.status_updated.emit(f"     错误: {e}")
+                            
+        except Exception as e:
+            self.status_updated.emit(f"❌ 扫描Git仓库异常: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # 输出扫描统计信息
+        self.status_updated.emit(f"📊 Git仓库扫描完成:")
+        self.status_updated.emit(f"   📁 扫描目录数: {scan_stats['directories_scanned']}")
+        self.status_updated.emit(f"   📄 找到meta文件: {scan_stats['meta_files_found']}")
+        self.status_updated.emit(f"   ✅ 有效GUID: {scan_stats['valid_guids']}")
+        self.status_updated.emit(f"   ❌ 无效GUID: {scan_stats['invalid_guids']}")
+        self.status_updated.emit(f"   🚫 解析错误: {scan_stats['parse_errors']}")
+        
+        # 显示样本GUID
+        if scan_stats['sample_guids']:
+            self.status_updated.emit(f"📋 样本GUID:")
+            for i, sample in enumerate(scan_stats['sample_guids'][:5]):  # 只显示前5个
+                if sample['guid'] == 'ERROR':
+                    self.status_updated.emit(f"   {i+1}. ❌ {sample['file']} - {sample['reason']}")
+                else:
+                    self.status_updated.emit(f"   {i+1}. {sample['guid']} - {sample['file']} (深度:{sample['depth']})")
+        
+        # 显示深层目录信息
+        if scan_stats['deep_directories']:
+            deep_count = len(scan_stats['deep_directories'])
+            self.status_updated.emit(f"🔍 发现 {deep_count} 个深层目录 (>10层):")
+            for deep_dir in scan_stats['deep_directories'][:3]:  # 只显示前3个
+                self.status_updated.emit(f"   📁 {deep_dir['path']} (深度: {deep_dir['depth']})")
+            if deep_count > 3:
+                self.status_updated.emit(f"   ... 还有 {deep_count - 3} 个深层目录")
+        
+        return git_guids
 
 
 class BranchSelectorDialog(QDialog):
@@ -1411,12 +2664,13 @@ class BranchSelectorDialog(QDialog):
     def __init__(self, branches, current_branch="", parent=None):
         super().__init__(parent)
         self.branches = branches
+        self.filtered_branches = branches.copy()  # 过滤后的分支列表
         self.current_branch = current_branch
         self.selected_branch = ""
         
         self.setWindowTitle(f"选择分支 (共 {len(branches)} 个分支)")
         self.setModal(True)
-        self.resize(600, 400)
+        self.resize(600, 450)  # 稍微增加高度以容纳搜索框
         self.init_ui()
         
     def init_ui(self):
@@ -1424,21 +2678,36 @@ class BranchSelectorDialog(QDialog):
         layout = QVBoxLayout()
         self.setLayout(layout)
         
+        # 搜索框
+        search_layout = QHBoxLayout()
+        search_label = QLabel("搜索分支:")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("输入关键词过滤分支...")
+        self.search_input.textChanged.connect(self.filter_branches)
+        
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
+        
+        # 分支计数标签
+        self.count_label = QLabel(f"显示 {len(self.filtered_branches)} / {len(self.branches)} 个分支")
+        self.count_label.setStyleSheet("color: #666; font-size: 12px;")
+        layout.addWidget(self.count_label)
+        
         # 分支列表
         self.branch_list = QListWidget()
-        for branch in self.branches:
-            item = QListWidgetItem(branch)
-            if branch == self.current_branch:
-                item.setText(f"★ {branch} (当前分支)")
-                font = item.font()
-                font.setBold(True)
-                item.setFont(font)
-            self.branch_list.addItem(item)
-        
+        self.populate_branch_list()
         layout.addWidget(self.branch_list)
         
         # 按钮
         button_layout = QHBoxLayout()
+        
+        # 清空搜索按钮
+        clear_search_btn = QPushButton("清空搜索")
+        clear_search_btn.clicked.connect(self.clear_search)
+        button_layout.addWidget(clear_search_btn)
+        
+        button_layout.addStretch()  # 添加弹性空间
         
         select_btn = QPushButton("选择")
         select_btn.clicked.connect(self.accept)
@@ -1449,11 +2718,61 @@ class BranchSelectorDialog(QDialog):
         button_layout.addWidget(cancel_btn)
         
         layout.addLayout(button_layout)
+        
+        # 设置焦点到搜索框
+        self.search_input.setFocus()
+    
+    def populate_branch_list(self):
+        """填充分支列表"""
+        self.branch_list.clear()
+        
+        if not self.filtered_branches:
+            # 没有匹配的分支时显示提示
+            item = QListWidgetItem("没有找到匹配的分支")
+            item.setFlags(Qt.NoItemFlags)  # 不可选择
+            item.setTextAlignment(Qt.AlignCenter)
+            self.branch_list.addItem(item)
+            return
+        
+        for branch in self.filtered_branches:
+            item = QListWidgetItem(branch)
+            if branch == self.current_branch:
+                item.setText(f"★ {branch} (当前分支)")
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+                # 设置当前分支为选中状态
+                self.branch_list.addItem(item)
+                self.branch_list.setCurrentItem(item)
+            else:
+                self.branch_list.addItem(item)
+    
+    def filter_branches(self):
+        """根据搜索关键词过滤分支"""
+        search_text = self.search_input.text().lower().strip()
+        
+        if not search_text:
+            # 搜索框为空时显示所有分支
+            self.filtered_branches = self.branches.copy()
+        else:
+            # 过滤包含关键词的分支（不区分大小写）
+            self.filtered_branches = [
+                branch for branch in self.branches 
+                if search_text in branch.lower()
+            ]
+        
+        # 更新分支列表和计数
+        self.populate_branch_list()
+        self.count_label.setText(f"显示 {len(self.filtered_branches)} / {len(self.branches)} 个分支")
+    
+    def clear_search(self):
+        """清空搜索框"""
+        self.search_input.clear()
     
     def get_selected_branch(self):
         """获取选中的分支"""
         current_item = self.branch_list.currentItem()
-        if current_item:
+        if current_item and current_item.flags() != Qt.NoItemFlags:  # 确保不是提示项
             text = current_item.text()
             if text.startswith("★ "):
                 return text.replace("★ ", "").replace(" (当前分支)", "")
@@ -1618,23 +2937,42 @@ class ArtResourceManager(QMainWindow):
         self.statusBar().showMessage("就绪")
     
     def load_settings(self):
-        """加载设置"""
-        # 加载路径配置
-        self.svn_path_edit.setText(self.config_manager.get_svn_path())
-        self.git_path_edit.setText(self.config_manager.get_git_path())
-        self.editor_path_edit.setText(self.config_manager.get_editor_path())
-        
-        # 设置Git管理器路径
-        if self.git_path_edit.text():
-            self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
-            self.refresh_branches()
+        """加载配置"""
+        try:
+            print("📋 [DEBUG] 加载配置...")
             
-            # 恢复上次选择的分支
-            last_branch = self.config_manager.get_last_selected_branch()
-            if last_branch:
-                index = self.branch_combo.findText(last_branch)
-                if index >= 0:
-                    self.branch_combo.setCurrentIndex(index)
+            # 加载路径配置
+            svn_path = self.config_manager.get_svn_path()
+            git_path = self.config_manager.get_git_path()
+            editor_path = self.config_manager.get_editor_path()
+            
+            if svn_path:
+                self.svn_path_edit.setText(svn_path)
+            if git_path:
+                self.git_path_edit.setText(git_path)
+            if editor_path:
+                self.editor_path_edit.setText(editor_path)
+            
+            # 设置Git管理器路径
+            if git_path and svn_path:
+                self.git_manager.set_paths(git_path, svn_path)
+                
+                # 🚀 超快速启动模式：仅获取当前分支，不进行网络操作
+                print("⚡ [DEBUG] 启用超快速启动模式...")
+                self.refresh_branches_async(fast_mode=True, ultra_fast=True)
+                
+                # 🔄 启动后台完整分支获取（延迟启动，避免阻塞界面）
+                print("🌐 [DEBUG] 准备后台获取完整分支列表...")
+                QTimer.singleShot(1000, lambda: self.refresh_branches_async(fast_mode=True, ultra_fast=False))
+            
+            print("✅ [DEBUG] 配置加载完成")
+            
+            # 更新路径映射按钮文本
+            self.update_mapping_button_text()
+            
+        except Exception as e:
+            print(f"❌ [DEBUG] 加载配置失败: {e}")
+            self.log_text.append(f"加载配置失败: {str(e)}")
     
     def save_settings(self):
         """保存设置"""
@@ -1786,6 +3124,33 @@ class ArtResourceManager(QMainWindow):
         
         layout.addLayout(guid_layout)
         
+        # 路径映射测试
+        test_layout = QHBoxLayout()
+        test_layout.addWidget(QLabel("测试路径映射:"))
+        self.test_path_edit = QLineEdit()
+        self.test_path_edit.setPlaceholderText("输入SVN文件路径进行测试...")
+        test_layout.addWidget(self.test_path_edit)
+        
+        self.test_path_btn = QPushButton("测试映射")
+        self.test_path_btn.clicked.connect(self.test_path_mapping)
+        test_layout.addWidget(self.test_path_btn)
+        
+        layout.addLayout(test_layout)
+        
+        # 路径映射管理
+        mapping_layout = QHBoxLayout()
+        mapping_layout.addWidget(QLabel("路径映射管理:"))
+        
+        self.manage_mapping_btn = QPushButton("管理映射规则")
+        self.manage_mapping_btn.clicked.connect(self.open_path_mapping_manager)
+        mapping_layout.addWidget(self.manage_mapping_btn)
+        
+        self.toggle_mapping_btn = QPushButton("启用/禁用映射")
+        self.toggle_mapping_btn.clicked.connect(self.toggle_path_mapping)
+        mapping_layout.addWidget(self.toggle_mapping_btn)
+        
+        layout.addLayout(mapping_layout)
+        
         # 文件选择区域
         file_group = QGroupBox("选择要上传的文件（支持拖拽任意文件类型）")
         file_layout = QVBoxLayout()
@@ -1859,7 +3224,8 @@ class ArtResourceManager(QMainWindow):
             self.git_path_edit.setText(path)
             self.config_manager.set_git_path(path)
             self.git_manager.set_paths(path, self.svn_path_edit.text())
-            self.refresh_branches()
+            # 使用异步方法，避免阻塞界面
+            self.refresh_branches_async(fast_mode=True)
     
     def browse_editor_path(self):
         """浏览编辑器路径"""
@@ -1943,8 +3309,63 @@ class ArtResourceManager(QMainWindow):
             QMessageBox.critical(self, "错误", f"无法打开文件夹: {str(e)}")
             self.log_text.append(f"打开编辑器文件夹失败: {str(e)}")
     
+    def refresh_branches_async(self, fast_mode: bool = False, ultra_fast: bool = False):
+        """异步刷新分支列表"""
+        if hasattr(self, 'branch_load_thread') and self.branch_load_thread.isRunning():
+            print("⚠️ [DEBUG] 分支加载线程已在运行，跳过...")
+            return
+        
+        try:
+            print(f"🔄 [DEBUG] 开始异步加载分支...")
+            if ultra_fast:
+                print(f"   ⚡ 超快速模式：仅获取当前分支")
+            elif fast_mode:
+                print(f"   🚀 快速模式：跳过网络操作")
+            else:
+                print(f"   🌐 完整模式：包含网络操作")
+            
+            self.branch_load_thread = BranchLoadThread(self.git_manager, fast_mode, ultra_fast)
+            self.branch_load_thread.branches_loaded.connect(self.on_branches_loaded)
+            self.branch_load_thread.load_failed.connect(self.on_branches_load_failed)
+            self.branch_load_thread.start()
+            
+        except Exception as e:
+            print(f"❌ [DEBUG] 启动分支加载线程失败: {e}")
+            self.log_text.append(f"启动分支加载线程失败: {str(e)}")
+    
+    def on_branches_loaded(self, branches: list, current_branch: str):
+        """分支加载完成回调"""
+        try:
+            # 始终更新combo box，无论是超快速模式还是普通模式
+            self.branch_combo.set_branches(branches, current_branch)
+            
+            # 根据分支数量判断是否为超快速模式的结果
+            if len(branches) == 1 and branches[0] == current_branch:
+                # 超快速模式的结果（只有当前分支）
+                print(f"⚡ [DEBUG] 超快速启动完成，当前分支: {current_branch}")
+                # 注意：不要return，让后续的完整分支加载能继续更新combo box
+            else:
+                # 普通模式或完整分支加载的结果
+                self.log_text.append(f"刷新分支列表完成，共获取到 {len(branches)} 个分支")
+                if current_branch:
+                    self.log_text.append(f"当前分支: {current_branch}")
+                
+                # 恢复上次选择的分支（仅在完整分支列表时）
+                if hasattr(self, 'last_selected_branch') and self.last_selected_branch:
+                    index = self.branch_combo.findText(self.last_selected_branch)
+                    if index >= 0:
+                        self.branch_combo.setCurrentIndex(index)
+                        self.log_text.append(f"已恢复上次选择的分支: {self.last_selected_branch}")
+                    
+        except Exception as e:
+            self.log_text.append(f"处理分支列表时出错: {str(e)}")
+    
+    def on_branches_load_failed(self, error_message: str):
+        """分支加载失败回调"""
+        self.log_text.append(f"⚠️ {error_message}")
+    
     def refresh_branches(self):
-        """刷新分支列表"""
+        """同步刷新分支列表（保留用于兼容性）"""
         if self.git_path_edit.text():
             self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
             
@@ -1985,7 +3406,8 @@ class ArtResourceManager(QMainWindow):
             self, 
             "确认切换分支", 
             f"确定要从分支 '{current_branch}' 切换到分支 '{selected_branch}' 吗？\n\n"
-            "⚠️ 注意：切换分支前请确保已保存所有重要更改！",
+            "⚠️ 注意：切换分支前请确保已保存所有重要更改！\n"
+            "⏰ 切换过程可能需要一些时间，请耐心等待。",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -1994,34 +3416,55 @@ class ArtResourceManager(QMainWindow):
             self.log_text.append("用户取消了分支切换操作")
             return
         
-        self.log_text.append(f"开始切换分支: {current_branch} -> {selected_branch}")
+        # 禁用相关按钮，防止重复操作
+        self.branch_combo.setEnabled(False)
+        
+        self.log_text.append(f"🔄 开始切换分支: {current_branch} -> {selected_branch}")
         self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
         
+        # 显示进度条
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("正在切换分支...")
         
+        # 创建分支切换线程
+        self.branch_switch_thread = BranchSwitchThread(self.git_manager, selected_branch, current_branch)
+        self.branch_switch_thread.progress_updated.connect(self.progress_bar.setValue)
+        self.branch_switch_thread.status_updated.connect(self.log_text.append)
+        self.branch_switch_thread.switch_completed.connect(self.on_branch_switch_completed)
+        
+        # 启动线程
+        self.branch_switch_thread.start()
+    
+    def on_branch_switch_completed(self, success: bool, selected_branch: str, current_branch: str, message: str):
+        """分支切换完成回调"""
         try:
-            self.progress_bar.setValue(50)
-            success = self.git_manager.checkout_branch(selected_branch)
-            self.progress_bar.setValue(100)
+            # 隐藏进度条
+            self.progress_bar.setVisible(False)
+            self.progress_bar.setFormat("")
+            
+            # 重新启用按钮
+            self.branch_combo.setEnabled(True)
             
             if success:
-                self.log_text.append(f"✓ 分支切换成功: 已切换到 {selected_branch}")
-                self.result_text.append(f"✓ 分支切换成功: {current_branch} -> {selected_branch}")
+                self.log_text.append(f"✅ 分支切换成功: 已切换到 {selected_branch}")
+                self.result_text.append(f"✅ 分支切换成功: {current_branch} -> {selected_branch}")
                 QMessageBox.information(self, "切换成功", f"已成功切换到分支: {selected_branch}")
-                self.refresh_branches()
+                
+                # 异步刷新分支列表，避免阻塞界面
+                self.refresh_branches_async(fast_mode=True)
             else:
-                self.log_text.append(f"✗ 分支切换失败: 无法切换到 {selected_branch}")
-                self.result_text.append(f"✗ 分支切换失败: {current_branch} -> {selected_branch}")
-                QMessageBox.critical(self, "切换失败", f"切换到分支 '{selected_branch}' 失败！\n请检查分支名称是否正确。")
+                self.log_text.append(f"❌ 分支切换失败: {message}")
+                self.result_text.append(f"❌ 分支切换失败: {current_branch} -> {selected_branch}")
+                QMessageBox.critical(self, "切换失败", f"切换到分支 '{selected_branch}' 失败！\n\n错误信息: {message}")
                 
         except Exception as e:
-            error_msg = f"分支切换发生异常: {str(e)}"
-            self.log_text.append(f"✗ {error_msg}")
-            self.result_text.append(f"✗ {error_msg}")
+            error_msg = f"处理分支切换结果时发生异常: {str(e)}"
+            self.log_text.append(f"❌ {error_msg}")
             QMessageBox.critical(self, "操作异常", error_msg)
-        
-        finally:
+            
+            # 确保按钮重新启用
+            self.branch_combo.setEnabled(True)
             self.progress_bar.setVisible(False)
     
     def select_files(self):
@@ -2118,16 +3561,14 @@ class ArtResourceManager(QMainWindow):
         msg_box.setWindowTitle("检查通过 - 确认推送")
         msg_box.setIcon(QMessageBox.Question)
         
-        file_count = len(self.upload_files)
-        msg_text = (
-            f"🎉 资源检查通过！\n\n"
-            f"检查结果：\n"
-            f"• 文件数量：{file_count} 个\n"
-            f"• 目标仓库：{self.git_path_edit.text()}\n"
-            f"• 目标目录：CommonResource\n\n"
-            f"是否要将这些文件推送到Git仓库？"
+        dialog_text = (
+            f"🎯 资源检查通过！\n\n"
+            f"检查结果:\n"
+            f"• 文件数量：{len(self.upload_files)} 个\n"
+            f"• 目标仓库：{os.path.basename(self.git_path_edit.text())}\n\n"
+            f"是否要将这些文件推送到Git仓库?"
         )
-        msg_box.setText(msg_text)
+        msg_box.setText(dialog_text)
         
         push_button = msg_box.addButton("推送到Git", QMessageBox.AcceptRole)
         cancel_button = msg_box.addButton("取消", QMessageBox.RejectRole)
@@ -2145,14 +3586,32 @@ class ArtResourceManager(QMainWindow):
     def execute_push_operation(self):
         """执行推送操作"""
         try:
+            # 开始推送操作
             self.log_text.append("开始推送文件到Git仓库...")
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
             
-            self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
+            git_path = self.git_path_edit.text()
+            svn_path = self.svn_path_edit.text()
+            
+            # 🔍 详细调试输出：推送操作参数
+            print(f"🚀 [PUSH_DEBUG] ========== 推送操作调试信息 ==========")
+            print(f"   调用函数: ArtResourceManager.execute_push_operation()")
+            print(f"   Git路径配置: {git_path}")
+            print(f"   SVN路径配置: {svn_path}")
+            print(f"   上传文件数量: {len(self.upload_files)}")
+            print(f"   上传文件列表:")
+            for i, file_path in enumerate(self.upload_files):
+                print(f"     {i+1}. {file_path}")
+            print(f"   ================================================")
+            
+            self.git_manager.set_paths(git_path, svn_path)
             
             self.progress_bar.setValue(20)
-            success, message = self.git_manager.push_files_to_git(self.upload_files, "CommonResource")
+            
+            # 执行推送操作 - 直接使用git_path，不需要额外的target_directory参数
+            # 因为git_path已经是完整的目标路径（例如：G:\minirepo\AssetRuntime_Branch07\assetruntime\CommonResource）
+            success, message = self.git_manager.push_files_to_git(self.upload_files)
             
             self.progress_bar.setValue(100)
             self.progress_bar.setVisible(False)
@@ -2162,13 +3621,21 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(success_msg)
                 self.result_text.append(success_msg)
                 
+                summary_text = (
+                    f"📊 推送完成！\n\n"
+                    f"推送信息:\n"
+                    f"• 文件数量: {len(self.upload_files)} 个\n"
+                    f"• 目标仓库: {os.path.basename(self.git_path_edit.text())}\n"
+                    f"• 推送结果: {message}\n\n"
+                    f"所有文件已成功推送到Git仓库！"
+                )
                 QMessageBox.information(
                     self, 
                     "推送成功", 
-                    f"文件推送完成！\n\n"
-                    f"• 推送文件数：{len(self.upload_files)} 个\n"
-                    f"• 目标仓库：{self.git_path_edit.text()}\n"
-                    f"• 目标目录：CommonResource\n"
+                    f"📊 推送完成！\n\n"
+                    f"推送信息:\n"
+                    f"• 文件数量: {len(self.upload_files)} 个\n"
+                    f"• 目标仓库: {os.path.basename(self.git_path_edit.text())}\n"
                     f"• 当前分支：{self.git_manager.get_current_branch()}\n\n"
                     f"{message}"
                 )
@@ -2274,7 +3741,8 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(f"✓ 拉取成功: {message}")
                 self.result_text.append(f"✓ Git分支拉取成功: {message}")
                 QMessageBox.information(self, "拉取成功", message)
-                self.refresh_branches()
+                # 异步刷新分支列表，避免阻塞界面
+                self.refresh_branches_async(fast_mode=True)
                 self.show_current_branch()
             else:
                 self.log_text.append(f"✗ 拉取失败: {message}")
@@ -2325,7 +3793,8 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(f"✓ 重置成功: {message}")
                 self.result_text.append(f"✓ Git仓库重置成功: {message}")
                 QMessageBox.information(self, "重置成功", message)
-                self.refresh_branches()
+                # 异步刷新分支列表，避免阻塞界面
+                self.refresh_branches_async(fast_mode=True)
                 self.show_current_branch()
             else:
                 self.log_text.append(f"✗ 重置失败: {message}")
@@ -2579,47 +4048,690 @@ class ArtResourceManager(QMainWindow):
             return False
 
     def open_branch_selector(self):
-        """打开分支选择对话框"""
+        """打开分支选择对话框 - 使用已缓存的分支数据"""
         if not self.git_path_edit.text():
             QMessageBox.warning(self, "警告", "请先设置Git仓库路径！")
             return
         
-        self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
+        # 直接从branch_combo获取已缓存的分支数据
+        branches = []
+        current_branch = ""
         
-        branches = self.git_manager.get_git_branches()
-        current_branch = self.git_manager.get_current_branch()
+        # 从combo box中提取分支列表
+        for i in range(self.branch_combo.count()):
+            branch_text = self.branch_combo.itemText(i)
+            if branch_text.startswith("★ "):
+                # 当前分支
+                branch_name = branch_text.replace("★ ", "").replace(" (当前)", "")
+                branches.append(branch_name)
+                current_branch = branch_name
+            else:
+                branches.append(branch_text)
         
+        # 如果combo box为空，尝试从git管理器的缓存获取
         if not branches:
-            QMessageBox.warning(self, "警告", "无法获取分支列表！\n请检查Git仓库路径是否正确。")
+            branches = self.git_manager.get_git_branches(fetch_remote=False, use_cache=True)
+            current_branch = self.git_manager.get_current_branch()
+        
+        # 如果还是没有分支数据，提示用户
+        if not branches:
+            QMessageBox.information(self, "提示", "暂无分支数据，请稍等片刻让程序完成初始化后再试。")
             return
         
-        dialog = BranchSelectorDialog(branches, current_branch, self)
-        
-        if dialog.exec_() == QDialog.Accepted:
-            selected_branch = dialog.get_selected_branch()
-            if selected_branch:
-                index = self.branch_combo.findText(selected_branch)
-                if index >= 0:
-                    self.branch_combo.setCurrentIndex(index)
+        # 直接显示分支选择对话框，无需等待
+        try:
+            dialog = BranchSelectorDialog(branches, current_branch, self)
+            
+            if dialog.exec_() == QDialog.Accepted:
+                selected_branch = dialog.get_selected_branch()
+                if selected_branch:
+                    # 在combo box中选择对应分支
+                    index = self.branch_combo.findText(selected_branch)
+                    if index >= 0:
+                        self.branch_combo.setCurrentIndex(index)
+                    else:
+                        # 如果找不到分支，可能是新分支，添加到combo box
+                        self.branch_combo.addItem(selected_branch)
+                        self.branch_combo.setCurrentText(selected_branch)
+                    
+                    self.log_text.append(f"已选择分支: {selected_branch}")
                 else:
-                    self.refresh_branches()
+                    self.log_text.append("未选择任何分支")
+                    
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"显示分支选择对话框时出错: {str(e)}")
+    
+    def test_path_mapping(self):
+        """测试路径映射功能"""
+        test_path = self.test_path_edit.text().strip()
+        if not test_path:
+            QMessageBox.warning(self, "警告", "请输入要测试的路径")
+            return
+        
+        try:
+            # 显示测试开始
+            self.log_text.append(f"\n🧪 开始测试路径映射...")
+            self.log_text.append(f"   测试路径: {test_path}")
+            
+            # 执行路径映射测试
+            result_path = self.git_manager.test_path_mapping(test_path)
+            
+            # 显示结果
+            if result_path and result_path != test_path:
+                self.log_text.append(f"   ✅ 映射成功!")
+                self.log_text.append(f"   映射结果: {result_path}")
                 
-                self.log_text.append(f"已选择分支: {selected_branch}")
+                # 弹出结果对话框
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("路径映射测试结果")
+                msg_box.setIcon(QMessageBox.Information)
+                msg_box.setText("路径映射测试完成！")
+                msg_box.setDetailedText(f"原始路径: {test_path}\n\n映射结果: {result_path}")
+                msg_box.exec_()
+                
             else:
-                self.log_text.append("未选择任何分支")
+                self.log_text.append(f"   ⚠️ 没有应用映射规则")
+                QMessageBox.information(self, "测试结果", f"路径没有匹配任何映射规则\n\n原始路径: {test_path}")
+            
+        except Exception as e:
+            error_msg = f"路径映射测试失败: {str(e)}"
+            self.log_text.append(f"   ❌ {error_msg}")
+            QMessageBox.critical(self, "错误", error_msg)
+    
+    def open_path_mapping_manager(self):
+        """打开路径映射管理对话框"""
+        try:
+            dialog = PathMappingManagerDialog(self.git_manager, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self.log_text.append("✅ 路径映射配置已更新")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"打开路径映射管理器失败: {str(e)}")
+    
+    def toggle_path_mapping(self):
+        """切换路径映射启用/禁用状态"""
+        try:
+            current_state = self.git_manager.path_mapping_enabled
+            new_state = not current_state
+            
+            self.git_manager.set_path_mapping_enabled(new_state)
+            
+            status_text = "启用" if new_state else "禁用"
+            self.log_text.append(f"🔧 路径映射已{status_text}")
+            
+            # 更新按钮文本
+            self.toggle_mapping_btn.setText(f"{'禁用' if new_state else '启用'}映射")
+            
+            QMessageBox.information(self, "设置更新", f"路径映射已{status_text}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"切换路径映射状态失败: {str(e)}")
+    
+    def update_mapping_button_text(self):
+        """更新路径映射按钮文本"""
+        if hasattr(self, 'toggle_mapping_btn'):
+            enabled = self.git_manager.path_mapping_enabled
+            self.toggle_mapping_btn.setText(f"{'禁用' if enabled else '启用'}映射")
+
+
+class BranchLoadThread(QThread):
+    """分支加载线程 - 异步加载分支列表"""
+    
+    progress_updated = pyqtSignal(int)
+    status_updated = pyqtSignal(str)
+    branches_loaded = pyqtSignal(list, str)  # branches, current_branch
+    load_failed = pyqtSignal(str)  # error_message
+    
+    def __init__(self, git_manager, fast_mode: bool = False, ultra_fast: bool = False):
+        super().__init__()
+        self.git_manager = git_manager
+        self.fast_mode = fast_mode  # 快速模式：不执行git fetch
+        self.ultra_fast = ultra_fast  # 超快速模式：只获取当前分支
+    
+    def run(self):
+        """异步加载分支列表"""
+        try:
+            if self.ultra_fast:
+                # 超快速模式：只获取当前分支，不获取分支列表
+                print("⚡ [DEBUG] 超快速模式：仅获取当前分支...")
+                current_branch = self.git_manager.get_current_branch()
+                if current_branch:
+                    # 只返回当前分支
+                    self.branches_loaded.emit([current_branch], current_branch)
+                    print(f"   ✅ 当前分支: {current_branch}")
+                else:
+                    self.branches_loaded.emit([], "")
+                    print("   ⚠️ 无法获取当前分支")
+                return
+            
+            # 普通快速模式或完整模式
+            if self.fast_mode:
+                self.status_updated.emit("正在快速加载分支列表...")
+            else:
+                self.status_updated.emit("正在获取分支列表...")
+            self.progress_updated.emit(20)
+            
+            # 获取分支列表（快速模式不fetch远程）
+            branches = self.git_manager.get_git_branches(fetch_remote=not self.fast_mode)
+            self.progress_updated.emit(70)
+            
+            # 获取当前分支
+            current_branch = self.git_manager.get_current_branch()
+            self.progress_updated.emit(100)
+            
+            if branches:
+                self.status_updated.emit(f"获取到 {len(branches)} 个分支")
+                self.branches_loaded.emit(branches, current_branch)
+            else:
+                self.load_failed.emit("未获取到任何分支")
+                
+        except Exception as e:
+            error_msg = f"加载分支列表失败: {str(e)}"
+            self.load_failed.emit(error_msg)
+
+
+class PathMappingManagerDialog(QDialog):
+    """路径映射管理对话框"""
+    
+    def __init__(self, git_manager, parent=None):
+        super().__init__(parent)
+        self.git_manager = git_manager
+        self.setWindowTitle("路径映射规则管理")
+        self.setMinimumSize(800, 600)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+        
+        self.init_ui()
+        self.load_rules()
+    
+    def init_ui(self):
+        """初始化用户界面"""
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # 顶部控制区域
+        control_layout = QHBoxLayout()
+        
+        # 启用/禁用路径映射
+        self.enable_checkbox = QCheckBox("启用路径映射")
+        self.enable_checkbox.setChecked(self.git_manager.path_mapping_enabled)
+        self.enable_checkbox.stateChanged.connect(self.on_enable_changed)
+        control_layout.addWidget(self.enable_checkbox)
+        
+        control_layout.addStretch()
+        
+        # 按钮
+        self.add_rule_btn = QPushButton("添加规则")
+        self.add_rule_btn.clicked.connect(self.add_rule)
+        control_layout.addWidget(self.add_rule_btn)
+        
+        self.edit_rule_btn = QPushButton("编辑规则")
+        self.edit_rule_btn.clicked.connect(self.edit_rule)
+        control_layout.addWidget(self.edit_rule_btn)
+        
+        self.delete_rule_btn = QPushButton("删除规则")
+        self.delete_rule_btn.clicked.connect(self.delete_rule)
+        control_layout.addWidget(self.delete_rule_btn)
+        
+        self.test_rule_btn = QPushButton("测试规则")
+        self.test_rule_btn.clicked.connect(self.test_rule)
+        control_layout.addWidget(self.test_rule_btn)
+        
+        layout.addLayout(control_layout)
+        
+        # 规则列表
+        self.rule_table = QTableWidget()
+        self.rule_table.setColumnCount(6)
+        self.rule_table.setHorizontalHeaderLabels([
+            "启用", "规则名称", "描述", "源路径模式", "目标路径模式", "优先级"
+        ])
+        
+        # 设置列宽
+        header = self.rule_table.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)  # 启用列
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 规则名称
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # 描述
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # 源路径模式
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # 目标路径模式
+        header.setSectionResizeMode(5, QHeaderView.Fixed)  # 优先级
+        
+        self.rule_table.setColumnWidth(0, 60)
+        self.rule_table.setColumnWidth(5, 80)
+        
+        self.rule_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.rule_table.setAlternatingRowColors(True)
+        
+        layout.addWidget(self.rule_table)
+        
+        # 测试区域
+        test_group = QGroupBox("规则测试")
+        test_layout = QHBoxLayout()
+        test_group.setLayout(test_layout)
+        
+        test_layout.addWidget(QLabel("测试路径:"))
+        self.test_path_edit = QLineEdit()
+        self.test_path_edit.setPlaceholderText("输入Assets路径，如: Assets\\entity\\100060\\prefab.prefab")
+        test_layout.addWidget(self.test_path_edit)
+        
+        self.run_test_btn = QPushButton("运行测试")
+        self.run_test_btn.clicked.connect(self.run_test)
+        test_layout.addWidget(self.run_test_btn)
+        
+        layout.addWidget(test_group)
+        
+        # 测试结果
+        self.test_result = QTextEdit()
+        self.test_result.setMaximumHeight(120)
+        self.test_result.setReadOnly(True)
+        layout.addWidget(self.test_result)
+        
+        # 底部按钮
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        self.save_btn = QPushButton("保存")
+        self.save_btn.clicked.connect(self.save_rules)
+        button_layout.addWidget(self.save_btn)
+        
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def load_rules(self):
+        """加载路径映射规则到表格"""
+        rules = self.git_manager.get_path_mapping_rules()
+        
+        self.rule_table.setRowCount(len(rules))
+        
+        for row, (rule_id, rule_data) in enumerate(rules.items()):
+            # 启用复选框
+            checkbox = QCheckBox()
+            checkbox.setChecked(rule_data.get('enabled', True))
+            checkbox.stateChanged.connect(lambda state, rid=rule_id: self.on_rule_enabled_changed(rid, state))
+            self.rule_table.setCellWidget(row, 0, checkbox)
+            
+            # 规则名称
+            name_item = QTableWidgetItem(rule_data.get('name', rule_id))
+            name_item.setData(Qt.UserRole, rule_id)
+            self.rule_table.setItem(row, 1, name_item)
+            
+            # 描述
+            desc_item = QTableWidgetItem(rule_data.get('description', ''))
+            self.rule_table.setItem(row, 2, desc_item)
+            
+            # 源路径模式
+            source_item = QTableWidgetItem(rule_data.get('source_pattern', ''))
+            self.rule_table.setItem(row, 3, source_item)
+            
+            # 目标路径模式
+            target_item = QTableWidgetItem(rule_data.get('target_pattern', ''))
+            self.rule_table.setItem(row, 4, target_item)
+            
+            # 优先级
+            priority_item = QTableWidgetItem(str(rule_data.get('priority', 999)))
+            self.rule_table.setItem(row, 5, priority_item)
+    
+    def on_enable_changed(self, state):
+        """路径映射总开关变化"""
+        enabled = state == Qt.Checked
+        self.git_manager.set_path_mapping_enabled(enabled)
+    
+    def on_rule_enabled_changed(self, rule_id, state):
+        """单个规则启用状态变化"""
+        enabled = state == Qt.Checked
+        rules = self.git_manager.get_path_mapping_rules()
+        if rule_id in rules:
+            rules[rule_id]['enabled'] = enabled
+            self.git_manager.update_path_mapping_rule(rule_id, rules[rule_id])
+    
+    def add_rule(self):
+        """添加新规则"""
+        dialog = PathMappingRuleDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            rule_data = dialog.get_rule_data()
+            rule_id = rule_data.get('rule_id', f"rule_{len(self.git_manager.get_path_mapping_rules()) + 1}")
+            
+            self.git_manager.add_path_mapping_rule(rule_id, rule_data)
+            self.load_rules()
+    
+    def edit_rule(self):
+        """编辑选中的规则"""
+        current_row = self.rule_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "警告", "请选择要编辑的规则")
+            return
+        
+        rule_id = self.rule_table.item(current_row, 1).data(Qt.UserRole)
+        rules = self.git_manager.get_path_mapping_rules()
+        
+        if rule_id not in rules:
+            QMessageBox.warning(self, "错误", "规则不存在")
+            return
+        
+        dialog = PathMappingRuleDialog(self, rules[rule_id], rule_id)
+        if dialog.exec_() == QDialog.Accepted:
+            rule_data = dialog.get_rule_data()
+            self.git_manager.update_path_mapping_rule(rule_id, rule_data)
+            self.load_rules()
+    
+    def delete_rule(self):
+        """删除选中的规则"""
+        current_row = self.rule_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "警告", "请选择要删除的规则")
+            return
+        
+        rule_id = self.rule_table.item(current_row, 1).data(Qt.UserRole)
+        rule_name = self.rule_table.item(current_row, 1).text()
+        
+        reply = QMessageBox.question(self, "确认删除", 
+                                   f"确定要删除规则 '{rule_name}' 吗？",
+                                   QMessageBox.Yes | QMessageBox.No)
+        
+        if reply == QMessageBox.Yes:
+            self.git_manager.remove_path_mapping_rule(rule_id)
+            self.load_rules()
+    
+    def test_rule(self):
+        """测试选中的规则"""
+        current_row = self.rule_table.currentRow()
+        if current_row < 0:
+            QMessageBox.warning(self, "警告", "请选择要测试的规则")
+            return
+        
+        test_path = QInputDialog.getText(self, "测试规则", "输入测试路径:")[0]
+        if not test_path:
+            return
+        
+        rule_id = self.rule_table.item(current_row, 1).data(Qt.UserRole)
+        rules = self.git_manager.get_path_mapping_rules()
+        
+        if rule_id not in rules:
+            return
+        
+        rule = rules[rule_id]
+        
+        try:
+            import re
+            if re.match(rule['source_pattern'], test_path):
+                result = re.sub(rule['source_pattern'], rule['target_pattern'], test_path)
+                self.test_result.setText(f"✅ 规则匹配成功\n原始路径: {test_path}\n映射结果: {result}")
+            else:
+                self.test_result.setText(f"❌ 规则不匹配\n测试路径: {test_path}\n匹配模式: {rule['source_pattern']}")
+        except Exception as e:
+            self.test_result.setText(f"❌ 测试失败: {str(e)}")
+    
+    def run_test(self):
+        """运行完整的路径映射测试"""
+        test_path = self.test_path_edit.text().strip()
+        if not test_path:
+            QMessageBox.warning(self, "警告", "请输入测试路径")
+            return
+        
+        result = self.git_manager.apply_path_mapping(test_path)
+        
+        if result != test_path:
+            self.test_result.setText(f"✅ 路径映射成功\n原始路径: {test_path}\n映射结果: {result}")
+        else:
+            self.test_result.setText(f"⚠️ 没有匹配的规则\n测试路径: {test_path}")
+    
+    def save_rules(self):
+        """保存规则并关闭对话框"""
+        self.accept()
+
+
+class PathMappingRuleDialog(QDialog):
+    """路径映射规则编辑对话框"""
+    
+    def __init__(self, parent=None, rule_data=None, rule_id=None):
+        super().__init__(parent)
+        self.rule_data = rule_data or {}
+        self.rule_id = rule_id
+        
+        self.setWindowTitle("编辑路径映射规则" if rule_data else "添加路径映射规则")
+        self.setMinimumSize(600, 400)
+        
+        self.init_ui()
+        self.load_data()
+    
+    def init_ui(self):
+        """初始化用户界面"""
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # 表单区域
+        form_layout = QFormLayout()
+        
+        self.name_edit = QLineEdit()
+        form_layout.addRow("规则名称:", self.name_edit)
+        
+        self.description_edit = QLineEdit()
+        form_layout.addRow("描述:", self.description_edit)
+        
+        self.source_pattern_edit = QLineEdit()
+        form_layout.addRow("源路径模式 (正则):", self.source_pattern_edit)
+        
+        self.target_pattern_edit = QLineEdit()
+        form_layout.addRow("目标路径模式:", self.target_pattern_edit)
+        
+        self.priority_spin = QSpinBox()
+        self.priority_spin.setRange(1, 999)
+        self.priority_spin.setValue(1)
+        form_layout.addRow("优先级:", self.priority_spin)
+        
+        self.enabled_checkbox = QCheckBox("启用此规则")
+        self.enabled_checkbox.setChecked(True)
+        form_layout.addRow("", self.enabled_checkbox)
+        
+        layout.addLayout(form_layout)
+        
+        # 帮助信息
+        help_text = QTextEdit()
+        help_text.setMaximumHeight(120)
+        help_text.setReadOnly(True)
+        help_text.setHtml("""
+        <b>正则表达式帮助:</b><br>
+        • <code>^Assets[\\\\\/]entity[\\\\\/]</code> - 匹配以 Assets\\entity\\ 或 Assets/entity/ 开头的路径<br>
+        • <code>^Assets[\\\\\/]ui[\\\\\/]</code> - 匹配以 Assets\\ui\\ 或 Assets/ui/ 开头的路径<br>
+        • 目标模式示例: <code>Assets\\\\Resources\\\\minigame\\\\entity\\\\</code><br>
+        • 优先级数字越小优先级越高
+        """)
+        layout.addWidget(help_text)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        self.ok_btn = QPushButton("确定")
+        self.ok_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.ok_btn)
+        
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def load_data(self):
+        """加载规则数据"""
+        if self.rule_data:
+            self.name_edit.setText(self.rule_data.get('name', ''))
+            self.description_edit.setText(self.rule_data.get('description', ''))
+            self.source_pattern_edit.setText(self.rule_data.get('source_pattern', ''))
+            self.target_pattern_edit.setText(self.rule_data.get('target_pattern', ''))
+            self.priority_spin.setValue(self.rule_data.get('priority', 1))
+            self.enabled_checkbox.setChecked(self.rule_data.get('enabled', True))
+    
+    def get_rule_data(self):
+        """获取规则数据"""
+        data = {
+            'name': self.name_edit.text().strip(),
+            'description': self.description_edit.text().strip(),
+            'source_pattern': self.source_pattern_edit.text().strip(),
+            'target_pattern': self.target_pattern_edit.text().strip(),
+            'priority': self.priority_spin.value(),
+            'enabled': self.enabled_checkbox.isChecked()
+        }
+        
+        if self.rule_id:
+            data['rule_id'] = self.rule_id
+        
+        return data
+
+
+class BranchSelectorDialog(QDialog):
+    """分支选择对话框"""
+    
+    def __init__(self, branches, current_branch="", parent=None):
+        super().__init__(parent)
+        self.branches = branches
+        self.filtered_branches = branches.copy()  # 过滤后的分支列表
+        self.current_branch = current_branch
+        self.selected_branch = ""
+        
+        self.setWindowTitle(f"选择分支 (共 {len(branches)} 个分支)")
+        self.setModal(True)
+        self.resize(600, 450)  # 稍微增加高度以容纳搜索框
+        self.init_ui()
+        
+    def init_ui(self):
+        """初始化界面"""
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # 搜索框
+        search_layout = QHBoxLayout()
+        search_label = QLabel("搜索分支:")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("输入关键词过滤分支...")
+        self.search_input.textChanged.connect(self.filter_branches)
+        
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
+        
+        # 分支计数标签
+        self.count_label = QLabel(f"显示 {len(self.filtered_branches)} / {len(self.branches)} 个分支")
+        self.count_label.setStyleSheet("color: #666; font-size: 12px;")
+        layout.addWidget(self.count_label)
+        
+        # 分支列表
+        self.branch_list = QListWidget()
+        self.populate_branch_list()
+        layout.addWidget(self.branch_list)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        
+        # 清空搜索按钮
+        clear_search_btn = QPushButton("清空搜索")
+        clear_search_btn.clicked.connect(self.clear_search)
+        button_layout.addWidget(clear_search_btn)
+        
+        button_layout.addStretch()  # 添加弹性空间
+        
+        select_btn = QPushButton("选择")
+        select_btn.clicked.connect(self.accept)
+        button_layout.addWidget(select_btn)
+        
+        cancel_btn = QPushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # 设置焦点到搜索框
+        self.search_input.setFocus()
+    
+    def populate_branch_list(self):
+        """填充分支列表"""
+        self.branch_list.clear()
+        
+        if not self.filtered_branches:
+            # 没有匹配的分支时显示提示
+            item = QListWidgetItem("没有找到匹配的分支")
+            item.setFlags(Qt.NoItemFlags)  # 不可选择
+            item.setTextAlignment(Qt.AlignCenter)
+            self.branch_list.addItem(item)
+            return
+        
+        for branch in self.filtered_branches:
+            item = QListWidgetItem(branch)
+            if branch == self.current_branch:
+                item.setText(f"★ {branch} (当前分支)")
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+                # 设置当前分支为选中状态
+                self.branch_list.addItem(item)
+                self.branch_list.setCurrentItem(item)
+            else:
+                self.branch_list.addItem(item)
+    
+    def filter_branches(self):
+        """根据搜索关键词过滤分支"""
+        search_text = self.search_input.text().lower().strip()
+        
+        if not search_text:
+            # 搜索框为空时显示所有分支
+            self.filtered_branches = self.branches.copy()
+        else:
+            # 过滤包含关键词的分支（不区分大小写）
+            self.filtered_branches = [
+                branch for branch in self.branches 
+                if search_text in branch.lower()
+            ]
+        
+        # 更新分支列表和计数
+        self.populate_branch_list()
+        self.count_label.setText(f"显示 {len(self.filtered_branches)} / {len(self.branches)} 个分支")
+    
+    def clear_search(self):
+        """清空搜索框"""
+        self.search_input.clear()
+    
+    def get_selected_branch(self):
+        """获取选中的分支"""
+        current_item = self.branch_list.currentItem()
+        if current_item and current_item.flags() != Qt.NoItemFlags:  # 确保不是提示项
+            text = current_item.text()
+            if text.startswith("★ "):
+                return text.replace("★ ", "").replace(" (当前分支)", "")
+            return text
+        return ""
 
 
 def main():
-    app = QApplication(sys.argv)
+    """主函数"""
+    debug_print("开始主函数...")
     
-    # 设置应用程序样式
-    app.setStyle('Fusion')
-    
-    window = ArtResourceManager()
-    window.show()
-    
-    sys.exit(app.exec_())
+    try:
+        debug_print("创建QApplication...")
+        app = QApplication(sys.argv)
+        debug_print("QApplication创建成功")
+        
+        # 设置应用程序样式
+        app.setStyle('Fusion')
+        debug_print("设置样式成功")
+        
+        debug_print("创建主窗口...")
+        window = ArtResourceManager()
+        debug_print("主窗口创建成功")
+        
+        debug_print("显示窗口...")
+        window.show()
+        debug_print("窗口显示成功")
+        
+        debug_print("启动事件循环...")
+        sys.exit(app.exec_())
+        
+    except Exception as e:
+        print(f"主函数错误: {e}")
+        import traceback
+        traceback.print_exc()
+        input("按Enter键退出...")
 
 
 if __name__ == '__main__':
-    main() 
+    main()
