@@ -5337,6 +5337,8 @@ class DeployRepositoriesThread(QThread):
             self.status_updated.emit("⚡ 开始执行 Pull_CommonResource.bat...")
             
             import subprocess
+            import time
+            
             # 在主仓库目录下运行脚本
             process = subprocess.Popen(
                 [script_path],
@@ -5347,29 +5349,92 @@ class DeployRepositoriesThread(QThread):
                 shell=True
             )
             
+            # 设置超时和无输出检测
+            last_output_time = time.time()
+            timeout_seconds = 300  # 5分钟超时
+            no_output_timeout = 60  # 60秒无输出超时
+            script_progress = 70  # 脚本开始时的进度
+            
             # 实时读取输出
             while True:
                 output = process.stdout.readline()
+                current_time = time.time()
+                
+                # 检查进程是否结束
                 if output == '' and process.poll() is not None:
+                    self.status_updated.emit("🔍 脚本进程已结束，正在验证结果...")
                     break
+                
+                # 检查总超时
+                if current_time - last_output_time > timeout_seconds:
+                    self.status_updated.emit("⏰ 脚本执行超时，正在终止进程...")
+                    process.terminate()
+                    process.wait(timeout=10)
+                    return False, "Pull_CommonResource.bat 执行超时"
+                
                 if output:
                     line = output.strip()
                     if line:
-                        # 显示脚本输出
+                        last_output_time = current_time  # 更新最后输出时间
+                        
+                        # 显示脚本输出并更新进度
                         if "Cloning into" in line or "Already up to date" in line:
                             self.status_updated.emit(f"📥 脚本输出: {line}")
+                            script_progress = min(85, script_progress + 5)  # 增加进度
+                            self.progress_updated.emit(script_progress)
                         elif "error:" in line.lower() or "fatal:" in line.lower():
                             self.status_updated.emit(f"❌ 脚本错误: {line}")
+                        elif "remove" in line.lower() or "rm " in line:
+                            script_progress = min(75, script_progress + 2)  # 清理阶段
+                            self.progress_updated.emit(script_progress)
+                            self.status_updated.emit(f"ℹ️ 脚本输出: {line}")
+                        elif "set and pull" in line.lower() or "submodule" in line.lower():
+                            script_progress = min(80, script_progress + 3)  # 子模块阶段
+                            self.progress_updated.emit(script_progress)
+                            self.status_updated.emit(f"ℹ️ 脚本输出: {line}")
                         elif line and not line.startswith("warning:"):
                             self.status_updated.emit(f"ℹ️ 脚本输出: {line}")
+                
+                # 检查无输出超时（仅在有输出后才开始计算）
+                elif current_time - last_output_time > no_output_timeout:
+                    # 检查进程是否还在运行
+                    if process.poll() is None:
+                        self.status_updated.emit("⏳ 脚本长时间无输出，可能正在后台处理...")
+                        self.status_updated.emit("🔍 正在检查CommonResource目录...")
+                        
+                        # 检查CommonResource目录是否存在且有内容
+                        common_resource_path = os.path.join(self.main_repo_path, "CommonResource")
+                        if os.path.exists(common_resource_path):
+                            # 检查目录是否有.git目录（表示是git仓库）
+                            git_dir = os.path.join(common_resource_path, ".git")
+                            if os.path.exists(git_dir):
+                                self.status_updated.emit("✅ 检测到CommonResource已成功拉取")
+                                self.progress_updated.emit(95)  # 更新进度到95%
+                                # 强制结束进程
+                                process.terminate()
+                                process.wait(timeout=5)
+                                break
+                        
+                        # 重置超时计时器，继续等待
+                        last_output_time = current_time
             
-            # 检查返回码
-            return_code = process.poll()
-            if return_code != 0:
-                return False, f"Pull_CommonResource.bat 执行失败，返回码: {return_code}"
-            
-            self.status_updated.emit("✅ Pull_CommonResource.bat 执行成功")
-            return True, "Pull_CommonResource.bat 执行成功"
+            # 验证拉取结果
+            common_resource_path = os.path.join(self.main_repo_path, "CommonResource")
+            if os.path.exists(common_resource_path):
+                git_dir = os.path.join(common_resource_path, ".git")
+                if os.path.exists(git_dir):
+                    self.status_updated.emit("✅ Pull_CommonResource.bat 执行成功")
+                    self.status_updated.emit(f"📁 CommonResource目录已创建: {common_resource_path}")
+                    return True, "Pull_CommonResource.bat 执行成功，CommonResource已拉取"
+                else:
+                    return False, "CommonResource目录存在但不是Git仓库"
+            else:
+                # 检查返回码
+                return_code = process.poll()
+                if return_code is not None and return_code != 0:
+                    return False, f"Pull_CommonResource.bat 执行失败，返回码: {return_code}"
+                else:
+                    return False, "Pull_CommonResource.bat 执行完成但CommonResource目录未创建"
             
         except Exception as e:
             return False, f"运行 Pull_CommonResource.bat 失败: {str(e)}"
