@@ -1,14 +1,13 @@
 {
-  "svn_path": "G:/minirepo/AssetRuntime_Branch07/assetruntime/CommonResource/Assets",
-  "git_path": "G:/minirepo/AssetRuntime_Branch07/assetruntime/CommonResource",
-  "editor_path": "E:/RPGame5.6.9a",
+  "svn_path": "G:/Svn_repo/MiniProject_Art_NewPrefab",
+  "git_path": "G:/minirepo/AssetRuntime_Branch08/assetruntime/CommonResource",
   "window_geometry": {
-    "x": -2159,
-    "y": 340,
-    "width": 1200,
-    "height": 800
+    "x": -1853,
+    "y": 336,
+    "width": 1733,
+    "height": 1046
   },
-  "last_selected_branch": "Alpha_v1.46.0_zhouqiang",
+  "last_selected_branch": "★ user/dingyiyang/test-1.47 (当前)",
   "resource_types": {
     "prefab": true,
     "material": true,
@@ -16,6 +15,18 @@
     "animation": true,
     "script": true
   },
-  "recent_files": [],
-  "max_recent_files": 10
+  "recent_files": [
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\mask_18.png.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\mask_18.png",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\all.filelist.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\all.filelist",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\18.prefab.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\18.prefab",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\18.png.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\18.png",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\18.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_18\\18.mesh"
+  ],
+  "max_recent_files": 10,
+  "editor_path": "E:/RPGame5.6.9a"
 }

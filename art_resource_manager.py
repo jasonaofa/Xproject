@@ -820,6 +820,9 @@ class GitSvnManager:
             
         self.git_path = git_path
         self.svn_path = svn_path
+        
+        # 不自动配置Git换行符，保护团队协作环境
+        print(f"   📝 Git换行符处理：手动解决模式（保护团队协作）")
     
     def _clear_branch_cache(self):
         """清除分支缓存"""
@@ -1248,6 +1251,9 @@ class GitSvnManager:
             print(f"   开始时间: {time.strftime('%H:%M:%S')}")
             print(f"   文件数量: {len(source_files)}")
             
+            # 0. 不自动配置Git换行符，避免影响团队协作
+            print(f"🔧 [DEBUG] 使用标准Git操作，遇到CRLF问题时提供解决指导")
+            
             # 1. 检测是否为子仓库
             print(f"🔍 [DEBUG] 检测仓库类型...")
             is_submodule = self._detect_submodule()
@@ -1355,17 +1361,16 @@ class GitSvnManager:
                 relative_path = os.path.relpath(file_path, self.git_path)
                 relative_paths.append(relative_path)
             
-            # 使用git add . 或批量添加来提高性能
+            # 使用标准git add，遇到CRLF问题时提供明确指导
             if len(relative_paths) > 10:  # 文件较多时使用批量操作
                 print(f"   使用批量添加模式...")
-                # 切换到Git目录并添加所有相关文件
                 result = subprocess.run(['git', 'add'] + relative_paths, 
                                       cwd=self.git_path, 
                                       capture_output=True, 
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=60)  # 60秒超时
+                                      timeout=60)
             else:
                 print(f"   使用逐个添加模式...")
                 # 逐个添加文件
@@ -1379,11 +1384,32 @@ class GitSvnManager:
                                           timeout=30)
                     if result.returncode != 0:
                         print(f"   ❌ 添加文件失败: {relative_path} - {result.stderr}")
-                        return False, f"添加文件到Git失败: {result.stderr}"
+                        break
             
             if result.returncode != 0:
                 print(f"   ❌ 批量添加失败: {result.stderr}")
-                return False, f"添加文件到Git失败: {result.stderr}"
+                
+                # 检查是否为CRLF问题，提供保守的解决方案
+                if "LF would be replaced by CRLF" in result.stderr or "CRLF would be replaced by LF" in result.stderr:
+                    error_msg = (
+                        "🚨 Git换行符冲突检测到！\n\n"
+                        "💡 这是Windows/Unix换行符差异导致的，需要手动解决以避免影响团队协作。\n\n"
+                        "🛠️ 推荐解决方案（请选择一种）：\n\n"
+                        "【方案1 - 临时解决】\n"
+                        "在目标Git仓库中执行：\n"
+                        "git config core.safecrlf false\n"
+                        "然后重新推送\n\n"
+                        "【方案2 - 使用工具】\n"
+                        "运行独立修复工具：\n"
+                        f"python fix_git_crlf.py \"{self.git_path}\"\n\n"
+                        "【方案3 - 手动处理】\n"
+                        "使用'重置更新仓库'功能重新初始化\n\n"
+                        "⚠️ 注意：为保证团队协作，建议与团队讨论后再修改Git配置\n\n"
+                        f"详细错误: {result.stderr}"
+                    )
+                    return False, error_msg
+                else:
+                    return False, f"添加文件到Git失败: {result.stderr}"
             else:
                 print(f"   ✅ 文件添加成功")
             
@@ -1485,6 +1511,169 @@ class GitSvnManager:
         except Exception as e:
             return False, f"推送过程中发生异常: {str(e)}"
     
+    def _configure_git_line_endings(self):
+        """配置Git换行符处理，解决CRLF问题（保守方式）"""
+        try:
+            # 检查是否已经配置过，避免重复设置
+            if hasattr(self, '_git_crlf_configured') and self._git_crlf_configured:
+                print(f"   ✅ Git换行符设置已配置，跳过")
+                return
+            
+            print(f"   检查当前Git换行符配置...")
+            
+            # 检查当前的autocrlf设置
+            result = subprocess.run(['git', 'config', '--get', 'core.autocrlf'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=10)
+            
+            current_autocrlf = result.stdout.strip() if result.returncode == 0 else ""
+            print(f"   当前 core.autocrlf = '{current_autocrlf}'")
+            
+            # 只在必要时修改设置（更保守的方式）
+            if current_autocrlf.lower() in ['true', 'input']:
+                print(f"   设置core.autocrlf=false（从 '{current_autocrlf}' 修改）...")
+                result = subprocess.run(['git', 'config', 'core.autocrlf', 'false'], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=10)
+                
+                if result.returncode == 0:
+                    print(f"   ✅ core.autocrlf 设置成功")
+                else:
+                    print(f"   ⚠️ core.autocrlf 设置失败: {result.stderr}")
+            else:
+                print(f"   ✅ core.autocrlf 无需修改")
+            
+            # 设置 core.safecrlf=false，但只在遇到CRLF问题时
+            print(f"   配置core.safecrlf=false...")
+            result = subprocess.run(['git', 'config', 'core.safecrlf', 'false'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=10)
+            
+            if result.returncode == 0:
+                print(f"   ✅ core.safecrlf 设置成功")
+            else:
+                print(f"   ⚠️ core.safecrlf 设置失败: {result.stderr}")
+                
+            # 检查是否需要创建.gitattributes（更保守）
+            gitattributes_path = os.path.join(self.git_path, '.gitattributes')
+            if not os.path.exists(gitattributes_path):
+                print(f"   创建.gitattributes文件...")
+                self._create_gitattributes_file()
+            else:
+                print(f"   ✅ .gitattributes文件已存在，跳过创建")
+            
+            # 标记已配置，避免重复
+            self._git_crlf_configured = True
+            
+        except Exception as e:
+            print(f"   ❌ 配置Git换行符处理失败: {e}")
+    
+    def _create_gitattributes_file(self):
+        """创建或更新.gitattributes文件来控制换行符处理"""
+        try:
+            gitattributes_path = os.path.join(self.git_path, '.gitattributes')
+            
+            # 检查文件是否已存在
+            if os.path.exists(gitattributes_path):
+                with open(gitattributes_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    existing_content = f.read()
+                print(f"   📄 .gitattributes 文件已存在")
+            else:
+                existing_content = ""
+                print(f"   📄 创建新的 .gitattributes 文件")
+            
+            # 定义需要添加的规则
+            rules_to_add = [
+                "# 设置默认行为，以防人们没有设置core.autocrlf",
+                "* text=auto",
+                "",
+                "# 声明想要始终被规范化并转换为本地行结束的文件",
+                "*.c text",
+                "*.h text",
+                "*.py text",
+                "",
+                "# 声明想要始终保持LF的文件，即使在Windows上",
+                "*.sh text eol=lf",
+                "",
+                "# 二进制文件应该不被修改",
+                "*.png binary",
+                "*.jpg binary",
+                "*.jpeg binary",
+                "*.gif binary",
+                "*.ico binary",
+                "*.mov binary",
+                "*.mp4 binary",
+                "*.mp3 binary",
+                "*.flv binary",
+                "*.fla binary",
+                "*.swf binary",
+                "*.gz binary",
+                "*.zip binary",
+                "*.7z binary",
+                "*.ttf binary",
+                "*.eot binary",
+                "*.woff binary",
+                "*.pyc binary",
+                "*.pdf binary",
+                "*.dll binary",
+                "*.exe binary",
+                "*.so binary",
+                "*.dylib binary",
+                "",
+                "# Unity特定文件",
+                "*.prefab text",
+                "*.unity text",
+                "*.asset text",
+                "*.mat text",
+                "*.anim text",
+                "*.controller text",
+                "*.meta text",
+                "*.cs text",
+                "*.js text",
+                "",
+                "# 特殊的Unity二进制文件",
+                "*.fbx binary",
+                "*.mesh binary",
+                "*.terraindata binary",
+                "*.cubemap binary",
+                "*.unitypackage binary"
+            ]
+            
+            # 检查是否需要添加规则
+            needs_update = False
+            rules_content = "\n".join(rules_to_add)
+            
+            if "* text=auto" not in existing_content:
+                needs_update = True
+            
+            if needs_update:
+                # 如果文件存在但需要更新，在末尾添加规则
+                if existing_content and not existing_content.endswith('\n'):
+                    existing_content += '\n'
+                
+                new_content = existing_content + '\n' + rules_content + '\n'
+                
+                with open(gitattributes_path, 'w', encoding='utf-8', newline='\n') as f:
+                    f.write(new_content)
+                print(f"   ✅ .gitattributes 文件已更新")
+            else:
+                print(f"   ✅ .gitattributes 文件已包含必要规则")
+                
+        except Exception as e:
+            print(f"   ❌ 创建.gitattributes文件失败: {e}")
+
     def _detect_submodule(self) -> bool:
         """检测当前仓库是否为子模块"""
         try:
@@ -3180,7 +3369,11 @@ class SimpleBranchComboBox(QComboBox):
     def set_branches(self, branches, current_branch="", force_update=False):
         """设置分支列表"""
         # 检查是否应该跳过更新（保护用户交互）
-        if not force_update and self._is_recent_user_interaction():
+        # 但是如果当前分支已经改变，应该强制更新显示
+        current_combo_branch = self.get_current_branch_name()
+        branch_changed = current_combo_branch != current_branch and current_branch
+        
+        if not force_update and not branch_changed and self._is_recent_user_interaction():
             print(f"🛡️ [DEBUG] 检测到近期用户交互，跳过分支列表更新")
             return
         
@@ -3210,6 +3403,12 @@ class SimpleBranchComboBox(QComboBox):
                             self.setCurrentIndex(i)
                             print(f"🎯 [DEBUG] 通过匹配设置当前分支选中: {current_branch} (索引: {i})")
                             break
+                
+                # 如果分支发生了变化，重置用户交互标志
+                if branch_changed:
+                    self._user_is_interacting = False
+                    print(f"🔄 [DEBUG] 分支已切换，重置用户交互标志: {current_combo_branch} -> {current_branch}")
+                    
         finally:
             # 重新连接信号
             self.currentIndexChanged.connect(self._on_user_selection_changed)
@@ -3233,7 +3432,7 @@ class SimpleBranchComboBox(QComboBox):
     def _is_recent_user_interaction(self) -> bool:
         """检查是否为近期用户交互"""
         import time
-        return (time.time() - self._last_user_interaction_time) < 3.0  # 3秒内算作近期交互
+        return self._user_is_interacting and (time.time() - self._last_user_interaction_time) < 3.0  # 3秒内算作近期交互
     
     def get_current_branch_name(self):
         """获取当前选中的分支名称（去除装饰）"""
@@ -3438,6 +3637,9 @@ class ArtResourceManager(QMainWindow):
                 # 🔄 启动后台完整分支获取（延迟启动，避免阻塞界面）
                 print("🌐 [DEBUG] 准备后台获取完整分支列表...")
                 QTimer.singleShot(1000, lambda: self.refresh_branches_async(fast_mode=True, ultra_fast=False))
+                
+                # 设置定时器定期检查当前分支显示
+                self.setup_branch_sync_timer()
             
             print("✅ [DEBUG] 配置加载完成")
             
@@ -3472,6 +3674,11 @@ class ArtResourceManager(QMainWindow):
         
     def closeEvent(self, event):
         """程序关闭事件"""
+        # 停止定时器
+        if hasattr(self, 'branch_sync_timer'):
+            self.branch_sync_timer.stop()
+            print("⏰ [DEBUG] 分支同步定时器已停止")
+        
         self.save_settings()
         event.accept()
     
@@ -3997,9 +4204,8 @@ class ArtResourceManager(QMainWindow):
             if is_ultra_fast_result:
                 # 超快速模式的结果（只有当前分支）
                 print(f"⚡ [DEBUG] 超快速启动完成，当前分支: {current_branch}")
-                # 仅在首次加载时设置，避免覆盖用户可能的手动选择
-                if self.branch_combo.count() == 0:
-                    self.branch_combo.set_branches(branches, current_branch, force_update=True)
+                # 总是更新显示当前分支，确保分支信息同步
+                self.branch_combo.set_branches(branches, current_branch, force_update=True)
             else:
                 # 普通模式或完整分支加载的结果
                 print(f"🌐 [DEBUG] 完整分支列表加载完成，共 {len(branches)} 个分支，当前分支: {current_branch}")
@@ -4024,7 +4230,9 @@ class ArtResourceManager(QMainWindow):
                     delattr(self, '_force_branch_update')
                 
                 # 如果用户之前有选择且该分支仍然存在，恢复用户的选择
-                if user_selected_branch and user_selected_branch != current_branch and user_selected_branch in branches:
+                # 但只有在该分支不是当前分支时才恢复
+                if (user_selected_branch and user_selected_branch != current_branch and 
+                    user_selected_branch in branches):
                     for i in range(self.branch_combo.count()):
                         item_text = self.branch_combo.itemText(i)
                         if (user_selected_branch in item_text and 
@@ -4061,6 +4269,39 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(f"当前分支: {current_branch}")
         else:
             self.log_text.append("⚠️ 未获取到任何分支")
+    
+    def setup_branch_sync_timer(self):
+        """设置分支同步定时器"""
+        self.branch_sync_timer = QTimer(self)
+        self.branch_sync_timer.timeout.connect(self.sync_current_branch_display)
+        # 每30秒检查一次当前分支显示
+        self.branch_sync_timer.start(30000)
+        print("⏰ [DEBUG] 分支同步定时器已启动 (30秒间隔)")
+    
+    def sync_current_branch_display(self):
+        """同步当前分支显示"""
+        try:
+            if not self.git_path_edit.text():
+                return
+            
+            # 获取当前分支
+            current_branch = self.git_manager.get_current_branch()
+            if not current_branch:
+                return
+            
+            # 获取组合框当前显示的分支
+            current_combo_branch = self.branch_combo.get_current_branch_name()
+            
+            # 如果当前分支与显示的分支不一致，且不是用户正在交互
+            if (current_branch != current_combo_branch and 
+                not self.branch_combo._is_recent_user_interaction()):
+                
+                print(f"🔄 [DEBUG] 检测到分支变化: {current_combo_branch} -> {current_branch}")
+                # 触发快速分支刷新
+                self.refresh_branches_async(fast_mode=True, ultra_fast=True, force_update_ui=True)
+                
+        except Exception as e:
+            print(f"❌ [DEBUG] 同步分支显示失败: {e}")
     
     def show_current_branch(self):
         """显示当前分支"""
@@ -4135,6 +4376,9 @@ class ArtResourceManager(QMainWindow):
                 
                 # 异步刷新分支列表，避免阻塞界面（强制更新，因为分支已切换）
                 self.refresh_branches_async(fast_mode=True, force_update_ui=True)
+                
+                # 重置用户交互标志，确保能立即更新显示
+                self.branch_combo._user_is_interacting = False
             else:
                 self.log_text.append(f"❌ 分支切换失败: {message}")
                 self.result_text.append(f"❌ 分支切换失败: {current_branch} -> {selected_branch}")
