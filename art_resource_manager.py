@@ -45,8 +45,8 @@ class ResourceDependencyAnalyzer:
     """资源依赖分析器"""
     
     def __init__(self):
-        # Unity资源文件扩展名到依赖字段的映射
-        self.unity_extensions = {
+        # 编辑器资源文件扩展名到依赖字段的映射
+        self.editor_extensions = {
             '.prefab', '.mat', '.controller', '.anim', '.asset', 
             '.unity', '.fbx', '.png', '.jpg', '.jpeg', '.tga', '.psd'
         }
@@ -81,8 +81,8 @@ class ResourceDependencyAnalyzer:
             print(f"解析meta文件失败: {meta_path}, 错误: {e}")
         return None
     
-    def parse_unity_asset(self, file_path: str) -> Set[str]:
-        """解析Unity资源文件，提取依赖的GUID"""
+    def parse_editor_asset(self, file_path: str) -> Set[str]:
+        """解析编辑器资源文件，提取依赖的GUID"""
         dependencies = set()
         
         try:
@@ -106,7 +106,7 @@ class ResourceDependencyAnalyzer:
         return dependencies
     
     def _parse_json_asset(self, content: str, file_path: str) -> Set[str]:
-        """解析JSON格式的Unity资源文件"""
+        """解析JSON格式的编辑器资源文件"""
         dependencies = set()
         
         try:
@@ -133,7 +133,7 @@ class ResourceDependencyAnalyzer:
         return dependencies
     
     def _parse_yaml_asset(self, content: str, file_path: str) -> Set[str]:
-        """解析YAML格式的Unity资源文件"""
+        """解析YAML格式的编辑器资源文件"""
         dependencies = set()
         
         try:
@@ -206,7 +206,7 @@ class ResourceDependencyAnalyzer:
             for file_path in all_files:
                 if file_path.endswith('.meta'):
                     report['files']['meta_files'].append(file_path)
-                elif any(file_path.lower().endswith(ext) for ext in self.unity_extensions):
+                elif any(file_path.lower().endswith(ext) for ext in self.editor_extensions):
                     report['files']['asset_files'].append(file_path)
                 else:
                     report['files']['other_files'].append(file_path)
@@ -225,7 +225,7 @@ class ResourceDependencyAnalyzer:
             # 4. 分析依赖关系
             for asset_file in report['files']['asset_files']:
                 if os.path.exists(asset_file):
-                    deps = self.parse_unity_asset(asset_file)
+                    deps = self.parse_editor_asset(asset_file)
                     if deps:
                         report['dependencies'][asset_file] = list(deps)
             
@@ -295,8 +295,8 @@ class ResourceDependencyAnalyzer:
         """获取所有文件的依赖关系"""
         all_deps = {}
         for file_path in file_paths:
-            if any(file_path.lower().endswith(ext) for ext in self.unity_extensions):
-                deps = self.parse_unity_asset(file_path)
+            if any(file_path.lower().endswith(ext) for ext in self.editor_extensions):
+                deps = self.parse_editor_asset(file_path)
                 if deps:
                     all_deps[file_path] = deps
         return all_deps
@@ -315,7 +315,7 @@ class ResourceDependencyAnalyzer:
             'summary': {}
         }
         
-        # Unity内置GUID（不需要检查的系统资源）
+        # 编辑器内置GUID（不需要检查的系统资源）
         builtin_guids = {
             "0000000000000000e000000000000000",  # Built-in Shader
             "0000000000000000f000000000000000",  # Built-in Extra
@@ -1622,12 +1622,12 @@ class GitSvnManager:
             else:
                 print(f"   ✅ 路径验证通过，无重复目录")
             
-            # 验证Unity资源路径结构
+            # 验证编辑器资源路径结构
             if 'Assets\\Resources\\' in target_path:
-                print(f"   ✅ 检测到标准Unity Resources路径结构")
+                print(f"   ✅ 检测到标准编辑器 Resources路径结构")
             elif 'Assets\\' in target_path and 'Resources' not in target_path:
                 print(f"   ⚠️ 注意：路径中包含Assets但没有Resources目录")
-                print(f"       这可能是特殊的Unity资源类型")
+                print(f"       这可能是特殊的编辑器资源类型")
             
             print(f"   ========================================")
             
@@ -2422,7 +2422,7 @@ class ResourceChecker(QThread):
                 if not file_path.endswith('.meta'):
                     try:
                         # 分析文件中引用的GUID
-                        referenced_guids = self.analyzer.parse_unity_asset(file_path)
+                        referenced_guids = self.analyzer.parse_editor_asset(file_path)
                         
                         if referenced_guids:
                             self.status_updated.emit(f"文件 {os.path.basename(file_path)} 引用了 {len(referenced_guids)} 个GUID")
@@ -2528,7 +2528,7 @@ class ResourceChecker(QThread):
                 try:
                     _, ext = os.path.splitext(file_path.lower())
                     if ext in self.high_priority_types or ext in self.medium_priority_types:
-                        referenced_guids = self.analyzer.parse_unity_asset(file_path)
+                        referenced_guids = self.analyzer.parse_editor_asset(file_path)
                         file_dependencies[file_path] = referenced_guids
                 except:
                     continue
@@ -2616,26 +2616,8 @@ class ResourceChecker(QThread):
                 report_lines.append(f"  - 警告/信息: {len(warning_issues)} 个")
             report_lines.append("")
             
-            # 显示检查的文件列表
-            report_lines.append("检查的文件列表:")
-            report_lines.append("-" * 40)
-            for i, file_path in enumerate(self.upload_files, 1):
-                report_lines.append(f"  {i}. {file_path}")
-            report_lines.append("")
-            
-            # 显示执行的检查项目
-            report_lines.append("执行的检查项目:")
-            report_lines.append("-" * 40)
-            report_lines.append("  ✓ Meta文件完整性检查 - 严格检查SVN和Git中的.meta文件及GUID一致性")
-            report_lines.append("  ✓ 中文字符检查 - 检查文件名是否包含中文字符")
-            report_lines.append("  ✓ 图片尺寸检查 - 检查图片尺寸是否为2的幂次且不超过2048")
-            report_lines.append("  ✓ GUID一致性检查 - 检查是否存在重复的GUID")
-            report_lines.append("  ✓ GUID唯一性检查 - 确保上传资产与Git仓库之间的GUID唯一性")
-            report_lines.append("  ✓ GUID引用完整性检查 - 确保每个引用的GUID都能找到对应文件")
-            report_lines.append("  ✓ 内部依赖完整性检查 - 检查本次推送文件包的依赖关系")
-            report_lines.append("")
-            
             if all_issues:
+                # 首先显示问题分类统计
                 report_lines.append("问题分类统计:")
                 report_lines.append("-" * 40)
                 
@@ -2678,7 +2660,7 @@ class ResourceChecker(QThread):
                     'meta_no_guid': 'Meta文件缺少GUID - .meta文件中没有找到guid字段',
                     'meta_read_error': 'Meta文件读取错误 - 无法读取.meta文件内容',
                     'meta_check_error': 'Meta文件检查错误 - 检查过程中发生异常',
-                    'chinese_filename': '文件名包含中文字符 - 不建议在Unity资源文件名中使用中文',
+                    'chinese_filename': '文件名包含中文字符 - 不建议在编辑器资源文件名中使用中文',
                     'chinese_check_error': '中文字符检查错误 - 检查过程中发生异常',
                     'image_width_not_power_of_2': '图片宽度不是2的幂次 - 建议使用2^n尺寸以优化性能',
                     'image_height_not_power_of_2': '图片高度不是2的幂次 - 建议使用2^n尺寸以优化性能',
@@ -2693,6 +2675,96 @@ class ResourceChecker(QThread):
                     description = type_descriptions.get(issue_type, f'未知问题类型: {issue_type}')
                     report_lines.append(f"  • {issue_type}: {len(issues)} 个")
                     report_lines.append(f"    说明: {description}")
+                report_lines.append("")
+                
+                # 添加修复建议（移到详细问题列表之前）
+                report_lines.append("修复建议:")
+                report_lines.append("=" * 60)
+                
+                if 'meta_missing_both' in issues_by_type:
+                    report_lines.append("\n【meta_missing_both】修复建议:")
+                    report_lines.append("  1. 在编辑器中重新导入这些资源文件")
+                    report_lines.append("  2. 或者手动创建.meta文件并生成GUID")
+                
+                if 'meta_missing_svn' in issues_by_type:
+                    report_lines.append("\n【meta_missing_svn】修复建议:")
+                    report_lines.append("  1. 从Git仓库复制对应的.meta文件到SVN目录")
+                    report_lines.append("  2. 确保文件名和路径完全匹配")
+                
+                if 'meta_missing_git' in issues_by_type:
+                    report_lines.append("\n【meta_missing_git】修复建议:")
+                    report_lines.append("  1. 推送操作会自动将SVN中的.meta文件复制到Git")
+                    report_lines.append("  2. 无需手动处理")
+                
+                if 'guid_mismatch' in issues_by_type:
+                    report_lines.append("\n【guid_mismatch】修复建议:")
+                    report_lines.append("  1. 确定哪个GUID是正确的（通常Git中的更权威）")
+                    report_lines.append("  2. 更新SVN中的.meta文件使其与Git保持一致")
+                    report_lines.append("  3. 或者在编辑器中重新生成.meta文件")
+                
+                if any(t in issues_by_type for t in ['chinese_filename']):
+                    report_lines.append("\n【chinese_filename】修复建议:")
+                    report_lines.append("  1. 重命名文件，使用英文名称")
+                    report_lines.append("  2. 更新引用该文件的其他资源")
+                
+                if any(t in issues_by_type for t in ['image_width_not_power_of_2', 'image_height_not_power_of_2']):
+                    report_lines.append("\n【图片尺寸】修复建议:")
+                    report_lines.append("  1. 使用图像编辑软件调整图片尺寸为2的幂次")
+                    report_lines.append("  2. 常用尺寸: 32, 64, 128, 256, 512, 1024, 2048")
+                    report_lines.append("  3. 在编辑器Import Settings中设置合适的压缩格式")
+                
+                if 'guid_reference_missing' in issues_by_type:
+                    report_lines.append("\n【guid_reference_missing】修复建议:")
+                    report_lines.append("  1. 找到缺失的资源文件并添加到推送列表中")
+                    report_lines.append("  2. 检查资源文件是否已存在于Git仓库中")
+                    report_lines.append("  3. 如果是编辑器内置资源，请检查GUID是否正确")
+                    report_lines.append("  4. 考虑是否需要重新生成资源的依赖关系")
+                
+                if 'internal_dependency_missing' in issues_by_type:
+                    report_lines.append("\n【internal_dependency_missing】修复建议:")
+                    report_lines.append("  1. 将缺失的依赖文件添加到推送列表中")
+                    report_lines.append("  2. 确保所有相关文件都一起推送")
+                    report_lines.append("  3. 检查文件路径是否正确")
+                
+                if 'potentially_orphaned_file' in issues_by_type:
+                    report_lines.append("\n【potentially_orphaned_file】修复建议:")
+                    report_lines.append("  1. 确认这些文件是否真的需要推送")
+                    report_lines.append("  2. 检查是否有其他文件引用了这些资源")
+                    report_lines.append("  3. 如果确实不需要，可以从推送列表中移除")
+                    report_lines.append("  4. 如果是入口文件（如prefab），则可以忽略此警告")
+                
+                # GUID唯一性问题的修复建议
+                if 'guid_duplicate_internal' in issues_by_type:
+                    report_lines.append("\n【guid_duplicate_internal】修复建议:")
+                    report_lines.append("  1. 检查重复GUID的文件是否是同一个文件的不同副本")
+                    report_lines.append("  2. 如果是重复文件，保留一个并移除其他副本")
+                    report_lines.append("  3. 如果是不同文件但GUID相同，在编辑器中重新生成其中一个文件的.meta")
+                    report_lines.append("  4. 确保每个资源文件都有唯一的GUID")
+                
+                if 'guid_file_update' in issues_by_type:
+                    report_lines.append("\n【guid_file_update】处理说明:")
+                    report_lines.append("  ℹ️ 这些是正常的文件更新操作，不是错误")
+                    report_lines.append("  1. 这些文件已存在于Git仓库中，您正在更新它们")
+                    report_lines.append("  2. 推送后，Git中的文件将被您的新版本覆盖")
+                    report_lines.append("  3. 如果确认要更新，可以继续推送操作")
+                    report_lines.append("  4. 如果不想更新某些文件，请从上传列表中移除它们")
+                
+                if 'guid_duplicate_git' in issues_by_type:
+                    report_lines.append("\n【guid_duplicate_git】修复建议:")
+                    report_lines.append("  ⚠️ 这是真正的GUID冲突，需要处理")
+                    report_lines.append("  1. 不同的文件不能使用相同的GUID")
+                    report_lines.append("  2. 在编辑器中删除冲突文件的.meta文件")
+                    report_lines.append("  3. 重新导入文件，让编辑器生成新的GUID")
+                    report_lines.append("  4. 或者检查是否误选了错误的文件进行上传")
+                    report_lines.append("  5. 确保每个资源文件都有唯一的GUID")
+                
+                if 'guid_parse_error' in issues_by_type:
+                    report_lines.append("\n【guid_parse_error】修复建议:")
+                    report_lines.append("  1. 检查相关文件的.meta文件是否格式正确")
+                    report_lines.append("  2. 在编辑器中重新导入出错的文件")
+                    report_lines.append("  3. 删除损坏的.meta文件，让编辑器重新生成")
+                    report_lines.append("  4. 确保文件编码为UTF-8格式")
+                
                 report_lines.append("")
                 
                 report_lines.append("详细问题列表:")
@@ -2761,93 +2833,24 @@ class ResourceChecker(QThread):
                         
                         report_lines.append("")
                 
-                # 添加修复建议
-                report_lines.append("\n修复建议:")
-                report_lines.append("=" * 60)
+                # 在报告最后添加执行的检查项目和文件列表
+                report_lines.append("\n执行的检查项目:")
+                report_lines.append("-" * 40)
+                report_lines.append("  ✓ Meta文件完整性检查 - 严格检查SVN和Git中的.meta文件及GUID一致性")
+                report_lines.append("  ✓ 中文字符检查 - 检查文件名是否包含中文字符")
+                report_lines.append("  ✓ 图片尺寸检查 - 检查图片尺寸是否为2的幂次且不超过2048")
+                report_lines.append("  ✓ GUID一致性检查 - 检查是否存在重复的GUID")
+                report_lines.append("  ✓ GUID唯一性检查 - 确保上传资产与Git仓库之间的GUID唯一性")
+                report_lines.append("  ✓ GUID引用完整性检查 - 确保每个引用的GUID都能找到对应文件")
+                report_lines.append("  ✓ 内部依赖完整性检查 - 检查本次推送文件包的依赖关系")
+                report_lines.append("")
                 
-                if 'meta_missing_both' in issues_by_type:
-                    report_lines.append("\n【meta_missing_both】修复建议:")
-                    report_lines.append("  1. 在Unity编辑器中重新导入这些资源文件")
-                    report_lines.append("  2. 或者手动创建.meta文件并生成GUID")
-                
-                if 'meta_missing_svn' in issues_by_type:
-                    report_lines.append("\n【meta_missing_svn】修复建议:")
-                    report_lines.append("  1. 从Git仓库复制对应的.meta文件到SVN目录")
-                    report_lines.append("  2. 确保文件名和路径完全匹配")
-                
-                if 'meta_missing_git' in issues_by_type:
-                    report_lines.append("\n【meta_missing_git】修复建议:")
-                    report_lines.append("  1. 推送操作会自动将SVN中的.meta文件复制到Git")
-                    report_lines.append("  2. 无需手动处理")
-                
-                if 'guid_mismatch' in issues_by_type:
-                    report_lines.append("\n【guid_mismatch】修复建议:")
-                    report_lines.append("  1. 确定哪个GUID是正确的（通常Git中的更权威）")
-                    report_lines.append("  2. 更新SVN中的.meta文件使其与Git保持一致")
-                    report_lines.append("  3. 或者在Unity中重新生成.meta文件")
-                
-                if any(t in issues_by_type for t in ['chinese_filename']):
-                    report_lines.append("\n【chinese_filename】修复建议:")
-                    report_lines.append("  1. 重命名文件，使用英文名称")
-                    report_lines.append("  2. 更新引用该文件的其他资源")
-                
-                if any(t in issues_by_type for t in ['image_width_not_power_of_2', 'image_height_not_power_of_2']):
-                    report_lines.append("\n【图片尺寸】修复建议:")
-                    report_lines.append("  1. 使用图像编辑软件调整图片尺寸为2的幂次")
-                    report_lines.append("  2. 常用尺寸: 32, 64, 128, 256, 512, 1024, 2048")
-                    report_lines.append("  3. 在Unity Import Settings中设置合适的压缩格式")
-                
-                if 'guid_reference_missing' in issues_by_type:
-                    report_lines.append("\n【guid_reference_missing】修复建议:")
-                    report_lines.append("  1. 找到缺失的资源文件并添加到推送列表中")
-                    report_lines.append("  2. 检查资源文件是否已存在于Git仓库中")
-                    report_lines.append("  3. 如果是Unity内置资源，请检查GUID是否正确")
-                    report_lines.append("  4. 考虑是否需要重新生成资源的依赖关系")
-                
-                if 'internal_dependency_missing' in issues_by_type:
-                    report_lines.append("\n【internal_dependency_missing】修复建议:")
-                    report_lines.append("  1. 将缺失的依赖文件添加到推送列表中")
-                    report_lines.append("  2. 确保所有相关文件都一起推送")
-                    report_lines.append("  3. 检查文件路径是否正确")
-                
-                if 'potentially_orphaned_file' in issues_by_type:
-                    report_lines.append("\n【potentially_orphaned_file】修复建议:")
-                    report_lines.append("  1. 确认这些文件是否真的需要推送")
-                    report_lines.append("  2. 检查是否有其他文件引用了这些资源")
-                    report_lines.append("  3. 如果确实不需要，可以从推送列表中移除")
-                    report_lines.append("  4. 如果是入口文件（如prefab），则可以忽略此警告")
-                
-                # 新增GUID唯一性问题的修复建议
-                if 'guid_duplicate_internal' in issues_by_type:
-                    report_lines.append("\n【guid_duplicate_internal】修复建议:")
-                    report_lines.append("  1. 检查重复GUID的文件是否是同一个文件的不同副本")
-                    report_lines.append("  2. 如果是重复文件，保留一个并移除其他副本")
-                    report_lines.append("  3. 如果是不同文件但GUID相同，在Unity中重新生成其中一个文件的.meta")
-                    report_lines.append("  4. 确保每个资源文件都有唯一的GUID")
-                
-                if 'guid_file_update' in issues_by_type:
-                    report_lines.append("\n【guid_file_update】处理说明:")
-                    report_lines.append("  ℹ️ 这些是正常的文件更新操作，不是错误")
-                    report_lines.append("  1. 这些文件已存在于Git仓库中，您正在更新它们")
-                    report_lines.append("  2. 推送后，Git中的文件将被您的新版本覆盖")
-                    report_lines.append("  3. 如果确认要更新，可以继续推送操作")
-                    report_lines.append("  4. 如果不想更新某些文件，请从上传列表中移除它们")
-                
-                if 'guid_duplicate_git' in issues_by_type:
-                    report_lines.append("\n【guid_duplicate_git】修复建议:")
-                    report_lines.append("  ⚠️ 这是真正的GUID冲突，需要处理")
-                    report_lines.append("  1. 不同的文件不能使用相同的GUID")
-                    report_lines.append("  2. 在Unity编辑器中删除冲突文件的.meta文件")
-                    report_lines.append("  3. 重新导入文件，让Unity生成新的GUID")
-                    report_lines.append("  4. 或者检查是否误选了错误的文件进行上传")
-                    report_lines.append("  5. 确保每个资源文件都有唯一的GUID")
-                
-                if 'guid_parse_error' in issues_by_type:
-                    report_lines.append("\n【guid_parse_error】修复建议:")
-                    report_lines.append("  1. 检查相关文件的.meta文件是否格式正确")
-                    report_lines.append("  2. 在Unity编辑器中重新导入出错的文件")
-                    report_lines.append("  3. 删除损坏的.meta文件，让Unity重新生成")
-                    report_lines.append("  4. 确保文件编码为UTF-8格式")
+                # 显示检查的文件列表
+                report_lines.append("检查的文件列表:")
+                report_lines.append("-" * 40)
+                for i, file_path in enumerate(self.upload_files, 1):
+                    report_lines.append(f"  {i}. {file_path}")
+                report_lines.append("")
             
             else:
                 report_lines.append("🎉 所有检查项目都通过了！")
