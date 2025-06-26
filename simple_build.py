@@ -18,7 +18,8 @@ def main():
         sys.executable, "-m", "PyInstaller",
         "--onefile",
         "--windowed", 
-        "--name=ArtResourceManager",
+        "--name=美术资源上传工具",
+        "--icon=app_icon.ico",
         "art_resource_manager.py"
     ]
     

@@ -1404,7 +1404,7 @@ class GitSvnManager:
                 print(f"   ⚠️ 没有检测到更改或状态检查失败")
             
             # 4.3. 提交更改
-            commit_message = f"Add {len(copied_files)} resource files via Art Resource Manager"
+            commit_message = f"{len(copied_files)} 个文件被提交，来自美术自资产上传工具。"
             print(f"   提交更改: {commit_message}")
             
             result = subprocess.run(['git', 'commit', '-m', commit_message], 
@@ -3289,7 +3289,7 @@ class ArtResourceManager(QMainWindow):
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("美术资源管理工具")
+        self.setWindowTitle("美术资源管理工具 v0.0.1")
         
         # 从配置加载窗口几何信息
         geometry = self.config_manager.get_window_geometry()

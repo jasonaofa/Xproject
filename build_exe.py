@@ -73,7 +73,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='ArtResourceManager',
+    name='美术资源上传工具',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -86,7 +86,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # 如果有图标文件，可以在这里指定
+    icon='app_icon.ico',  # 指定图标文件
 )
 '''
     
@@ -137,9 +137,9 @@ def clean_build_files():
 
 def copy_exe_to_root():
     """将生成的exe文件复制到项目根目录"""
-    exe_path = Path("dist/ArtResourceManager.exe")
+    exe_path = Path("dist/美术资源上传工具.exe")
     if exe_path.exists():
-        shutil.copy2(exe_path, "ArtResourceManager.exe")
+        shutil.copy2(exe_path, "美术资源上传工具.exe")
         print("✅ exe文件已复制到项目根目录")
         
         # 删除dist目录
@@ -166,6 +166,15 @@ def main():
         print("请确保在项目根目录运行此脚本")
         return False
     
+    # 检查图标文件
+    if not os.path.exists("app_icon.ico"):
+        print("⚠️  警告：未找到 app_icon.ico 图标文件")
+        print("💡 提示：")
+        print("  1. 将您的图标文件重命名为 app_icon.ico 并放在项目根目录")
+        print("  2. 或使用 convert_to_ico.py 脚本转换其他格式的图片")
+        print("  3. 打包将继续进行，但exe文件将使用默认图标")
+        print()
+    
     # 检查并安装PyInstaller
     if not check_pyinstaller():
         if not install_pyinstaller():
@@ -189,9 +198,9 @@ def main():
     print("🎉 打包完成！")
     print("=" * 60)
     print("📁 生成的文件:")
-    print("  ArtResourceManager.exe - 可执行文件")
+    print("  美术资源上传工具.exe - 可执行文件")
     print("\n💡 使用说明:")
-    print("  1. 双击 ArtResourceManager.exe 即可运行")
+    print("  1. 双击 美术资源上传工具.exe 即可运行")
     print("  2. 无需安装Python环境")
     print("  3. 可以分发给其他用户使用")
     print("\n⚠️  注意事项:")

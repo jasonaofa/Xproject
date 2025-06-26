@@ -1,0 +1,21 @@
+{
+  "svn_path": "E:/newprefab04",
+  "git_path": "E:/git8a/assetruntimenew/CommonResource",
+  "editor_path": "E:/RPGame5.6.9a",
+  "window_geometry": {
+    "x": -2159,
+    "y": 340,
+    "width": 1200,
+    "height": 800
+  },
+  "last_selected_branch": "",
+  "resource_types": {
+    "prefab": true,
+    "material": true,
+    "texture": true,
+    "animation": true,
+    "script": true
+  },
+  "recent_files": [],
+  "max_recent_files": 10
+}
