@@ -3461,19 +3461,7 @@ class ArtResourceManager(QMainWindow):
         
         layout.addLayout(btn_layout)
         
-        # 分支和资源类型
-        branch_layout = QHBoxLayout()
-        
-        branch_layout.addWidget(QLabel("资源类型:"))
-        self.resource_type_combo = QComboBox()
-        self.resource_type_combo.addItems(["全部", "Prefab", "Material", "Texture", "Animation", "Script"])
-        branch_layout.addWidget(self.resource_type_combo)
-        
-        self.check_btn = QPushButton("检查资源")
-        self.check_btn.clicked.connect(self.check_and_push)
-        branch_layout.addWidget(self.check_btn)
-        
-        layout.addLayout(branch_layout)
+
         
         # 分支操作
         branch_ops_layout = QHBoxLayout()
@@ -3496,18 +3484,16 @@ class ArtResourceManager(QMainWindow):
         branch_ops_layout.addWidget(self.show_current_branch_btn)
         
         layout.addLayout(branch_ops_layout)
-
-        # GUID查询
-        guid_layout = QHBoxLayout()
-        guid_layout.addWidget(QLabel("输入guid,在svn仓库查询对应资源:"))
-        self.guid_edit = QLineEdit()
-        guid_layout.addWidget(self.guid_edit)
         
-        self.query_btn = QPushButton("查询")
-        self.query_btn.clicked.connect(self.query_guid)
-        guid_layout.addWidget(self.query_btn)
+        # 高级功能分组框（可折叠）
+        advanced_group = QGroupBox("高级功能（点击展开/收起）")
+        advanced_group.setCheckable(True)
+        advanced_group.setChecked(False)  # 默认收起
+        advanced_layout = QVBoxLayout()
+        advanced_group.setLayout(advanced_layout)
         
-        layout.addLayout(guid_layout)
+        # 连接折叠功能
+        advanced_group.toggled.connect(self._toggle_advanced_features)
         
         # 路径映射测试
         test_layout = QHBoxLayout()
@@ -3520,7 +3506,19 @@ class ArtResourceManager(QMainWindow):
         self.test_path_btn.clicked.connect(self.test_path_mapping)
         test_layout.addWidget(self.test_path_btn)
         
-        layout.addLayout(test_layout)
+        advanced_layout.addLayout(test_layout)
+        
+        # GUID查询
+        guid_layout = QHBoxLayout()
+        guid_layout.addWidget(QLabel("输入GUID在SVN仓库查询对应资源:"))
+        self.guid_edit = QLineEdit()
+        guid_layout.addWidget(self.guid_edit)
+        
+        self.query_btn = QPushButton("查询")
+        self.query_btn.clicked.connect(self.query_guid)
+        guid_layout.addWidget(self.query_btn)
+        
+        advanced_layout.addLayout(guid_layout)
         
         # 路径映射管理
         mapping_layout = QHBoxLayout()
@@ -3534,7 +3532,14 @@ class ArtResourceManager(QMainWindow):
         self.toggle_mapping_btn.clicked.connect(self.toggle_path_mapping)
         mapping_layout.addWidget(self.toggle_mapping_btn)
         
-        layout.addLayout(mapping_layout)
+        advanced_layout.addLayout(mapping_layout)
+        
+        # 保存高级功能分组框的引用，用于折叠控制
+        self.advanced_group = advanced_group
+        layout.addWidget(advanced_group)
+        
+        # 初始化时隐藏高级功能内容
+        self._toggle_advanced_features(False)
         
         # 文件选择区域
         file_group = QGroupBox("选择要上传的文件（支持拖拽任意文件类型）")
@@ -3553,6 +3558,15 @@ class ArtResourceManager(QMainWindow):
         self.clear_files_btn = QPushButton("清空列表")
         self.clear_files_btn.clicked.connect(self.clear_files)
         file_btn_layout.addWidget(self.clear_files_btn)
+        
+        # 添加检查资源按钮
+        self.check_btn = QPushButton("检查资源")
+        self.check_btn.clicked.connect(self.check_and_push)
+        # 设置加粗字体
+        font = self.check_btn.font()
+        font.setBold(True)
+        self.check_btn.setFont(font)
+        file_btn_layout.addWidget(self.check_btn)
         
         file_layout.addLayout(file_btn_layout)
         
@@ -4556,6 +4570,40 @@ class ArtResourceManager(QMainWindow):
         if hasattr(self, 'toggle_mapping_btn'):
             enabled = self.git_manager.path_mapping_enabled
             self.toggle_mapping_btn.setText(f"{'禁用' if enabled else '启用'}映射")
+    
+    def _toggle_advanced_features(self, checked):
+        """控制高级功能的显示/隐藏"""
+        if hasattr(self, 'advanced_group'):
+            # 获取高级功能分组框内的所有控件
+            layout = self.advanced_group.layout()
+            if layout:
+                # 遍历布局中的所有项目并设置可见性
+                for i in range(layout.count()):
+                    item = layout.itemAt(i)
+                    if item:
+                        widget = item.widget()
+                        if widget:
+                            widget.setVisible(checked)
+                        elif hasattr(item, 'layout') and item.layout():
+                            # 如果是嵌套布局，递归设置其中控件的可见性
+                            self._set_layout_visible(item.layout(), checked)
+            
+            # 调整分组框的大小
+            if checked:
+                self.advanced_group.setMaximumHeight(16777215)  # 恢复默认最大高度
+            else:
+                self.advanced_group.setMaximumHeight(30)  # 只显示标题栏的高度
+    
+    def _set_layout_visible(self, layout, visible):
+        """递归设置布局中所有控件的可见性"""
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item:
+                widget = item.widget()
+                if widget:
+                    widget.setVisible(visible)
+                elif hasattr(item, 'layout') and item.layout():
+                    self._set_layout_visible(item.layout(), visible)
 
 
 class BranchLoadThread(QThread):
