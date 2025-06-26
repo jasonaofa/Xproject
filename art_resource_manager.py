@@ -1789,16 +1789,26 @@ class ResourceChecker(QThread):
             
             self.progress_updated.emit(100)
             
-            # 区分阻塞性错误和警告
-            # meta_missing_git 类型的问题是警告，不阻塞推送操作
-            blocking_issues = [issue for issue in all_issues if issue.get('type') != 'meta_missing_git']
-            warning_issues = [issue for issue in all_issues if issue.get('type') == 'meta_missing_git']
+            # 区分阻塞性错误和警告/信息
+            # meta_missing_git 和 guid_file_update 类型的问题是警告/信息，不阻塞推送操作
+            non_blocking_types = {'meta_missing_git', 'guid_file_update'}
+            blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
+            warning_issues = [issue for issue in all_issues if issue.get('type') in non_blocking_types]
             
             if blocking_issues:
                 self.check_completed.emit(False, f"发现 {len(blocking_issues)} 个阻塞性问题，请查看详细报告")
             else:
                 if warning_issues:
-                    self.check_completed.emit(True, f"检查通过！发现 {len(warning_issues)} 个警告（推送时会自动处理）")
+                    # 统计不同类型的非阻塞问题
+                    file_updates = len([issue for issue in warning_issues if issue.get('type') == 'guid_file_update'])
+                    other_warnings = len(warning_issues) - file_updates
+                    
+                    if file_updates > 0 and other_warnings > 0:
+                        self.check_completed.emit(True, f"检查通过！发现 {file_updates} 个文件更新和 {other_warnings} 个警告")
+                    elif file_updates > 0:
+                        self.check_completed.emit(True, f"检查通过！发现 {file_updates} 个文件更新（将覆盖Git中的现有版本）")
+                    else:
+                        self.check_completed.emit(True, f"检查通过！发现 {len(warning_issues)} 个警告（推送时会自动处理）")
                 else:
                     self.check_completed.emit(True, f"所有 {len(self.upload_files)} 个文件检查通过")
                 
@@ -2087,106 +2097,180 @@ class ResourceChecker(QThread):
         try:
             self.status_updated.emit("🔍 开始GUID唯一性检查...")
             
-            # 第一步：收集当前上传文件的所有GUID
-            self.status_updated.emit("收集当前上传文件的GUID...")
-            upload_guids = {}  # {guid: [file_path, ...]}
+            # 第一步：预处理，建立文件映射关系
+            self.status_updated.emit("分析文件结构...")
+            meta_files = set()  # 所有需要处理的meta文件
+            file_to_meta = {}   # 资源文件 -> meta文件的映射
             
             for file_path in self.upload_files:
+                if file_path.lower().endswith('.meta'):
+                    # 直接的meta文件
+                    meta_files.add(file_path)
+                else:
+                    # 资源文件，查找对应的meta文件
+                    meta_path = file_path + '.meta'
+                    if os.path.exists(meta_path):
+                        meta_files.add(meta_path)
+                        file_to_meta[file_path] = meta_path
+            
+            self.status_updated.emit(f"发现 {len(meta_files)} 个meta文件需要检查")
+            
+            # 第二步：收集所有GUID及其对应的meta文件
+            self.status_updated.emit("收集GUID信息...")
+            guid_to_meta = {}  # {guid: meta_file_path}
+            meta_to_guid = {}  # {meta_file_path: guid}
+            guid_duplicates = {}  # {guid: [meta_file_path1, meta_file_path2, ...]}
+            
+            for meta_file in meta_files:
                 try:
-                    if file_path.lower().endswith('.meta'):
-                        # 直接检查meta文件
-                        guid = self.analyzer.parse_meta_file(file_path)
-                        if guid:
-                            if guid not in upload_guids:
-                                upload_guids[guid] = []
-                            upload_guids[guid].append(file_path)
-                            self.status_updated.emit(f"找到上传GUID: {guid[:8]}... ({os.path.basename(file_path)})")
-                    else:
-                        # 检查对应的meta文件
-                        meta_path = file_path + '.meta'
-                        if os.path.exists(meta_path):
-                            guid = self.analyzer.parse_meta_file(meta_path)
-                            if guid:
-                                if guid not in upload_guids:
-                                    upload_guids[guid] = []
-                                upload_guids[guid].append(meta_path)
-                                self.status_updated.emit(f"找到上传GUID: {guid[:8]}... ({os.path.basename(meta_path)})")
+                    guid = self.analyzer.parse_meta_file(meta_file)
+                    if guid:
+                        meta_to_guid[meta_file] = guid
+                        
+                        if guid in guid_to_meta:
+                            # 发现重复GUID
+                            if guid not in guid_duplicates:
+                                guid_duplicates[guid] = [guid_to_meta[guid]]
+                            guid_duplicates[guid].append(meta_file)
                         else:
-                            # 记录没有meta文件的情况（会在其他检查中处理）
-                            continue
-                            
+                            guid_to_meta[guid] = meta_file
+                        
+                        self.status_updated.emit(f"找到GUID: {guid[:8]}... ({os.path.basename(meta_file)})")
+                    else:
+                        # GUID解析失败，但这会在meta文件检查中处理
+                        pass
+                        
                 except Exception as e:
-                    self.status_updated.emit(f"❌ 解析文件GUID失败: {os.path.basename(file_path)} - {e}")
+                    self.status_updated.emit(f"❌ 解析meta文件失败: {os.path.basename(meta_file)} - {e}")
+                    # 找到对应的资源文件用于报告
+                    resource_file = meta_file[:-5] if meta_file.endswith('.meta') else meta_file
                     issues.append({
-                        'file': file_path,
+                        'file': resource_file,
                         'type': 'guid_parse_error',
                         'message': f'GUID解析失败: {str(e)}'
                     })
             
-            self.status_updated.emit(f"上传文件包含 {len(upload_guids)} 个唯一GUID")
+            self.status_updated.emit(f"收集到 {len(guid_to_meta)} 个唯一GUID")
             
-            # 第二步：检查上传文件内部的GUID重复
-            self.status_updated.emit("检查上传文件内部GUID重复...")
-            internal_duplicates = []
-            
-            for guid, file_list in upload_guids.items():
-                if len(file_list) > 1:
-                    # 发现内部重复
-                    internal_duplicates.append({
+            # 第三步：检查内部重复
+            if guid_duplicates:
+                self.status_updated.emit(f"发现 {len(guid_duplicates)} 个重复GUID")
+                for guid, meta_files_list in guid_duplicates.items():
+                    self.status_updated.emit(f"⚠️ GUID重复: {guid[:8]}... (涉及{len(meta_files_list)}个文件)")
+                    
+                    # 为每个重复的GUID创建问题记录
+                    # 使用第一个meta文件作为主要问题记录
+                    main_meta = meta_files_list[0]
+                    main_resource = main_meta[:-5] if main_meta.endswith('.meta') else main_meta
+                    
+                    # 构建重复文件列表（显示资源文件名而不是meta文件名）
+                    duplicate_resources = []
+                    for meta_file in meta_files_list:
+                        resource_file = meta_file[:-5] if meta_file.endswith('.meta') else meta_file
+                        duplicate_resources.append(os.path.basename(resource_file))
+                    
+                    issues.append({
+                        'file': main_resource,
+                        'type': 'guid_duplicate_internal',
                         'guid': guid,
-                        'files': file_list,
-                        'count': len(file_list)
+                        'files': meta_files_list,
+                        'file_count': len(meta_files_list),
+                        'message': f'GUID重复 ({guid[:8]}...): 在{len(meta_files_list)}个上传文件中重复出现: {", ".join(duplicate_resources)}'
                     })
-                    self.status_updated.emit(f"⚠️ 发现内部重复GUID: {guid[:8]}... (出现在{len(file_list)}个文件中)")
+            else:
+                self.status_updated.emit("✅ 未发现内部GUID重复")
             
-            # 记录内部重复问题
-            for duplicate in internal_duplicates:
-                file_names = [os.path.basename(f) for f in duplicate['files']]
-                issues.append({
-                    'type': 'guid_duplicate_internal',
-                    'guid': duplicate['guid'],
-                    'files': duplicate['files'],
-                    'file_count': duplicate['count'],
-                    'message': f'GUID重复 ({duplicate["guid"][:8]}...): 在{duplicate["count"]}个上传文件中重复出现: {", ".join(file_names)}'
-                })
-            
-            # 第三步：获取Git仓库中的所有GUID
+            # 第四步：检查与Git仓库的冲突
             self.status_updated.emit("扫描Git仓库中的GUID...")
             git_guids = self._get_git_repository_guids()
             self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
             
-            # 第四步：检查与Git仓库的GUID冲突
-            self.status_updated.emit("检查与Git仓库的GUID冲突...")
             git_conflicts = []
+            file_updates = []
+            debug_count = 0  # 限制调试输出
             
-            for guid in upload_guids.keys():
+            for guid, meta_file in guid_to_meta.items():
                 if guid in git_guids:
-                    # 发现与Git仓库的冲突
-                    git_conflicts.append({
-                        'guid': guid,
-                        'upload_files': upload_guids[guid]
-                    })
-                    self.status_updated.emit(f"⚠️ 发现Git冲突GUID: {guid[:8]}... (存在于Git仓库中)")
+                    resource_file = meta_file[:-5] if meta_file.endswith('.meta') else meta_file
+                    git_file_info = git_guids[guid]
+                    
+                    # 计算上传文件的相对路径（相对于SVN根目录）
+                    upload_relative_path = self._get_upload_file_relative_path(resource_file)
+                    git_relative_path = git_file_info['relative_resource_path']
+                    
+                    # 调试信息（只输出前3个）
+                    if debug_count < 3:
+                        self.status_updated.emit(f"🔍 路径比较调试:")
+                        self.status_updated.emit(f"   文件: {os.path.basename(resource_file)}")
+                        self.status_updated.emit(f"   上传路径: '{upload_relative_path}'")
+                        self.status_updated.emit(f"   Git路径: '{git_relative_path}'")
+                        
+                        # 显示路径映射结果
+                        if hasattr(self.git_manager, 'apply_path_mapping'):
+                            mapped_path = self.git_manager.apply_path_mapping(upload_relative_path)
+                            self.status_updated.emit(f"   映射后路径: '{mapped_path}'")
+                        
+                        debug_count += 1
+                    
+                    # 路径比较 - 使用映射
+                    if self._compare_file_paths(upload_relative_path, git_relative_path):
+                        # 同一文件的更新
+                        file_updates.append({
+                            'guid': guid,
+                            'meta_file': meta_file,
+                            'resource_file': resource_file,
+                            'upload_path': upload_relative_path,
+                            'git_path': git_relative_path
+                        })
+                        self.status_updated.emit(f"📝 文件更新: {guid[:8]}... ({os.path.basename(resource_file)})")
+                    else:
+                        # 真正的GUID冲突 - 不同文件使用相同GUID
+                        git_conflicts.append({
+                            'guid': guid,
+                            'meta_file': meta_file,
+                            'resource_file': resource_file,
+                            'upload_path': upload_relative_path,
+                            'git_path': git_relative_path,
+                            'git_file_name': git_file_info['resource_name']
+                        })
+                        self.status_updated.emit(f"⚠️ GUID冲突: {guid[:8]}... (上传:{os.path.basename(resource_file)} vs Git:{git_file_info['resource_name']})")
             
-            # 记录Git冲突问题
-            for conflict in git_conflicts:
-                file_names = [os.path.basename(f) for f in conflict['upload_files']]
+            # 记录文件更新（信息级别，不是错误）
+            for update in file_updates:
                 issues.append({
+                    'file': update['resource_file'],
+                    'type': 'guid_file_update',
+                    'guid': update['guid'],
+                    'upload_path': update['upload_path'],
+                    'git_path': update['git_path'],
+                    'severity': 'info',
+                    'message': f'文件更新 ({update["guid"][:8]}...): {os.path.basename(update["resource_file"])} 将覆盖Git中的现有版本'
+                })
+            
+            # 记录真正的GUID冲突（警告级别）
+            for conflict in git_conflicts:
+                issues.append({
+                    'file': conflict['resource_file'],
                     'type': 'guid_duplicate_git',
                     'guid': conflict['guid'],
-                    'upload_files': conflict['upload_files'],
-                    'message': f'GUID与Git仓库冲突 ({conflict["guid"][:8]}...): 上传文件 {", ".join(file_names)} 的GUID已存在于Git仓库中'
+                    'upload_path': conflict['upload_path'],
+                    'git_path': conflict['git_path'],
+                    'git_file_name': conflict['git_file_name'],
+                    'severity': 'warning',
+                    'message': f'GUID冲突 ({conflict["guid"][:8]}...): 上传文件 {os.path.basename(conflict["resource_file"])} 与Git中不同文件 {conflict["git_file_name"]} 使用了相同的GUID'
                 })
             
             # 第五步：生成检查摘要
-            total_upload_guids = len(upload_guids)
-            internal_duplicate_count = len(internal_duplicates)
+            total_unique_guids = len(guid_to_meta)
+            internal_duplicate_count = len(guid_duplicates)
             git_conflict_count = len(git_conflicts)
+            file_update_count = len(file_updates)
             
             self.status_updated.emit("📊 GUID唯一性检查完成:")
-            self.status_updated.emit(f"   📄 上传文件GUID数量: {total_upload_guids}")
+            self.status_updated.emit(f"   📄 上传文件GUID数量: {total_unique_guids}")
             self.status_updated.emit(f"   🔄 内部重复: {internal_duplicate_count}")
-            self.status_updated.emit(f"   ⚡ Git冲突: {git_conflict_count}")
+            self.status_updated.emit(f"   📝 文件更新: {file_update_count}")
+            self.status_updated.emit(f"   ⚡ GUID冲突: {git_conflict_count}")
             self.status_updated.emit(f"   🎯 Git仓库GUID数量: {len(git_guids)}")
             
             if issues:
@@ -2215,6 +2299,72 @@ class ResourceChecker(QThread):
             print(f"异常详情: {tb_str}")
         
         return issues
+
+    def _get_upload_file_relative_path(self, file_path: str) -> str:
+        """获取上传文件相对于SVN根目录的路径"""
+        try:
+            if hasattr(self.git_manager, 'svn_path') and self.git_manager.svn_path:
+                svn_path = os.path.normpath(self.git_manager.svn_path)
+                file_path_normalized = os.path.normpath(file_path)
+                
+                # 调试信息（静态变量模拟）
+                if not hasattr(self, '_debug_path_count'):
+                    self._debug_path_count = 0
+                if self._debug_path_count < 3:
+                    self.status_updated.emit(f"🔍 路径计算调试:")
+                    self.status_updated.emit(f"   SVN路径: '{svn_path}'")
+                    self.status_updated.emit(f"   文件路径: '{file_path_normalized}'")
+                    self._debug_path_count += 1
+                
+                # 计算相对路径
+                if file_path_normalized.startswith(svn_path):
+                    relative_path = os.path.relpath(file_path_normalized, svn_path)
+                    # 标准化路径分隔符
+                    result = relative_path.replace('\\', '/')
+                    if hasattr(self, '_debug_path_count') and self._debug_path_count <= 3:
+                        self.status_updated.emit(f"   相对路径: '{result}'")
+                    return result
+                else:
+                    # 如果文件不在SVN路径下，返回文件名
+                    result = os.path.basename(file_path)
+                    self.status_updated.emit(f"   文件不在SVN路径下，返回文件名: '{result}'")
+                    return result
+            else:
+                # 如果没有SVN路径，返回文件名
+                result = os.path.basename(file_path)
+                self.status_updated.emit(f"   没有SVN路径，返回文件名: '{result}'")
+                return result
+        except Exception as e:
+            # 异常情况下返回文件名
+            result = os.path.basename(file_path)
+            self.status_updated.emit(f"   异常情况，返回文件名: '{result}' (错误: {e})")
+            return result
+    
+    def _compare_file_paths(self, upload_path: str, git_path: str) -> bool:
+        """比较上传文件路径与Git文件路径是否匹配（使用路径映射）"""
+        try:
+            # 标准化路径 - 统一使用正斜杠
+            upload_normalized = upload_path.replace('\\', '/').strip('/')
+            git_normalized = git_path.replace('\\', '/').strip('/')
+            
+            # 直接比较（原始逻辑）
+            if upload_normalized.lower() == git_normalized.lower():
+                return True
+            
+            # 使用路径映射进行比较
+            if hasattr(self.git_manager, 'apply_path_mapping'):
+                # 将上传路径应用映射规则
+                mapped_upload_path = self.git_manager.apply_path_mapping(upload_normalized)
+                mapped_upload_normalized = mapped_upload_path.replace('\\', '/').strip('/')
+                
+                # 比较映射后的路径
+                if mapped_upload_normalized.lower() == git_normalized.lower():
+                    return True
+            
+            return False
+        except Exception as e:
+            # 异常情况下返回False，表示不匹配
+            return False
 
     def _check_guid_references(self) -> List[Dict[str, str]]:
         """检查GUID引用完整性"""
@@ -2261,7 +2411,8 @@ class ResourceChecker(QThread):
             
             # 获取Git仓库中的所有GUID
             self.status_updated.emit("开始扫描Git仓库GUID...")
-            git_guids = self._get_git_repository_guids()
+            git_guids_dict = self._get_git_repository_guids()
+            git_guids = set(git_guids_dict.keys())  # 转换为Set以保持兼容性
             self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
             
             # 检查GUID引用
@@ -2435,9 +2586,10 @@ class ResourceChecker(QThread):
     def _generate_detailed_report(self, all_issues: List[Dict[str, str]], total_files: int) -> Dict[str, Any]:
         """生成详细报告"""
         try:
-            # 区分阻塞性错误和警告
-            blocking_issues = [issue for issue in all_issues if issue.get('type') != 'meta_missing_git']
-            warning_issues = [issue for issue in all_issues if issue.get('type') == 'meta_missing_git']
+            # 区分阻塞性错误和警告/信息
+            non_blocking_types = {'meta_missing_git', 'guid_file_update'}
+            blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
+            warning_issues = [issue for issue in all_issues if issue.get('type') in non_blocking_types]
             
             # 按类型分组问题
             issues_by_type = {}
@@ -2457,11 +2609,11 @@ class ResourceChecker(QThread):
             report_lines.append(f"发现问题总数: {len(all_issues)}")
             if blocking_issues and warning_issues:
                 report_lines.append(f"  - 阻塞性错误: {len(blocking_issues)} 个")
-                report_lines.append(f"  - 警告: {len(warning_issues)} 个")
+                report_lines.append(f"  - 警告/信息: {len(warning_issues)} 个")
             elif blocking_issues:
                 report_lines.append(f"  - 阻塞性错误: {len(blocking_issues)} 个")
             elif warning_issues:
-                report_lines.append(f"  - 警告: {len(warning_issues)} 个")
+                report_lines.append(f"  - 警告/信息: {len(warning_issues)} 个")
             report_lines.append("")
             
             # 显示检查的文件列表
@@ -2515,7 +2667,8 @@ class ResourceChecker(QThread):
                     
                     # GUID唯一性检查类型（新增）
                     'guid_duplicate_internal': 'GUID内部重复 - 上传文件内部存在重复的GUID',
-                    'guid_duplicate_git': 'GUID与Git仓库冲突 - 上传文件的GUID已存在于Git仓库中',
+                    'guid_duplicate_git': 'GUID真正冲突 - 不同文件使用了相同的GUID',
+                    'guid_file_update': '文件更新 - 将覆盖Git中的现有文件版本',
                     'guid_parse_error': 'GUID解析错误 - 无法解析文件中的GUID',
                     'uniqueness_check_error': 'GUID唯一性检查错误 - 检查过程中发生异常',
                     
@@ -2595,6 +2748,17 @@ class ResourceChecker(QThread):
                             file_names = [os.path.basename(f) for f in issue['upload_files']]
                             report_lines.append(f"    冲突的上传文件: {', '.join(file_names)}")
                         
+                        # 显示文件更新的详细信息
+                        if 'upload_path' in issue:
+                            report_lines.append(f"    上传文件路径: {issue['upload_path']}")
+                        if 'git_path' in issue:
+                            report_lines.append(f"    Git文件路径: {issue['git_path']}")
+                        if 'git_file_name' in issue:
+                            report_lines.append(f"    Git中的文件名: {issue['git_file_name']}")
+                        if 'severity' in issue:
+                            severity_desc = {'info': '信息', 'warning': '警告', 'error': '错误'}.get(issue['severity'], issue['severity'])
+                            report_lines.append(f"    问题级别: {severity_desc}")
+                        
                         report_lines.append("")
                 
                 # 添加修复建议
@@ -2661,13 +2825,22 @@ class ResourceChecker(QThread):
                     report_lines.append("  3. 如果是不同文件但GUID相同，在Unity中重新生成其中一个文件的.meta")
                     report_lines.append("  4. 确保每个资源文件都有唯一的GUID")
                 
+                if 'guid_file_update' in issues_by_type:
+                    report_lines.append("\n【guid_file_update】处理说明:")
+                    report_lines.append("  ℹ️ 这些是正常的文件更新操作，不是错误")
+                    report_lines.append("  1. 这些文件已存在于Git仓库中，您正在更新它们")
+                    report_lines.append("  2. 推送后，Git中的文件将被您的新版本覆盖")
+                    report_lines.append("  3. 如果确认要更新，可以继续推送操作")
+                    report_lines.append("  4. 如果不想更新某些文件，请从上传列表中移除它们")
+                
                 if 'guid_duplicate_git' in issues_by_type:
                     report_lines.append("\n【guid_duplicate_git】修复建议:")
-                    report_lines.append("  1. 检查Git仓库中是否已存在相同的文件")
-                    report_lines.append("  2. 如果是同一文件，可以跳过上传或更新现有文件")
-                    report_lines.append("  3. 如果是不同文件但GUID冲突，在Unity中重新生成上传文件的.meta")
-                    report_lines.append("  4. 考虑是否需要更新现有Git文件而不是添加新文件")
-                    report_lines.append("  5. 确保不会意外覆盖Git仓库中的重要资源")
+                    report_lines.append("  ⚠️ 这是真正的GUID冲突，需要处理")
+                    report_lines.append("  1. 不同的文件不能使用相同的GUID")
+                    report_lines.append("  2. 在Unity编辑器中删除冲突文件的.meta文件")
+                    report_lines.append("  3. 重新导入文件，让Unity生成新的GUID")
+                    report_lines.append("  4. 或者检查是否误选了错误的文件进行上传")
+                    report_lines.append("  5. 确保每个资源文件都有唯一的GUID")
                 
                 if 'guid_parse_error' in issues_by_type:
                     report_lines.append("\n【guid_parse_error】修复建议:")
@@ -2684,7 +2857,7 @@ class ResourceChecker(QThread):
                 report_lines.append("  ✅ 所有.meta文件都包含有效的GUID")
                 report_lines.append("  ✅ SVN和Git中的GUID保持一致")
                 report_lines.append("  ✅ 没有发现重复的GUID")
-                report_lines.append("  ✅ 上传文件与Git仓库之间的GUID唯一性验证通过")
+                report_lines.append("  ✅ 没有发现GUID冲突")
                 report_lines.append("  ✅ 文件名符合规范")
                 report_lines.append("  ✅ 图片尺寸符合要求")
             
@@ -2713,15 +2886,22 @@ class ResourceChecker(QThread):
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    def _get_git_repository_guids(self) -> Set[str]:
-        """扫描Git仓库获取所有GUID"""
-        git_guids = set()
+    def _get_git_repository_guids(self) -> Dict[str, Dict[str, str]]:
+        """扫描Git仓库获取所有GUID及其路径信息
+        
+        Returns:
+            Dict[str, Dict[str, str]]: {guid: {'meta_path': str, 'relative_resource_path': str, 'resource_name': str}}
+        """
+        git_guids = {}
         
         if not self.git_manager.git_path or not os.path.exists(self.git_manager.git_path):
             self.status_updated.emit(f"❌ Git仓库路径无效: {self.git_manager.git_path}")
             return git_guids
         
         self.status_updated.emit(f"🔍 开始扫描Git仓库: {self.git_manager.git_path}")
+        
+        # 标准化Git路径
+        git_path_normalized = os.path.normpath(self.git_manager.git_path)
         
         # 统计信息
         scan_stats = {
@@ -2761,12 +2941,12 @@ class ResourceChecker(QThread):
                     if file.endswith('.meta'):
                         scan_stats['meta_files_found'] += 1
                         meta_path = os.path.join(root, file)
-                        relative_path = os.path.relpath(meta_path, self.git_manager.git_path)
+                        relative_meta_path = os.path.relpath(meta_path, git_path_normalized)
                         
                         # 记录特定文件（用于调试）
                         if 'Character_NPR_Opaque.templatemat.meta' in file:
                             self.status_updated.emit(f"  🎯 找到目标文件: {meta_path}")
-                            self.status_updated.emit(f"     相对路径: {relative_path}")
+                            self.status_updated.emit(f"     相对路径: {relative_meta_path}")
                             self.status_updated.emit(f"     目录深度: {depth}")
                         
                         try:
@@ -2775,26 +2955,43 @@ class ResourceChecker(QThread):
                             guid = analyzer.parse_meta_file(meta_path)
                             
                             if guid and len(guid) == 32:  # 有效的GUID长度
-                                git_guids.add(guid)
+                                # 计算对应的资源文件相对路径
+                                if relative_meta_path.endswith('.meta'):
+                                    relative_resource_path = relative_meta_path[:-5]  # 移除.meta后缀
+                                else:
+                                    relative_resource_path = relative_meta_path
+                                
+                                # 标准化路径分隔符
+                                relative_resource_path = relative_resource_path.replace('\\', '/')
+                                
+                                git_guids[guid] = {
+                                    'meta_path': meta_path,
+                                    'relative_meta_path': relative_meta_path.replace('\\', '/'),
+                                    'relative_resource_path': relative_resource_path,
+                                    'resource_name': os.path.basename(relative_resource_path)
+                                }
+                                
                                 scan_stats['valid_guids'] += 1
                                 
                                 # 记录特定GUID
                                 if guid == 'a52adbec141594d439747c542824c830':
                                     self.status_updated.emit(f"  ✅ 找到目标GUID: {guid}")
                                     self.status_updated.emit(f"     文件路径: {meta_path}")
+                                    self.status_updated.emit(f"     资源路径: {relative_resource_path}")
                                 
                                 # 记录样本GUID
                                 if len(scan_stats['sample_guids']) < 10:
                                     scan_stats['sample_guids'].append({
                                         'guid': guid,
-                                        'file': relative_path,
+                                        'file': relative_meta_path,
+                                        'resource': relative_resource_path,
                                         'depth': depth
                                     })
                             else:
                                 scan_stats['invalid_guids'] += 1
                                 # 记录无效GUID的详细信息
                                 if scan_stats['invalid_guids'] <= 5:  # 只记录前5个无效GUID
-                                    self.status_updated.emit(f"  ⚠️ 无效GUID: '{guid}' 在文件 {relative_path}")
+                                    self.status_updated.emit(f"  ⚠️ 无效GUID: '{guid}' 在文件 {relative_meta_path}")
                         
                         except Exception as e:
                             scan_stats['parse_errors'] += 1
@@ -2802,7 +2999,7 @@ class ResourceChecker(QThread):
                             if scan_stats['parse_errors'] <= 5:  # 只记录前5个错误
                                 scan_stats['sample_guids'].append({
                                     'guid': 'ERROR',
-                                    'file': relative_path,
+                                    'file': relative_meta_path,
                                     'error': str(e),
                                     'reason': f'异常: {str(e)}'
                                 })
@@ -2829,7 +3026,7 @@ class ResourceChecker(QThread):
                 if sample['guid'] == 'ERROR':
                     self.status_updated.emit(f"   {i+1}. ❌ {sample['file']} - {sample['reason']}")
                 else:
-                    self.status_updated.emit(f"   {i+1}. {sample['guid']} - {sample['file']} (深度:{sample['depth']})")
+                    self.status_updated.emit(f"   {i+1}. {sample['guid']} - {sample.get('resource', sample['file'])} (深度:{sample['depth']})")
         
         # 显示深层目录信息
         if scan_stats['deep_directories']:
