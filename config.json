@@ -1,14 +1,13 @@
 {
   "svn_path": "G:\\Svn_repo\\MiniProject_Art_NewPrefab",
   "git_path": "G:\\minirepo\\AssetRuntime_Branch07\\assetruntime\\CommonResource",
-  "editor_path": "E:/RPGame5.6.9a",
   "window_geometry": {
     "x": -2560,
     "y": 34,
     "width": 2560,
     "height": 1346
   },
-  "last_selected_branch": "Alpha_v1.46.0_zhouqiang",
+  "last_selected_branch": "★ user/lida/pkg1.47.0 (当前)",
   "resource_types": {
     "prefab": true,
     "material": true,
@@ -28,5 +27,6 @@
     "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140484\\Particles\\loukong.png.meta",
     "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140484\\Particles\\loukong.png"
   ],
-  "max_recent_files": 10
+  "max_recent_files": 10,
+  "editor_path": "E:/RPGame5.6.9a"
 }

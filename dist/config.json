@@ -1,6 +1,6 @@
 {
-  "svn_path": "E:/newprefab04",
-  "git_path": "E:/git8a/assetruntimenew/CommonResource",
+  "svn_path": "G:/minirepo/AssetRuntime_Branch07/assetruntime/CommonResource/Assets",
+  "git_path": "G:/minirepo/AssetRuntime_Branch07/assetruntime/CommonResource",
   "editor_path": "E:/RPGame5.6.9a",
   "window_geometry": {
     "x": -2159,
@@ -8,7 +8,7 @@
     "width": 1200,
     "height": 800
   },
-  "last_selected_branch": "",
+  "last_selected_branch": "Alpha_v1.46.0_zhouqiang",
   "resource_types": {
     "prefab": true,
     "material": true,

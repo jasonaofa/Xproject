@@ -9,9 +9,8 @@ class ConfigManager:
     def __init__(self, config_file: str = "config.json"):
         self.config_file = config_file
         self.default_config = {
-            "svn_path": "E:/newprefab04",
-            "git_path": "E:/git8a/assetruntimenew/CommonResource", 
-            "editor_path": "E:/RPGame5.6.9a",
+                    "svn_path": "E:/newprefab04",
+        "git_path": "E:/git8a/assetruntimenew/CommonResource",
             "window_geometry": {
                 "x": 100,
                 "y": 100,
@@ -88,11 +87,7 @@ class ConfigManager:
     def set_git_path(self, path: str):
         self.set("git_path", path)
     
-    def get_editor_path(self) -> str:
-        return self.get("editor_path", "")
-    
-    def set_editor_path(self, path: str):
-        self.set("editor_path", path)
+
     
     def get_window_geometry(self) -> Dict[str, int]:
         return self.get("window_geometry", {"x": 100, "y": 100, "width": 1200, "height": 800})

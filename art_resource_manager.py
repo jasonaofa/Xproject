@@ -3382,14 +3382,50 @@ class ArtResourceManager(QMainWindow):
             # 加载路径配置
             svn_path = self.config_manager.get_svn_path()
             git_path = self.config_manager.get_git_path()
-            editor_path = self.config_manager.get_editor_path()
             
+            # 加载并校验SVN路径
             if svn_path:
-                self.svn_path_edit.setText(svn_path)
+                if self._check_svn_root_directory(svn_path):
+                    self.svn_path_edit.setText(svn_path)
+                    print(f"✅ [DEBUG] SVN根目录校验通过: {svn_path}")
+                else:
+                    print(f"⚠️ [DEBUG] 已保存的SVN路径不是根目录: {svn_path}")
+                    # 尝试查找根目录
+                    root_path = self._find_repository_root(svn_path, 'svn')
+                    if root_path:
+                        print(f"🔧 [DEBUG] 找到SVN根目录: {root_path}")
+                        self.svn_path_edit.setText(root_path)
+                        self.config_manager.set_svn_path(root_path)  # 更新配置
+                        self.log_text.append(f"⚠️ SVN路径已自动修正为根目录: {root_path}")
+                    else:
+                        print(f"❌ [DEBUG] 未找到有效的SVN根目录，清空路径")
+                        self.log_text.append(f"⚠️ 已保存的SVN路径无效，已清空: {svn_path}")
+            
+            # 加载并校验Git路径
             if git_path:
-                self.git_path_edit.setText(git_path)
-            if editor_path:
-                self.editor_path_edit.setText(editor_path)
+                is_git_root = self._check_git_root_directory(git_path)
+                is_git_working_tree = self._verify_git_repository_with_command(git_path)
+                
+                if is_git_root or is_git_working_tree:
+                    self.git_path_edit.setText(git_path)
+                    if is_git_root:
+                        print(f"✅ [DEBUG] Git根目录校验通过（检测到.git）: {git_path}")
+                    elif is_git_working_tree:
+                        print(f"✅ [DEBUG] Git工作树校验通过（git命令验证）: {git_path}")
+                else:
+                    print(f"⚠️ [DEBUG] 已保存的Git路径不是根目录: {git_path}")
+                    # 尝试查找根目录
+                    root_path = self._find_repository_root(git_path, 'git')
+                    if root_path:
+                        print(f"🔧 [DEBUG] 找到Git根目录: {root_path}")
+                        self.git_path_edit.setText(root_path)
+                        self.config_manager.set_git_path(root_path)  # 更新配置
+                        self.log_text.append(f"⚠️ Git路径已自动修正为根目录: {root_path}")
+                    else:
+                        print(f"❌ [DEBUG] 未找到有效的Git根目录，清空路径")
+                        self.log_text.append(f"⚠️ 已保存的Git路径无效，已清空: {git_path}")
+            
+
             
             # 设置Git管理器路径
             if git_path and svn_path:
@@ -3417,7 +3453,6 @@ class ArtResourceManager(QMainWindow):
         # 保存路径配置
         self.config_manager.set_svn_path(self.svn_path_edit.text())
         self.config_manager.set_git_path(self.git_path_edit.text())
-        self.config_manager.set_editor_path(self.editor_path_edit.text())
         
         # 保存窗口几何信息
         geometry = self.geometry()
@@ -3475,17 +3510,7 @@ class ArtResourceManager(QMainWindow):
         git_open_btn.clicked.connect(self.open_git_folder)
         path_layout.addWidget(git_open_btn, 1, 3)
         
-        # 编辑器路径
-        path_layout.addWidget(QLabel("编辑器路径:"), 2, 0)
-        self.editor_path_edit = QLineEdit()
-        self.editor_path_edit.setText("E:/RPGame5.6.9a")
-        path_layout.addWidget(self.editor_path_edit, 2, 1)
-        editor_browse_btn = QPushButton("浏览")
-        editor_browse_btn.clicked.connect(self.browse_editor_path)
-        path_layout.addWidget(editor_browse_btn, 2, 2)
-        editor_open_btn = QPushButton("打开文件夹")
-        editor_open_btn.clicked.connect(self.open_editor_folder)
-        path_layout.addWidget(editor_open_btn, 2, 3)
+
         
         layout.addWidget(path_group)
         
@@ -3662,10 +3687,134 @@ class ArtResourceManager(QMainWindow):
         
         return widget
     
+    def _check_svn_root_directory(self, path: str) -> bool:
+        """检查是否为SVN仓库根目录"""
+        if not path or not os.path.exists(path):
+            return False
+        
+        svn_dir = os.path.join(path, '.svn')
+        return os.path.exists(svn_dir) and os.path.isdir(svn_dir)
+    
+    def _check_git_root_directory(self, path: str) -> bool:
+        """检查是否为Git仓库根目录（包括submodule支持）"""
+        if not path or not os.path.exists(path):
+            return False
+        
+        git_path = os.path.join(path, '.git')
+        
+        # 检查.git是否存在
+        if not os.path.exists(git_path):
+            return False
+        
+        # 如果.git是目录，直接认为是Git根目录
+        if os.path.isdir(git_path):
+            return True
+        
+        # 如果.git是文件（submodule情况），检查文件内容
+        if os.path.isfile(git_path):
+            try:
+                with open(git_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    # submodule的.git文件格式：gitdir: ../../../.git/modules/submodule_name
+                    if content.startswith('gitdir:'):
+                        gitdir_path = content[7:].strip()  # 移除"gitdir: "前缀
+                        
+                        # 如果是相对路径，转换为绝对路径
+                        if not os.path.isabs(gitdir_path):
+                            gitdir_path = os.path.join(path, gitdir_path)
+                        
+                        # 规范化路径并检查是否存在
+                        gitdir_path = os.path.normpath(gitdir_path)
+                        return os.path.exists(gitdir_path) and os.path.isdir(gitdir_path)
+                        
+            except Exception as e:
+                print(f"⚠️ [DEBUG] 读取.git文件失败: {e}")
+                return False
+        
+        return False
+    
+    def _find_repository_root(self, start_path: str, repo_type: str) -> str:
+        """向上查找仓库根目录"""
+        current_path = os.path.abspath(start_path)
+        
+        while True:
+            if repo_type == 'svn' and self._check_svn_root_directory(current_path):
+                return current_path
+            elif repo_type == 'git' and self._check_git_root_directory(current_path):
+                return current_path
+            
+            parent_path = os.path.dirname(current_path)
+            if parent_path == current_path:  # 已经到达根目录
+                break
+            current_path = parent_path
+        
+        return ""
+    
+    def _verify_git_repository_with_command(self, path: str) -> bool:
+        """使用git命令验证是否为有效的Git仓库根目录"""
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--show-toplevel'],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                timeout=10
+            )
+            
+            if result.returncode == 0:
+                # 获取git根目录路径
+                git_root = result.stdout.strip()
+                # 比较是否与当前路径一致
+                return os.path.abspath(path) == os.path.abspath(git_root)
+            
+        except Exception as e:
+            print(f"⚠️ [DEBUG] Git命令验证失败: {e}")
+        
+        return False
+    
     def browse_svn_path(self):
         """浏览SVN路径"""
         path = QFileDialog.getExistingDirectory(self, "选择SVN仓库路径")
         if path:
+            # 检查是否为SVN根目录
+            if not self._check_svn_root_directory(path):
+                # 尝试向上查找SVN根目录
+                root_path = self._find_repository_root(path, 'svn')
+                
+                if root_path:
+                    reply = QMessageBox.question(
+                        self,
+                        "路径校验",
+                        f"所选路径不是SVN仓库根目录！\n\n"
+                        f"选择的路径：{path}\n"
+                        f"检测到的SVN根目录：{root_path}\n\n"
+                        f"是否使用检测到的SVN根目录？",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes
+                    )
+                    
+                    if reply == QMessageBox.Yes:
+                        path = root_path
+                        self.log_text.append(f"✅ 已自动修正为SVN根目录: {path}")
+                    else:
+                        self.log_text.append(f"❌ 用户拒绝使用建议的SVN根目录")
+                        return
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "路径校验失败",
+                        f"所选路径不是有效的SVN仓库根目录！\n\n"
+                        f"选择的路径：{path}\n\n"
+                        f"请确保选择的目录包含 .svn 文件夹。\n"
+                        f"SVN仓库根目录应该是执行 'svn checkout' 命令后创建的目录。"
+                    )
+                    self.log_text.append(f"❌ SVN路径校验失败: {path}")
+                    return
+            else:
+                self.log_text.append(f"✅ SVN根目录校验通过: {path}")
+            
             self.svn_path_edit.setText(path)
             self.config_manager.set_svn_path(path)
     
@@ -3673,18 +3822,62 @@ class ArtResourceManager(QMainWindow):
         """浏览Git路径"""
         path = QFileDialog.getExistingDirectory(self, "选择Git仓库路径")
         if path:
+            # 检查是否为Git根目录（包括submodule支持）
+            is_git_root = self._check_git_root_directory(path)
+            
+            # 额外使用git命令验证（对于复杂的submodule情况）
+            is_git_working_tree = self._verify_git_repository_with_command(path)
+            
+            if not is_git_root and not is_git_working_tree:
+                # 尝试向上查找Git根目录
+                root_path = self._find_repository_root(path, 'git')
+                
+                if root_path:
+                    reply = QMessageBox.question(
+                        self,
+                        "路径校验",
+                        f"所选路径不是Git仓库根目录！\n\n"
+                        f"选择的路径：{path}\n"
+                        f"检测到的Git根目录：{root_path}\n\n"
+                        f"是否使用检测到的Git根目录？",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.Yes
+                    )
+                    
+                    if reply == QMessageBox.Yes:
+                        path = root_path
+                        self.log_text.append(f"✅ 已自动修正为Git根目录: {path}")
+                    else:
+                        self.log_text.append(f"❌ 用户拒绝使用建议的Git根目录")
+                        return
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "路径校验失败",
+                        f"所选路径不是有效的Git仓库根目录！\n\n"
+                        f"选择的路径：{path}\n\n"
+                        f"请确保选择的目录满足以下条件之一：\n"
+                        f"• 包含 .git 目录（普通Git仓库）\n"
+                        f"• 包含 .git 文件且指向有效的gitdir（Git submodule）\n"
+                        f"• 是一个有效的Git工作树根目录\n\n"
+                        f"Git仓库根目录应该是执行 'git clone' 或 'git init' 命令的目录。"
+                    )
+                    self.log_text.append(f"❌ Git路径校验失败: {path}")
+                    return
+            else:
+                # 确定检测类型并记录
+                if is_git_root:
+                    self.log_text.append(f"✅ Git根目录校验通过（检测到.git）: {path}")
+                elif is_git_working_tree:
+                    self.log_text.append(f"✅ Git工作树校验通过（git命令验证）: {path}")
+            
             self.git_path_edit.setText(path)
             self.config_manager.set_git_path(path)
             self.git_manager.set_paths(path, self.svn_path_edit.text())
             # 使用异步方法，避免阻塞界面
             self.refresh_branches_async(fast_mode=True)
     
-    def browse_editor_path(self):
-        """浏览编辑器路径"""
-        path = QFileDialog.getExistingDirectory(self, "选择编辑器路径")
-        if path:
-            self.editor_path_edit.setText(path)
-            self.config_manager.set_editor_path(path)
+
     
     def open_svn_folder(self):
         """打开SVN文件夹"""
@@ -3736,30 +3929,7 @@ class ArtResourceManager(QMainWindow):
             QMessageBox.critical(self, "错误", f"无法打开文件夹: {str(e)}")
             self.log_text.append(f"打开Git文件夹失败: {str(e)}")
     
-    def open_editor_folder(self):
-        """打开编辑器文件夹"""
-        path = self.editor_path_edit.text().strip()
-        if not path:
-            QMessageBox.warning(self, "警告", "编辑器路径为空！")
-            return
-        
-        if not os.path.exists(path):
-            QMessageBox.warning(self, "警告", f"编辑器路径不存在：{path}")
-            return
-        
-        try:
-            if sys.platform == "win32":
-                os.startfile(path)
-            elif sys.platform == "darwin":
-                subprocess.run(["open", path])
-            else:
-                subprocess.run(["xdg-open", path])
-            
-            self.log_text.append(f"已打开编辑器文件夹: {path}")
-            
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"无法打开文件夹: {str(e)}")
-            self.log_text.append(f"打开编辑器文件夹失败: {str(e)}")
+
     
     def refresh_branches_async(self, fast_mode: bool = False, ultra_fast: bool = False, force_update_ui: bool = False):
         """异步刷新分支列表"""
