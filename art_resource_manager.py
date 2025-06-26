@@ -1749,29 +1749,35 @@ class ResourceChecker(QThread):
             
             # 1. Meta文件检查
             self.status_updated.emit("检查Meta文件...")
-            self.progress_updated.emit(10)
+            self.progress_updated.emit(8)
             meta_issues = self._check_meta_files()
             all_issues.extend(meta_issues)
             
             # 2. 中文字符检查
             self.status_updated.emit("检查中文字符...")
-            self.progress_updated.emit(30)
+            self.progress_updated.emit(25)
             chinese_issues = self._check_chinese_characters()
             all_issues.extend(chinese_issues)
             
             # 3. 图片尺寸检查
             self.status_updated.emit("检查图片尺寸...")
-            self.progress_updated.emit(50)
+            self.progress_updated.emit(40)
             image_issues = self._check_image_sizes()
             all_issues.extend(image_issues)
             
             # 4. GUID一致性检查
             self.status_updated.emit("检查GUID一致性...")
-            self.progress_updated.emit(70)
+            self.progress_updated.emit(55)
             guid_issues = self._check_guid_consistency()
             all_issues.extend(guid_issues)
             
-            # 5. GUID引用检查
+            # 5. GUID唯一性检查（新增）
+            self.status_updated.emit("检查GUID唯一性...")
+            self.progress_updated.emit(70)
+            uniqueness_issues = self._check_guid_uniqueness()
+            all_issues.extend(uniqueness_issues)
+            
+            # 6. GUID引用检查
             self.status_updated.emit("检查GUID引用...")
             self.progress_updated.emit(90)
             reference_issues = self._check_guid_references()
@@ -2074,6 +2080,142 @@ class ResourceChecker(QThread):
         
         return issues
 
+    def _check_guid_uniqueness(self) -> List[Dict[str, str]]:
+        """检查GUID唯一性 - 确保上传的资产之间和与Git仓库内文件之间的GUID都是唯一的"""
+        issues = []
+        
+        try:
+            self.status_updated.emit("🔍 开始GUID唯一性检查...")
+            
+            # 第一步：收集当前上传文件的所有GUID
+            self.status_updated.emit("收集当前上传文件的GUID...")
+            upload_guids = {}  # {guid: [file_path, ...]}
+            
+            for file_path in self.upload_files:
+                try:
+                    if file_path.lower().endswith('.meta'):
+                        # 直接检查meta文件
+                        guid = self.analyzer.parse_meta_file(file_path)
+                        if guid:
+                            if guid not in upload_guids:
+                                upload_guids[guid] = []
+                            upload_guids[guid].append(file_path)
+                            self.status_updated.emit(f"找到上传GUID: {guid[:8]}... ({os.path.basename(file_path)})")
+                    else:
+                        # 检查对应的meta文件
+                        meta_path = file_path + '.meta'
+                        if os.path.exists(meta_path):
+                            guid = self.analyzer.parse_meta_file(meta_path)
+                            if guid:
+                                if guid not in upload_guids:
+                                    upload_guids[guid] = []
+                                upload_guids[guid].append(meta_path)
+                                self.status_updated.emit(f"找到上传GUID: {guid[:8]}... ({os.path.basename(meta_path)})")
+                        else:
+                            # 记录没有meta文件的情况（会在其他检查中处理）
+                            continue
+                            
+                except Exception as e:
+                    self.status_updated.emit(f"❌ 解析文件GUID失败: {os.path.basename(file_path)} - {e}")
+                    issues.append({
+                        'file': file_path,
+                        'type': 'guid_parse_error',
+                        'message': f'GUID解析失败: {str(e)}'
+                    })
+            
+            self.status_updated.emit(f"上传文件包含 {len(upload_guids)} 个唯一GUID")
+            
+            # 第二步：检查上传文件内部的GUID重复
+            self.status_updated.emit("检查上传文件内部GUID重复...")
+            internal_duplicates = []
+            
+            for guid, file_list in upload_guids.items():
+                if len(file_list) > 1:
+                    # 发现内部重复
+                    internal_duplicates.append({
+                        'guid': guid,
+                        'files': file_list,
+                        'count': len(file_list)
+                    })
+                    self.status_updated.emit(f"⚠️ 发现内部重复GUID: {guid[:8]}... (出现在{len(file_list)}个文件中)")
+            
+            # 记录内部重复问题
+            for duplicate in internal_duplicates:
+                file_names = [os.path.basename(f) for f in duplicate['files']]
+                issues.append({
+                    'type': 'guid_duplicate_internal',
+                    'guid': duplicate['guid'],
+                    'files': duplicate['files'],
+                    'file_count': duplicate['count'],
+                    'message': f'GUID重复 ({duplicate["guid"][:8]}...): 在{duplicate["count"]}个上传文件中重复出现: {", ".join(file_names)}'
+                })
+            
+            # 第三步：获取Git仓库中的所有GUID
+            self.status_updated.emit("扫描Git仓库中的GUID...")
+            git_guids = self._get_git_repository_guids()
+            self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
+            
+            # 第四步：检查与Git仓库的GUID冲突
+            self.status_updated.emit("检查与Git仓库的GUID冲突...")
+            git_conflicts = []
+            
+            for guid in upload_guids.keys():
+                if guid in git_guids:
+                    # 发现与Git仓库的冲突
+                    git_conflicts.append({
+                        'guid': guid,
+                        'upload_files': upload_guids[guid]
+                    })
+                    self.status_updated.emit(f"⚠️ 发现Git冲突GUID: {guid[:8]}... (存在于Git仓库中)")
+            
+            # 记录Git冲突问题
+            for conflict in git_conflicts:
+                file_names = [os.path.basename(f) for f in conflict['upload_files']]
+                issues.append({
+                    'type': 'guid_duplicate_git',
+                    'guid': conflict['guid'],
+                    'upload_files': conflict['upload_files'],
+                    'message': f'GUID与Git仓库冲突 ({conflict["guid"][:8]}...): 上传文件 {", ".join(file_names)} 的GUID已存在于Git仓库中'
+                })
+            
+            # 第五步：生成检查摘要
+            total_upload_guids = len(upload_guids)
+            internal_duplicate_count = len(internal_duplicates)
+            git_conflict_count = len(git_conflicts)
+            
+            self.status_updated.emit("📊 GUID唯一性检查完成:")
+            self.status_updated.emit(f"   📄 上传文件GUID数量: {total_upload_guids}")
+            self.status_updated.emit(f"   🔄 内部重复: {internal_duplicate_count}")
+            self.status_updated.emit(f"   ⚡ Git冲突: {git_conflict_count}")
+            self.status_updated.emit(f"   🎯 Git仓库GUID数量: {len(git_guids)}")
+            
+            if issues:
+                self.status_updated.emit(f"❌ GUID唯一性检查发现 {len(issues)} 个问题")
+            else:
+                self.status_updated.emit("✅ GUID唯一性检查通过，所有GUID都是唯一的")
+                
+        except Exception as e:
+            error_msg = f"GUID唯一性检查异常: {str(e)}"
+            self.status_updated.emit(f"❌ {error_msg}")
+            
+            # 添加详细的异常信息
+            import traceback
+            tb_str = traceback.format_exc()
+            self.status_updated.emit(f"详细异常信息: {tb_str}")
+            
+            issues.append({
+                'type': 'uniqueness_check_error',
+                'file': 'system',
+                'message': error_msg,
+                'traceback': tb_str
+            })
+            
+            # 打印到控制台以便调试
+            print(f"GUID唯一性检查异常: {error_msg}")
+            print(f"异常详情: {tb_str}")
+        
+        return issues
+
     def _check_guid_references(self) -> List[Dict[str, str]]:
         """检查GUID引用完整性"""
         issues = []
@@ -2336,6 +2478,7 @@ class ResourceChecker(QThread):
             report_lines.append("  ✓ 中文字符检查 - 检查文件名是否包含中文字符")
             report_lines.append("  ✓ 图片尺寸检查 - 检查图片尺寸是否为2的幂次且不超过2048")
             report_lines.append("  ✓ GUID一致性检查 - 检查是否存在重复的GUID")
+            report_lines.append("  ✓ GUID唯一性检查 - 确保上传资产与Git仓库之间的GUID唯一性")
             report_lines.append("  ✓ GUID引用完整性检查 - 确保每个引用的GUID都能找到对应文件")
             report_lines.append("  ✓ 内部依赖完整性检查 - 检查本次推送文件包的依赖关系")
             report_lines.append("")
@@ -2369,6 +2512,12 @@ class ResourceChecker(QThread):
                     'internal_dependency_missing': '内部依赖缺失 - 本次推送文件包内部依赖不完整',
                     'potentially_orphaned_file': '可能的孤立文件 - 文件未被其他文件引用，请确认必要性',
                     'internal_dependency_check_error': '内部依赖检查错误 - 检查过程中发生异常',
+                    
+                    # GUID唯一性检查类型（新增）
+                    'guid_duplicate_internal': 'GUID内部重复 - 上传文件内部存在重复的GUID',
+                    'guid_duplicate_git': 'GUID与Git仓库冲突 - 上传文件的GUID已存在于Git仓库中',
+                    'guid_parse_error': 'GUID解析错误 - 无法解析文件中的GUID',
+                    'uniqueness_check_error': 'GUID唯一性检查错误 - 检查过程中发生异常',
                     
                     # 原有的检查类型
                     'meta_missing': 'Meta文件缺失 - 资源文件没有对应的.meta文件',
@@ -2434,6 +2583,18 @@ class ResourceChecker(QThread):
                         if 'orphan_info' in issue:
                             report_lines.append(f"    孤立信息: {issue['orphan_info']}")
                         
+                        # 显示GUID唯一性问题的详细信息
+                        if 'guid' in issue:
+                            report_lines.append(f"    涉及GUID: {issue['guid']}")
+                        if 'files' in issue:
+                            file_names = [os.path.basename(f) for f in issue['files']]
+                            report_lines.append(f"    重复文件: {', '.join(file_names)}")
+                        if 'file_count' in issue:
+                            report_lines.append(f"    重复次数: {issue['file_count']}")
+                        if 'upload_files' in issue:
+                            file_names = [os.path.basename(f) for f in issue['upload_files']]
+                            report_lines.append(f"    冲突的上传文件: {', '.join(file_names)}")
+                        
                         report_lines.append("")
                 
                 # 添加修复建议
@@ -2491,6 +2652,29 @@ class ResourceChecker(QThread):
                     report_lines.append("  2. 检查是否有其他文件引用了这些资源")
                     report_lines.append("  3. 如果确实不需要，可以从推送列表中移除")
                     report_lines.append("  4. 如果是入口文件（如prefab），则可以忽略此警告")
+                
+                # 新增GUID唯一性问题的修复建议
+                if 'guid_duplicate_internal' in issues_by_type:
+                    report_lines.append("\n【guid_duplicate_internal】修复建议:")
+                    report_lines.append("  1. 检查重复GUID的文件是否是同一个文件的不同副本")
+                    report_lines.append("  2. 如果是重复文件，保留一个并移除其他副本")
+                    report_lines.append("  3. 如果是不同文件但GUID相同，在Unity中重新生成其中一个文件的.meta")
+                    report_lines.append("  4. 确保每个资源文件都有唯一的GUID")
+                
+                if 'guid_duplicate_git' in issues_by_type:
+                    report_lines.append("\n【guid_duplicate_git】修复建议:")
+                    report_lines.append("  1. 检查Git仓库中是否已存在相同的文件")
+                    report_lines.append("  2. 如果是同一文件，可以跳过上传或更新现有文件")
+                    report_lines.append("  3. 如果是不同文件但GUID冲突，在Unity中重新生成上传文件的.meta")
+                    report_lines.append("  4. 考虑是否需要更新现有Git文件而不是添加新文件")
+                    report_lines.append("  5. 确保不会意外覆盖Git仓库中的重要资源")
+                
+                if 'guid_parse_error' in issues_by_type:
+                    report_lines.append("\n【guid_parse_error】修复建议:")
+                    report_lines.append("  1. 检查相关文件的.meta文件是否格式正确")
+                    report_lines.append("  2. 在Unity编辑器中重新导入出错的文件")
+                    report_lines.append("  3. 删除损坏的.meta文件，让Unity重新生成")
+                    report_lines.append("  4. 确保文件编码为UTF-8格式")
             
             else:
                 report_lines.append("🎉 所有检查项目都通过了！")
@@ -2500,6 +2684,7 @@ class ResourceChecker(QThread):
                 report_lines.append("  ✅ 所有.meta文件都包含有效的GUID")
                 report_lines.append("  ✅ SVN和Git中的GUID保持一致")
                 report_lines.append("  ✅ 没有发现重复的GUID")
+                report_lines.append("  ✅ 上传文件与Git仓库之间的GUID唯一性验证通过")
                 report_lines.append("  ✅ 文件名符合规范")
                 report_lines.append("  ✅ 图片尺寸符合要求")
             
