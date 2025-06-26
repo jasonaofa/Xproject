@@ -3529,9 +3529,7 @@ class ArtResourceManager(QMainWindow):
         self.delete_btn.clicked.connect(self.delete_duplicates)
         btn_layout.addWidget(self.delete_btn)
         
-        self.pull_common_btn = QPushButton("拉取commonresource仓库")
-        self.pull_common_btn.clicked.connect(self.pull_common_resource)
-        btn_layout.addWidget(self.pull_common_btn)
+
         
         self.show_git_url_btn = QPushButton("显示git仓url")
         self.show_git_url_btn.clicked.connect(self.show_git_url)
@@ -3611,6 +3609,36 @@ class ArtResourceManager(QMainWindow):
         mapping_layout.addWidget(self.toggle_mapping_btn)
         
         advanced_layout.addLayout(mapping_layout)
+        
+        # 一键部署git仓库
+        deploy_layout = QHBoxLayout()
+        deploy_layout.addWidget(QLabel("一键部署:"))
+        
+        self.deploy_repos_btn = QPushButton("一键部署git仓库")
+        self.deploy_repos_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        self.deploy_repos_btn.clicked.connect(self.deploy_git_repositories)
+        deploy_layout.addWidget(self.deploy_repos_btn)
+        
+        advanced_layout.addLayout(deploy_layout)
         
         # 保存高级功能分组框的引用，用于折叠控制
         self.advanced_group = advanced_group
@@ -4465,12 +4493,216 @@ class ArtResourceManager(QMainWindow):
             self.progress_bar.setVisible(False)
     
     def delete_duplicates(self):
-        """一键删除重拉"""
-        self.log_text.append("执行一键删除重拉...")
+        """一键删除重拉 - 删除本地仓库并重新克隆"""
+        git_path = self.git_path_edit.text().strip()
+        if not git_path:
+            QMessageBox.warning(self, "警告", "请先设置Git仓库路径！")
+            return
+        
+        if not os.path.exists(git_path):
+            QMessageBox.warning(self, "警告", f"Git仓库路径不存在：{git_path}")
+            return
+        
+        # 获取远程仓库URL
+        try:
+            result = subprocess.run(['git', 'remote', 'get-url', 'origin'], 
+                                  cwd=git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=10)
+            
+            if result.returncode != 0:
+                QMessageBox.critical(self, "错误", "无法获取远程仓库URL，请确保这是一个有效的Git仓库！")
+                return
+                
+            remote_url = result.stdout.strip()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"获取远程仓库URL失败：{str(e)}")
+            return
+        
+        # 获取当前分支名
+        current_branch = ""
+        try:
+            result = subprocess.run(['git', 'branch', '--show-current'], 
+                                  cwd=git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=10)
+            if result.returncode == 0:
+                current_branch = result.stdout.strip()
+        except:
+            pass
+        
+        # 确认对话框
+        parent_dir = os.path.dirname(git_path)
+        repo_name = os.path.basename(git_path)
+        
+        warning_msg = f"⚠️ 危险操作确认 ⚠️\n\n"
+        warning_msg += f"即将执行一键删除重拉操作：\n\n"
+        warning_msg += f"📁 仓库路径：{git_path}\n"
+        warning_msg += f"🌐 远程URL：{remote_url}\n"
+        if current_branch:
+            warning_msg += f"🌿 当前分支：{current_branch}\n"
+        warning_msg += f"\n🗑️ 操作步骤：\n"
+        warning_msg += f"  1. 完全删除本地仓库目录及所有内容\n"
+        warning_msg += f"  2. 在原位置重新克隆远程仓库\n"
+        if current_branch:
+            warning_msg += f"  3. 切换到原分支：{current_branch}\n"
+        warning_msg += f"\n❌ 警告：本地所有未提交的更改将永久丢失！\n"
+        warning_msg += f"❌ 警告：本地分支和stash将全部丢失！\n"
+        warning_msg += f"\n确定要继续吗？"
+        
+        reply = QMessageBox.question(
+            self,
+            "确认一键删除重拉",
+            warning_msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            self.log_text.append("用户取消了一键删除重拉操作")
+            return
+        
+        # 二次确认
+        confirm_msg = f"🚨 最后确认 🚨\n\n"
+        confirm_msg += f"您真的要删除整个目录并重新克隆吗？\n"
+        confirm_msg += f"路径：{git_path}\n\n"
+        confirm_msg += f"此操作不可撤销！"
+        
+        final_reply = QMessageBox.question(
+            self,
+            "最后确认",
+            confirm_msg,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if final_reply != QMessageBox.Yes:
+            self.log_text.append("用户在最后确认时取消了操作")
+            return
+        
+        # 开始执行操作
+        self.log_text.append("🚨 开始执行一键删除重拉操作...")
+        self.log_text.append(f"📁 目标路径: {git_path}")
+        self.log_text.append(f"🌐 远程URL: {remote_url}")
+        
+        # 禁用相关按钮，防止重复操作
+        self.delete_btn.setEnabled(False)
+        self.pull_branch_btn.setEnabled(False)
+        self.update_new_btn.setEnabled(False)
+        
+        # 显示进度条
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("准备删除重拉操作...")
+        
+        # 创建取消按钮（临时添加到界面）
+        if not hasattr(self, 'cancel_delete_btn'):
+            self.cancel_delete_btn = QPushButton("取消操作")
+            self.cancel_delete_btn.clicked.connect(self.cancel_delete_reclone)
+            self.cancel_delete_btn.setStyleSheet("QPushButton { background-color: #ff6b6b; color: white; font-weight: bold; }")
+        
+        # 将取消按钮添加到进度条旁边
+        progress_layout = self.progress_bar.parent().layout()
+        if progress_layout and self.cancel_delete_btn not in [progress_layout.itemAt(i).widget() for i in range(progress_layout.count())]:
+            progress_layout.addWidget(self.cancel_delete_btn)
+        
+        self.cancel_delete_btn.setVisible(True)
+        
+        # 创建并启动删除重拉线程
+        self.delete_reclone_thread = DeleteAndRecloneThread(
+            git_path, remote_url, current_branch, parent_dir, repo_name
+        )
+        
+        # 连接信号
+        self.delete_reclone_thread.progress_updated.connect(self.progress_bar.setValue)
+        self.delete_reclone_thread.status_updated.connect(self.on_delete_reclone_status_updated)
+        self.delete_reclone_thread.operation_completed.connect(self.on_delete_reclone_completed)
+        
+        # 启动线程
+        self.delete_reclone_thread.start()
     
-    def pull_common_resource(self):
-        """拉取commonresource仓库"""
-        self.log_text.append("拉取commonresource仓库...")
+    def on_delete_reclone_status_updated(self, status: str):
+        """删除重拉状态更新回调"""
+        self.log_text.append(status)
+        self.progress_bar.setFormat(status)
+    
+    def on_delete_reclone_completed(self, success: bool, message: str):
+        """删除重拉操作完成回调"""
+        try:
+            # 隐藏进度条和取消按钮
+            self.progress_bar.setVisible(False)
+            self.progress_bar.setFormat("")
+            if hasattr(self, 'cancel_delete_btn'):
+                self.cancel_delete_btn.setVisible(False)
+            
+            # 重新启用按钮
+            self.delete_btn.setEnabled(True)
+            self.pull_branch_btn.setEnabled(True)
+            self.update_new_btn.setEnabled(True)
+            
+            if success:
+                self.log_text.append("🎉 一键删除重拉操作完成！")
+                self.result_text.append(f"✅ 一键删除重拉成功：{self.git_path_edit.text()}")
+                
+                # 刷新分支列表
+                self.refresh_branches_async(fast_mode=True, force_update_ui=True)
+                
+                QMessageBox.information(
+                    self, 
+                    "操作完成", 
+                    f"一键删除重拉操作已完成！\n\n"
+                    f"仓库已重新克隆到：{self.git_path_edit.text()}\n"
+                    f"请检查分支列表和文件内容。"
+                )
+            else:
+                self.log_text.append(f"❌ 操作失败：{message}")
+                QMessageBox.critical(self, "操作失败", f"一键删除重拉失败：\n\n{message}")
+                
+        except Exception as e:
+            self.log_text.append(f"❌ 处理操作结果时出错: {str(e)}")
+            QMessageBox.critical(self, "错误", f"处理操作结果时出错：{str(e)}")
+    
+    def cancel_delete_reclone(self):
+        """取消删除重拉操作"""
+        if hasattr(self, 'delete_reclone_thread') and self.delete_reclone_thread.isRunning():
+            reply = QMessageBox.question(
+                self,
+                "确认取消",
+                "确定要取消删除重拉操作吗？\n\n"
+                "注意：如果已经开始删除目录，取消操作可能导致仓库处于不完整状态。",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                self.log_text.append("⚠️ 用户请求取消删除重拉操作...")
+                
+                # 终止线程
+                self.delete_reclone_thread.terminate()
+                self.delete_reclone_thread.wait(3000)  # 等待3秒
+                
+                # 隐藏进度条和取消按钮
+                self.progress_bar.setVisible(False)
+                self.progress_bar.setFormat("")
+                if hasattr(self, 'cancel_delete_btn'):
+                    self.cancel_delete_btn.setVisible(False)
+                
+                # 重新启用按钮
+                self.delete_btn.setEnabled(True)
+                self.pull_branch_btn.setEnabled(True)
+                self.update_new_btn.setEnabled(True)
+                
+                self.log_text.append("❌ 删除重拉操作已取消")
+                QMessageBox.warning(self, "操作已取消", "删除重拉操作已被取消。\n\n如果操作已部分完成，请检查仓库状态。")
+    
+
     
     def show_git_url(self):
         """显示git仓url"""
@@ -4859,7 +5091,481 @@ class ArtResourceManager(QMainWindow):
                     widget.setVisible(visible)
                 elif hasattr(item, 'layout') and item.layout():
                     self._set_layout_visible(item.layout(), visible)
+    
+    def deploy_git_repositories(self):
+        """一键部署git仓库"""
+        # 选择部署目录
+        deploy_dir = QFileDialog.getExistingDirectory(
+            self, 
+            "选择部署目录", 
+            "",
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+        
+        if not deploy_dir:
+            self.log_text.append("用户取消了部署操作")
+            return
+        
+        # 确认对话框
+        reply = QMessageBox.question(
+            self,
+            "确认部署",
+            f"即将在以下目录部署Git仓库：\n\n"
+            f"目标目录: {deploy_dir}\n\n"
+            f"部署步骤：\n"
+            f"1. 克隆主仓库: assetruntimenew.git\n"
+            f"2. 运行主仓库中的 Pull_CommonResource.bat 脚本\n\n"
+            f"是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            self.log_text.append("用户取消了部署操作")
+            return
+        
+        # 禁用部署按钮
+        self.deploy_repos_btn.setEnabled(False)
+        self.deploy_repos_btn.setText("部署中...")
+        
+        # 创建部署线程
+        self.deploy_thread = DeployRepositoriesThread(deploy_dir)
+        self.deploy_thread.progress_updated.connect(self.progress_bar.setValue)
+        self.deploy_thread.status_updated.connect(self.on_deploy_status_updated)
+        self.deploy_thread.deployment_completed.connect(self.on_deployment_completed)
+        
+        # 显示进度条
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        
+        # 添加取消按钮功能（复用删除重拉的取消按钮逻辑）
+        if hasattr(self, 'cancel_btn') and self.cancel_btn:
+            self.cancel_btn.setVisible(True)
+            self.cancel_btn.setText("取消部署")
+            self.cancel_btn.clicked.disconnect()  # 断开之前的连接
+            self.cancel_btn.clicked.connect(self.cancel_deployment)
+        
+        # 开始部署
+        self.deploy_thread.start()
+        self.log_text.append("🚀 开始执行一键部署git仓库操作...")
+        self.log_text.append(f"📁 部署目录: {deploy_dir}")
+        self.log_text.append(f"🌐 主仓库: {self.deploy_thread.main_repo_url}")
+        self.log_text.append(f"📜 脚本路径: {deploy_dir}/assetruntimenew/Pull_CommonResource.bat")
+    
+    def cancel_deployment(self):
+        """取消部署操作"""
+        if hasattr(self, 'deploy_thread') and self.deploy_thread and self.deploy_thread.isRunning():
+            self.log_text.append("⚠️ 正在取消部署操作...")
+            self.deploy_thread.terminate()
+            self.deploy_thread.wait(3000)  # 等待3秒
+            
+            # 恢复UI状态
+            self.deploy_repos_btn.setEnabled(True)
+            self.deploy_repos_btn.setText("一键部署git仓库")
+            self.progress_bar.setVisible(False)
+            
+            if hasattr(self, 'cancel_btn') and self.cancel_btn:
+                self.cancel_btn.setVisible(False)
+            
+            self.log_text.append("❌ 部署操作已取消")
+    
+    def on_deploy_status_updated(self, status: str):
+        """部署状态更新"""
+        self.log_text.append(status)
+        # 滚动到底部
+        self.log_text.moveCursor(self.log_text.textCursor().End)
+    
+    def on_deployment_completed(self, success: bool, message: str, main_repo_path: str, sub_repo_path: str):
+        """部署完成"""
+        # 恢复按钮状态
+        self.deploy_repos_btn.setEnabled(True)
+        self.deploy_repos_btn.setText("一键部署git仓库")
+        
+        # 隐藏进度条和取消按钮
+        self.progress_bar.setVisible(False)
+        if hasattr(self, 'cancel_btn') and self.cancel_btn:
+            self.cancel_btn.setVisible(False)
+        
+        if success:
+            self.log_text.append("🎉 一键部署git仓库操作完成！")
+            self.result_text.append(f"✅ 部署成功！")
+            self.result_text.append(f"主仓库路径: {main_repo_path}")
+            self.result_text.append(f"CommonResource已通过脚本拉取完成")
+            
+            # 显示成功对话框
+            QMessageBox.information(
+                self, 
+                "部署成功", 
+                f"一键部署git仓库操作已完成！\n\n"
+                f"主仓库路径: {main_repo_path}\n"
+                f"CommonResource: 已通过 Pull_CommonResource.bat 脚本拉取\n\n"
+                f"{message}"
+            )
+        else:
+            self.log_text.append(f"❌ 部署失败: {message}")
+            QMessageBox.critical(self, "部署失败", f"一键部署git仓库失败：\n\n{message}")
 
+
+class DeployRepositoriesThread(QThread):
+    """部署仓库线程"""
+    
+    progress_updated = pyqtSignal(int)  # 进度更新
+    status_updated = pyqtSignal(str)    # 状态更新
+    deployment_completed = pyqtSignal(bool, str, str, str)  # 部署完成 (success, message, main_repo_path, sub_repo_path)
+    
+    def __init__(self, deploy_dir):
+        super().__init__()
+        self.deploy_dir = deploy_dir
+        self.main_repo_url = "http://client_gitlab.miniworldplus.com:83/miniwan/assetruntimenew.git"
+        self.sub_repo_url = "http://client_gitlab.miniworldplus.com:83/miniwan/commonresource.git"
+        self.main_repo_path = ""
+        self.sub_repo_path = ""
+    
+    def run(self):
+        """执行部署操作"""
+        try:
+            # 步骤1：部署主仓库 (60%)
+            self.status_updated.emit("📦 开始部署主仓库 assetruntimenew.git...")
+            self.progress_updated.emit(10)
+            
+            self.main_repo_path = os.path.join(self.deploy_dir, "assetruntimenew")
+            success, message = self._clone_repository(self.main_repo_url, self.main_repo_path, "主仓库")
+            if not success:
+                self.deployment_completed.emit(False, message, "", "")
+                return
+            
+            self.progress_updated.emit(60)
+            self.status_updated.emit("✅ 主仓库部署完成")
+            
+            # 步骤2：运行Pull_CommonResource.bat (40%)
+            self.status_updated.emit("🔄 正在运行 Pull_CommonResource.bat...")
+            self.progress_updated.emit(70)
+            
+            success, message = self._run_pull_script()
+            if not success:
+                self.deployment_completed.emit(False, message, self.main_repo_path, "")
+                return
+            
+            self.progress_updated.emit(100)
+            self.status_updated.emit("✅ Pull_CommonResource.bat 执行完成")
+            
+            # 完成
+            self.status_updated.emit("🎉 Git仓库部署完成！")
+            self.deployment_completed.emit(
+                True, 
+                "Git仓库部署完成，CommonResource已通过脚本拉取！", 
+                self.main_repo_path, 
+                ""
+            )
+            
+        except Exception as e:
+            self.deployment_completed.emit(False, f"部署过程中发生错误: {str(e)}", "", "")
+    
+    def _clone_repository(self, repo_url: str, target_path: str, repo_name: str) -> tuple:
+        """克隆仓库"""
+        try:
+            # 检查目标目录是否已存在
+            if os.path.exists(target_path):
+                self.status_updated.emit(f"⚠️ {repo_name}目录已存在，正在删除...")
+                import shutil
+                shutil.rmtree(target_path)
+            
+            # 执行git clone
+            self.status_updated.emit(f"⬇️ 正在克隆{repo_name}...")
+            
+            import subprocess
+            # 设置Git配置以提高克隆性能和稳定性
+            git_env = os.environ.copy()
+            git_env['GIT_HTTP_LOW_SPEED_LIMIT'] = '1000'  # 最低速度1KB/s
+            git_env['GIT_HTTP_LOW_SPEED_TIME'] = '30'     # 30秒超时
+            
+            process = subprocess.Popen(
+                ['git', 'clone', '--progress', repo_url, target_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                cwd=self.deploy_dir,
+                env=git_env
+            )
+            
+            # 实时读取输出
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    line = output.strip()
+                    if line:
+                        # 解析git clone的进度信息
+                        if "Receiving objects:" in line or "Resolving deltas:" in line:
+                            self.status_updated.emit(f"📥 {repo_name}: {line}")
+                        elif "Cloning into" in line:
+                            self.status_updated.emit(f"🔄 {repo_name}: {line}")
+                        elif line and not line.startswith("warning:"):
+                            self.status_updated.emit(f"ℹ️ {repo_name}: {line}")
+            
+            # 检查返回码
+            return_code = process.poll()
+            if return_code != 0:
+                return False, f"{repo_name}克隆失败，返回码: {return_code}"
+            
+            # 验证克隆结果
+            if not os.path.exists(target_path):
+                return False, f"{repo_name}克隆失败，目标目录不存在"
+            
+            git_dir = os.path.join(target_path, '.git')
+            if not os.path.exists(git_dir):
+                return False, f"{repo_name}克隆失败，.git目录不存在"
+            
+            return True, f"{repo_name}克隆成功"
+            
+        except FileNotFoundError:
+            return False, f"Git命令未找到，请确保已安装Git并添加到系统PATH"
+        except Exception as e:
+            return False, f"{repo_name}克隆失败: {str(e)}"
+    
+    def _run_pull_script(self) -> tuple:
+        """运行Pull_CommonResource.bat脚本"""
+        try:
+            script_path = os.path.join(self.main_repo_path, "Pull_CommonResource.bat")
+            
+            # 检查脚本是否存在
+            if not os.path.exists(script_path):
+                return False, f"Pull_CommonResource.bat 脚本不存在: {script_path}"
+            
+            self.status_updated.emit(f"📜 找到脚本: {script_path}")
+            self.status_updated.emit("⚡ 开始执行 Pull_CommonResource.bat...")
+            
+            import subprocess
+            # 在主仓库目录下运行脚本
+            process = subprocess.Popen(
+                [script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                cwd=self.main_repo_path,
+                shell=True
+            )
+            
+            # 实时读取输出
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    line = output.strip()
+                    if line:
+                        # 显示脚本输出
+                        if "Cloning into" in line or "Already up to date" in line:
+                            self.status_updated.emit(f"📥 脚本输出: {line}")
+                        elif "error:" in line.lower() or "fatal:" in line.lower():
+                            self.status_updated.emit(f"❌ 脚本错误: {line}")
+                        elif line and not line.startswith("warning:"):
+                            self.status_updated.emit(f"ℹ️ 脚本输出: {line}")
+            
+            # 检查返回码
+            return_code = process.poll()
+            if return_code != 0:
+                return False, f"Pull_CommonResource.bat 执行失败，返回码: {return_code}"
+            
+            self.status_updated.emit("✅ Pull_CommonResource.bat 执行成功")
+            return True, "Pull_CommonResource.bat 执行成功"
+            
+        except Exception as e:
+            return False, f"运行 Pull_CommonResource.bat 失败: {str(e)}"
+
+
+class DeleteAndRecloneThread(QThread):
+    """删除重拉线程"""
+    
+    progress_updated = pyqtSignal(int)  # 进度更新
+    status_updated = pyqtSignal(str)    # 状态更新
+    operation_completed = pyqtSignal(bool, str)  # 操作完成 (success, message)
+    
+    def __init__(self, git_path, remote_url, current_branch, parent_dir, repo_name):
+        super().__init__()
+        self.git_path = git_path
+        self.remote_url = remote_url
+        self.current_branch = current_branch
+        self.parent_dir = parent_dir
+        self.repo_name = repo_name
+    
+    def run(self):
+        """执行删除重拉操作"""
+        try:
+            # 步骤1：删除本地仓库 (20%)
+            self.status_updated.emit("🗑️ 正在删除本地仓库目录...")
+            self.progress_updated.emit(10)
+            
+            if os.path.exists(self.git_path):
+                # 先尝试关闭可能占用文件的Git进程
+                self._close_git_processes()
+                # 强制删除目录
+                self._force_remove_directory(self.git_path)
+                self.status_updated.emit("✅ 本地仓库目录已删除")
+            
+            self.progress_updated.emit(20)
+            
+            # 步骤2：重新克隆 (20% -> 80%)
+            self.status_updated.emit("📥 正在重新克隆远程仓库...")
+            self.progress_updated.emit(30)
+            
+            # 使用git clone并监控进度
+            clone_process = subprocess.Popen(
+                ['git', 'clone', '--progress', self.remote_url, self.repo_name],
+                cwd=self.parent_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding='utf-8',
+                errors='ignore'
+            )
+            
+            # 监控克隆进度
+            progress = 30
+            while True:
+                output = clone_process.stdout.readline()
+                if output == '' and clone_process.poll() is not None:
+                    break
+                
+                if output:
+                    # 尝试解析git的进度信息
+                    if 'Receiving objects:' in output or 'Resolving deltas:' in output:
+                        # 提取百分比
+                        import re
+                        percent_match = re.search(r'(\d+)%', output)
+                        if percent_match:
+                            git_percent = int(percent_match.group(1))
+                            # 映射到我们的进度范围 (30-80)
+                            progress = 30 + int(git_percent * 0.5)
+                            self.progress_updated.emit(min(progress, 80))
+                    
+                    self.status_updated.emit(f"📥 克隆中: {output.strip()}")
+            
+            # 检查克隆结果
+            if clone_process.returncode != 0:
+                self.operation_completed.emit(False, "仓库克隆失败")
+                return
+            
+            self.progress_updated.emit(80)
+            self.status_updated.emit("✅ 仓库克隆成功")
+            
+            # 步骤3：切换分支 (80% -> 90%)
+            if self.current_branch and self.current_branch not in ["main", "master"]:
+                self.status_updated.emit(f"🌿 正在切换到分支: {self.current_branch}")
+                self.progress_updated.emit(85)
+                
+                try:
+                    checkout_result = subprocess.run(
+                        ['git', 'checkout', self.current_branch],
+                        cwd=self.git_path,
+                        capture_output=True,
+                        text=True,
+                        encoding='utf-8',
+                        errors='ignore',
+                        timeout=30
+                    )
+                    
+                    if checkout_result.returncode == 0:
+                        self.status_updated.emit(f"✅ 已切换到分支: {self.current_branch}")
+                    else:
+                        self.status_updated.emit(f"⚠️ 无法切换到分支 {self.current_branch}，保持默认分支")
+                        
+                except Exception as e:
+                    self.status_updated.emit(f"⚠️ 切换分支时出错: {str(e)}")
+            
+            self.progress_updated.emit(90)
+            
+            # 完成
+            self.progress_updated.emit(100)
+            self.status_updated.emit("🎉 一键删除重拉操作完成！")
+            self.operation_completed.emit(True, "操作成功完成")
+            
+        except Exception as e:
+            self.operation_completed.emit(False, f"操作失败: {str(e)}")
+    
+    def _force_remove_directory(self, path):
+        """强制删除目录，处理只读文件和权限问题"""
+        import shutil
+        import stat
+        
+        def handle_remove_readonly(func, path, exc):
+            """处理只读文件删除错误的回调函数"""
+            try:
+                # 如果是权限错误，尝试修改文件权限
+                if exc[1].errno == 13 or exc[1].errno == 5:  # Permission denied
+                    # 移除只读属性
+                    os.chmod(path, stat.S_IWRITE)
+                    # 重试删除
+                    func(path)
+                else:
+                    # 其他错误，尝试强制删除
+                    if os.path.isfile(path):
+                        os.chmod(path, stat.S_IWRITE)
+                        os.unlink(path)
+                    elif os.path.isdir(path):
+                        os.chmod(path, stat.S_IWRITE)
+                        os.rmdir(path)
+            except Exception as e:
+                self.status_updated.emit(f"⚠️ 删除文件时遇到问题: {path} - {str(e)}")
+        
+        try:
+            # 首先尝试普通删除
+            shutil.rmtree(path)
+        except Exception:
+            try:
+                # 如果普通删除失败，使用错误处理回调函数
+                self.status_updated.emit("🔧 遇到只读文件，正在强制删除...")
+                shutil.rmtree(path, onerror=handle_remove_readonly)
+            except Exception:
+                # 如果还是失败，尝试使用系统命令
+                try:
+                    import platform
+                    if platform.system() == "Windows":
+                        self.status_updated.emit("💪 使用系统命令强制删除...")
+                        import subprocess
+                        # 使用rmdir /s /q命令强制删除
+                        result = subprocess.run(
+                            ['rmdir', '/s', '/q', path],
+                            shell=True,
+                            capture_output=True,
+                            text=True
+                        )
+                        if result.returncode != 0:
+                            raise Exception(f"系统命令删除失败: {result.stderr}")
+                    else:
+                        # Linux/Mac使用rm -rf
+                        result = subprocess.run(
+                            ['rm', '-rf', path],
+                            capture_output=True,
+                            text=True
+                        )
+                        if result.returncode != 0:
+                            raise Exception(f"系统命令删除失败: {result.stderr}")
+                except Exception as e:
+                    raise Exception(f"无法删除目录 {path}: {str(e)}")
+    
+    def _close_git_processes(self):
+        """尝试关闭可能占用Git仓库文件的进程"""
+        try:
+            import platform
+            if platform.system() == "Windows":
+                # 在Windows上，尝试关闭可能的Git进程
+                import subprocess
+                try:
+                    # 查找并关闭git.exe进程
+                    subprocess.run(['taskkill', '/f', '/im', 'git.exe'], 
+                                 capture_output=True, timeout=5)
+                    # 查找并关闭可能的编辑器进程
+                    subprocess.run(['taskkill', '/f', '/im', 'notepad.exe'], 
+                                 capture_output=True, timeout=5)
+                    subprocess.run(['taskkill', '/f', '/im', 'code.exe'], 
+                                 capture_output=True, timeout=5)
+                    self.status_updated.emit("🔧 已尝试关闭相关进程")
+                except:
+                    pass  # 忽略错误，这只是尝试性操作
+        except:
+            pass  # 忽略所有错误
 
 class BranchLoadThread(QThread):
     """分支加载线程 - 异步加载分支列表"""
