@@ -3171,16 +3171,69 @@ class SimpleBranchComboBox(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setEditable(False)
+        self._user_is_interacting = False  # 用户交互标志
+        self._last_user_interaction_time = 0  # 最后用户交互时间
         
-    def set_branches(self, branches, current_branch=""):
+        # 监听用户交互
+        self.currentIndexChanged.connect(self._on_user_selection_changed)
+        
+    def set_branches(self, branches, current_branch="", force_update=False):
         """设置分支列表"""
-        self.clear()
-        if branches:
-            for branch in branches:
-                display_text = branch
-                if branch == current_branch:
-                    display_text = f"★ {branch} (当前)"
-                self.addItem(display_text)
+        # 检查是否应该跳过更新（保护用户交互）
+        if not force_update and self._is_recent_user_interaction():
+            print(f"🛡️ [DEBUG] 检测到近期用户交互，跳过分支列表更新")
+            return
+        
+        # 暂时断开信号连接，避免在设置过程中触发用户交互事件
+        self.currentIndexChanged.disconnect(self._on_user_selection_changed)
+        
+        try:
+            self.clear()
+            if branches:
+                current_index = -1  # 记录当前分支的索引
+                for i, branch in enumerate(branches):
+                    display_text = branch
+                    if branch == current_branch:
+                        display_text = f"★ {branch} (当前)"
+                        current_index = i  # 记录当前分支的位置
+                    self.addItem(display_text)
+                
+                # 确保选中当前分支
+                if current_index >= 0:
+                    self.setCurrentIndex(current_index)
+                    print(f"🎯 [DEBUG] 已设置当前分支选中: {current_branch} (索引: {current_index})")
+                elif current_branch:
+                    # 如果当前分支不在列表中，尝试查找匹配项
+                    for i in range(self.count()):
+                        item_text = self.itemText(i)
+                        if current_branch in item_text or item_text.endswith(f"{current_branch} (当前)"):
+                            self.setCurrentIndex(i)
+                            print(f"🎯 [DEBUG] 通过匹配设置当前分支选中: {current_branch} (索引: {i})")
+                            break
+        finally:
+            # 重新连接信号
+            self.currentIndexChanged.connect(self._on_user_selection_changed)
+    
+    def _on_user_selection_changed(self, index):
+        """用户选择改变时的回调"""
+        import time
+        self._user_is_interacting = True
+        self._last_user_interaction_time = time.time()
+        print(f"👤 [DEBUG] 用户手动选择分支，索引: {index}, 分支: {self.currentText()}")
+        
+        # 延迟重置交互标志，给异步操作一些缓冲时间
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(2000, self._reset_user_interaction_flag)
+    
+    def _reset_user_interaction_flag(self):
+        """重置用户交互标志"""
+        self._user_is_interacting = False
+        print(f"🔓 [DEBUG] 重置用户交互标志")
+    
+    def _is_recent_user_interaction(self) -> bool:
+        """检查是否为近期用户交互"""
+        import time
+        return (time.time() - self._last_user_interaction_time) < 3.0  # 3秒内算作近期交互
     
     def get_current_branch_name(self):
         """获取当前选中的分支名称（去除装饰）"""
@@ -3708,7 +3761,7 @@ class ArtResourceManager(QMainWindow):
             QMessageBox.critical(self, "错误", f"无法打开文件夹: {str(e)}")
             self.log_text.append(f"打开编辑器文件夹失败: {str(e)}")
     
-    def refresh_branches_async(self, fast_mode: bool = False, ultra_fast: bool = False):
+    def refresh_branches_async(self, fast_mode: bool = False, ultra_fast: bool = False, force_update_ui: bool = False):
         """异步刷新分支列表"""
         if hasattr(self, 'branch_load_thread') and self.branch_load_thread.isRunning():
             print("⚠️ [DEBUG] 分支加载线程已在运行，跳过...")
@@ -3723,6 +3776,11 @@ class ArtResourceManager(QMainWindow):
             else:
                 print(f"   🌐 完整模式：包含网络操作")
             
+            # 设置强制更新标志
+            if force_update_ui:
+                self._force_branch_update = True
+                print(f"   🛠️ 启用强制UI更新模式")
+            
             self.branch_load_thread = BranchLoadThread(self.git_manager, fast_mode, ultra_fast)
             self.branch_load_thread.branches_loaded.connect(self.on_branches_loaded)
             self.branch_load_thread.load_failed.connect(self.on_branches_load_failed)
@@ -3735,28 +3793,55 @@ class ArtResourceManager(QMainWindow):
     def on_branches_loaded(self, branches: list, current_branch: str):
         """分支加载完成回调"""
         try:
-            # 始终更新combo box，无论是超快速模式还是普通模式
-            self.branch_combo.set_branches(branches, current_branch)
+            # 检查是否为超快速模式的结果
+            is_ultra_fast_result = len(branches) == 1 and branches[0] == current_branch
             
-            # 根据分支数量判断是否为超快速模式的结果
-            if len(branches) == 1 and branches[0] == current_branch:
+            if is_ultra_fast_result:
                 # 超快速模式的结果（只有当前分支）
                 print(f"⚡ [DEBUG] 超快速启动完成，当前分支: {current_branch}")
-                # 注意：不要return，让后续的完整分支加载能继续更新combo box
+                # 仅在首次加载时设置，避免覆盖用户可能的手动选择
+                if self.branch_combo.count() == 0:
+                    self.branch_combo.set_branches(branches, current_branch, force_update=True)
             else:
                 # 普通模式或完整分支加载的结果
+                print(f"🌐 [DEBUG] 完整分支列表加载完成，共 {len(branches)} 个分支，当前分支: {current_branch}")
+                
+                # 保存用户当前的选择（如果有的话）
+                user_selected_branch = None
+                if self.branch_combo.count() > 0:
+                    current_text = self.branch_combo.currentText()
+                    if current_text:
+                        # 提取实际的分支名称
+                        if current_text.startswith("★ "):
+                            user_selected_branch = current_text.replace("★ ", "").replace(" (当前)", "")
+                        else:
+                            user_selected_branch = current_text
+                        print(f"🔄 [DEBUG] 保存用户当前选择: {user_selected_branch}")
+                
+                # 更新分支列表（检查是否需要强制更新）
+                force_update = getattr(self, '_force_branch_update', False)
+                self.branch_combo.set_branches(branches, current_branch, force_update=force_update)
+                # 重置强制更新标志
+                if hasattr(self, '_force_branch_update'):
+                    delattr(self, '_force_branch_update')
+                
+                # 如果用户之前有选择且该分支仍然存在，恢复用户的选择
+                if user_selected_branch and user_selected_branch != current_branch and user_selected_branch in branches:
+                    for i in range(self.branch_combo.count()):
+                        item_text = self.branch_combo.itemText(i)
+                        if (user_selected_branch in item_text and 
+                            (item_text == user_selected_branch or item_text.startswith(f"★ {user_selected_branch}"))):
+                            self.branch_combo.setCurrentIndex(i)
+                            print(f"🎯 [DEBUG] 已恢复用户选择的分支: {user_selected_branch}")
+                            break
+                
+                # 记录到日志
                 self.log_text.append(f"刷新分支列表完成，共获取到 {len(branches)} 个分支")
                 if current_branch:
                     self.log_text.append(f"当前分支: {current_branch}")
-                
-                # 恢复上次选择的分支（仅在完整分支列表时）
-                if hasattr(self, 'last_selected_branch') and self.last_selected_branch:
-                    index = self.branch_combo.findText(self.last_selected_branch)
-                    if index >= 0:
-                        self.branch_combo.setCurrentIndex(index)
-                        self.log_text.append(f"已恢复上次选择的分支: {self.last_selected_branch}")
                     
         except Exception as e:
+            print(f"❌ [DEBUG] 处理分支列表时出错: {e}")
             self.log_text.append(f"处理分支列表时出错: {str(e)}")
     
     def on_branches_load_failed(self, error_message: str):
@@ -3850,8 +3935,8 @@ class ArtResourceManager(QMainWindow):
                 self.result_text.append(f"✅ 分支切换成功: {current_branch} -> {selected_branch}")
                 QMessageBox.information(self, "切换成功", f"已成功切换到分支: {selected_branch}")
                 
-                # 异步刷新分支列表，避免阻塞界面
-                self.refresh_branches_async(fast_mode=True)
+                # 异步刷新分支列表，避免阻塞界面（强制更新，因为分支已切换）
+                self.refresh_branches_async(fast_mode=True, force_update_ui=True)
             else:
                 self.log_text.append(f"❌ 分支切换失败: {message}")
                 self.result_text.append(f"❌ 分支切换失败: {current_branch} -> {selected_branch}")
@@ -4140,8 +4225,8 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(f"✓ 拉取成功: {message}")
                 self.result_text.append(f"✓ Git分支拉取成功: {message}")
                 QMessageBox.information(self, "拉取成功", message)
-                # 异步刷新分支列表，避免阻塞界面
-                self.refresh_branches_async(fast_mode=True)
+                # 异步刷新分支列表，避免阻塞界面（强制更新，因为可能有新分支）
+                self.refresh_branches_async(fast_mode=True, force_update_ui=True)
                 self.show_current_branch()
             else:
                 self.log_text.append(f"✗ 拉取失败: {message}")
@@ -4192,8 +4277,8 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(f"✓ 重置成功: {message}")
                 self.result_text.append(f"✓ Git仓库重置成功: {message}")
                 QMessageBox.information(self, "重置成功", message)
-                # 异步刷新分支列表，避免阻塞界面
-                self.refresh_branches_async(fast_mode=True)
+                # 异步刷新分支列表，避免阻塞界面（强制更新，因为状态已重置）
+                self.refresh_branches_async(fast_mode=True, force_update_ui=True)
                 self.show_current_branch()
             else:
                 self.log_text.append(f"✗ 重置失败: {message}")
