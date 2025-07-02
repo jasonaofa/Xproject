@@ -1,6 +1,6 @@
 {
   "svn_path": "G:/Svn_repo/MiniProject_Art_NewPrefab",
-  "git_path": "G:\\minirepo\\AssetRuntime_Branch08\\assetruntime\\CommonResource",
+  "git_path": "G:\\minirepo\\AssetRuntime_Branch09\\assetruntime\\CommonResource",
   "window_geometry": {
     "x": 0,
     "y": 34,
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\body.prefab.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\body.prefab",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_sk.skeleton.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_sk.skeleton",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_body1.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_body1.mesh",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_body.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_body.mesh",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_aabb.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110178\\Model\\body_aabb.mesh"
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\VFX_110117_502.prefab.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\VFX_110117_502.prefab",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\VFX_110117_501.prefab.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\VFX_110117_501.prefab",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\VFX_110117_500.prefab.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\VFX_110117_500.prefab",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\all.filelist.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Particle\\all.filelist",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Model\\body_sk.skeleton.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110117\\Model\\body_sk.skeleton"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"
