@@ -3194,15 +3194,15 @@ class ResourceChecker(QThread):
 
     def _generate_detailed_report(self, all_issues: List[Dict[str, str]], total_files: int) -> Dict[str, Any]:
         """生成详细报告"""
+        blocking_issues = []  # 初始化阻塞性错误列表
         try:
             # 区分阻塞性错误和警告/信息
-            non_blocking_types = {'meta_missing_git', 'guid_file_update'}
+            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'potentially_orphaned_file'}
             blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
-            warning_issues = [issue for issue in all_issues if issue.get('type') in non_blocking_types]
             
-            # 按类型分组问题
+            # 按类型分组问题 - 只处理阻塞性错误
             issues_by_type = {}
-            for issue in all_issues:
+            for issue in blocking_issues:
                 issue_type = issue.get('type', 'unknown')
                 if issue_type not in issues_by_type:
                     issues_by_type[issue_type] = []
@@ -3211,31 +3211,25 @@ class ResourceChecker(QThread):
             # 生成格式化报告
             report_lines = []
             report_lines.append("=" * 80)
-            report_lines.append("资源检查详细报告")
+            report_lines.append("**资源检查详细报告**")
             report_lines.append("=" * 80)
             report_lines.append(f"检查时间: {self._get_current_time()}")
             report_lines.append(f"检查文件总数: {total_files}")
-            report_lines.append(f"发现问题总数: {len(all_issues)}")
-            if blocking_issues and warning_issues:
-                report_lines.append(f"  - 阻塞性错误: {len(blocking_issues)} 个")
-                report_lines.append(f"  - 警告/信息: {len(warning_issues)} 个")
-            elif blocking_issues:
-                report_lines.append(f"  - 阻塞性错误: {len(blocking_issues)} 个")
-            elif warning_issues:
-                report_lines.append(f"  - 警告/信息: {len(warning_issues)} 个")
+            report_lines.append(f"发现阻塞性错误: {len(blocking_issues)} 个")
+            if len(all_issues) > len(blocking_issues):
+                report_lines.append(f"(已过滤 {len(all_issues) - len(blocking_issues)} 个警告/信息)")
             report_lines.append("")
             
-            if all_issues:
-                # 首先显示问题分类统计
-                report_lines.append("问题分类统计:")
+            if blocking_issues:
+                # 首先显示问题分类统计  
+                report_lines.append("**问题分类统计:**")
                 report_lines.append("-" * 40)
                 
-                # 问题类型说明 - 更新以支持新的Meta检查类型和GUID引用类型
+                # 问题类型说明 - 只包含阻塞性错误类型
                 type_descriptions = {
-                    # 新的Meta检查类型
+                    # 阻塞性Meta检查错误类型
                     'meta_missing_both': 'SVN和Git中都缺少.meta文件 - 需要生成.meta文件',
                     'meta_missing_svn': 'SVN中缺少.meta文件 - Git中存在，需要从Git复制',
-                    'meta_missing_git': 'Git中缺少.meta文件 - SVN中存在，推送时会复制',
                     'meta_missing_svn_invalid_git': 'SVN中缺少.meta文件且Git中的.meta文件无效',
                     'meta_missing_git_invalid_svn': 'Git中缺少.meta文件且SVN中的.meta文件无效',
                     'guid_mismatch': 'GUID不一致 - SVN和Git中的.meta文件GUID不同',
@@ -3247,23 +3241,21 @@ class ResourceChecker(QThread):
                     'git_meta_read_error': 'Git中的.meta文件读取失败',
                     'git_path_calc_error': '计算Git路径失败',
                     
-                    # 新的GUID引用检查类型
+                    # 阻塞性GUID引用检查错误类型
                     'guid_reference_missing': 'GUID引用缺失 - 引用了不存在的资源GUID，需要添加对应文件',
                     'guid_reference_parse_error': 'GUID引用解析错误 - 无法解析文件中的GUID引用',
                     'guid_reference_check_error': 'GUID引用检查错误 - 检查过程中发生异常',
                     'guid_reference_system_error': 'GUID引用系统错误 - 检查系统发生严重错误',
                     'internal_dependency_missing': '内部依赖缺失 - 本次推送文件包内部依赖不完整',
-                    'potentially_orphaned_file': '可能的孤立文件 - 文件未被其他文件引用，请确认必要性',
                     'internal_dependency_check_error': '内部依赖检查错误 - 检查过程中发生异常',
                     
-                    # GUID唯一性检查类型（新增）
+                    # 阻塞性GUID唯一性检查错误类型
                     'guid_duplicate_internal': 'GUID内部重复 - 上传文件内部存在重复的GUID',
                     'guid_duplicate_git': 'GUID真正冲突 - 不同文件使用了相同的GUID',
-                    'guid_file_update': '文件更新 - 将覆盖Git中的现有文件版本',
                     'guid_parse_error': 'GUID解析错误 - 无法解析文件中的GUID',
                     'uniqueness_check_error': 'GUID唯一性检查错误 - 检查过程中发生异常',
                     
-                    # 原有的检查类型
+                    # 阻塞性基础检查错误类型
                     'meta_missing': 'Meta文件缺失 - 资源文件没有对应的.meta文件',
                     'meta_empty': 'Meta文件为空 - .meta文件存在但内容为空',
                     'meta_no_guid': 'Meta文件缺少GUID - .meta文件中没有找到guid字段',
@@ -3282,84 +3274,64 @@ class ResourceChecker(QThread):
                 
                 for issue_type, issues in issues_by_type.items():
                     description = type_descriptions.get(issue_type, f'未知问题类型: {issue_type}')
-                    report_lines.append(f"  • {issue_type}: {len(issues)} 个")
+                    report_lines.append(f"  • **{issue_type}**: {len(issues)} 个")
                     report_lines.append(f"    说明: {description}")
                 report_lines.append("")
                 
-                # 添加修复建议（移到详细问题列表之前）
-                report_lines.append("修复建议:")
+                # 添加修复建议（只显示阻塞性错误的修复建议）
+                report_lines.append("**修复建议:**")
                 report_lines.append("=" * 60)
                 
                 if 'meta_missing_both' in issues_by_type:
-                    report_lines.append("\n【meta_missing_both】修复建议:")
+                    report_lines.append("\n**【meta_missing_both】修复建议:**")
                     report_lines.append("  1. 在编辑器中重新导入这些资源文件")
                     report_lines.append("  2. 或者手动创建.meta文件并生成GUID")
                 
                 if 'meta_missing_svn' in issues_by_type:
-                    report_lines.append("\n【meta_missing_svn】修复建议:")
+                    report_lines.append("\n**【meta_missing_svn】修复建议:**")
                     report_lines.append("  1. 从Git仓库复制对应的.meta文件到SVN目录")
                     report_lines.append("  2. 确保文件名和路径完全匹配")
                 
-                if 'meta_missing_git' in issues_by_type:
-                    report_lines.append("\n【meta_missing_git】修复建议:")
-                    report_lines.append("  1. 推送操作会自动将SVN中的.meta文件复制到Git")
-                    report_lines.append("  2. 无需手动处理")
-                
                 if 'guid_mismatch' in issues_by_type:
-                    report_lines.append("\n【guid_mismatch】修复建议:")
+                    report_lines.append("\n**【guid_mismatch】修复建议:**")
                     report_lines.append("  1. 确定哪个GUID是正确的（通常Git中的更权威）")
                     report_lines.append("  2. 更新SVN中的.meta文件使其与Git保持一致")
                     report_lines.append("  3. 或者在编辑器中重新生成.meta文件")
                 
                 if any(t in issues_by_type for t in ['chinese_filename']):
-                    report_lines.append("\n【chinese_filename】修复建议:")
+                    report_lines.append("\n**【chinese_filename】修复建议:**")
                     report_lines.append("  1. 重命名文件，使用英文名称")
                     report_lines.append("  2. 更新引用该文件的其他资源")
                 
                 if any(t in issues_by_type for t in ['image_width_not_power_of_2', 'image_height_not_power_of_2']):
-                    report_lines.append("\n【图片尺寸】修复建议:")
+                    report_lines.append("\n**【图片尺寸】修复建议:**")
                     report_lines.append("  1. 使用图像编辑软件调整图片尺寸为2的幂次")
                     report_lines.append("  2. 常用尺寸: 32, 64, 128, 256, 512, 1024, 2048")
                     report_lines.append("  3. 在编辑器Import Settings中设置合适的压缩格式")
                 
                 if 'guid_reference_missing' in issues_by_type:
-                    report_lines.append("\n【guid_reference_missing】修复建议:")
+                    report_lines.append("\n**【guid_reference_missing】修复建议:**")
                     report_lines.append("  1. 找到缺失的资源文件并添加到推送列表中")
                     report_lines.append("  2. 检查资源文件是否已存在于Git仓库中")
                     report_lines.append("  3. 如果是编辑器内置资源，请检查GUID是否正确")
                     report_lines.append("  4. 考虑是否需要重新生成资源的依赖关系")
                 
                 if 'internal_dependency_missing' in issues_by_type:
-                    report_lines.append("\n【internal_dependency_missing】修复建议:")
+                    report_lines.append("\n**【internal_dependency_missing】修复建议:**")
                     report_lines.append("  1. 将缺失的依赖文件添加到推送列表中")
                     report_lines.append("  2. 确保所有相关文件都一起推送")
                     report_lines.append("  3. 检查文件路径是否正确")
                 
-                if 'potentially_orphaned_file' in issues_by_type:
-                    report_lines.append("\n【potentially_orphaned_file】修复建议:")
-                    report_lines.append("  1. 确认这些文件是否真的需要推送")
-                    report_lines.append("  2. 检查是否有其他文件引用了这些资源")
-                    report_lines.append("  3. 如果确实不需要，可以从推送列表中移除")
-                    report_lines.append("  4. 如果是入口文件（如prefab），则可以忽略此警告")
-                
                 # GUID唯一性问题的修复建议
                 if 'guid_duplicate_internal' in issues_by_type:
-                    report_lines.append("\n【guid_duplicate_internal】修复建议:")
+                    report_lines.append("\n**【guid_duplicate_internal】修复建议:**")
                     report_lines.append("  1. 检查重复GUID的文件是否是同一个文件的不同副本")
                     report_lines.append("  2. 如果是重复文件，保留一个并移除其他副本")
                     report_lines.append("  3. 如果是不同文件但GUID相同，在编辑器中重新生成其中一个文件的.meta")
                     report_lines.append("  4. 确保每个资源文件都有唯一的GUID")
                 
-                if 'guid_file_update' in issues_by_type:
-                    report_lines.append("\n【guid_file_update】处理说明:")
-                    report_lines.append("  ℹ️ 这些是正常的文件更新操作，不是错误")
-                    report_lines.append("  1. 这些文件已存在于Git仓库中，您正在更新它们")
-                    report_lines.append("  2. 推送后，Git中的文件将被您的新版本覆盖")
-                    report_lines.append("  3. 如果确认要更新，可以继续推送操作")
-                    report_lines.append("  4. 如果不想更新某些文件，请从上传列表中移除它们")
-                
                 if 'guid_duplicate_git' in issues_by_type:
-                    report_lines.append("\n【guid_duplicate_git】修复建议:")
+                    report_lines.append("\n**【guid_duplicate_git】修复建议:**")
                     report_lines.append("  ⚠️ 这是真正的GUID冲突，需要处理")
                     report_lines.append("  1. 不同的文件不能使用相同的GUID")
                     report_lines.append("  2. 在编辑器中删除冲突文件的.meta文件")
@@ -3368,7 +3340,7 @@ class ResourceChecker(QThread):
                     report_lines.append("  5. 确保每个资源文件都有唯一的GUID")
                 
                 if 'guid_parse_error' in issues_by_type:
-                    report_lines.append("\n【guid_parse_error】修复建议:")
+                    report_lines.append("\n**【guid_parse_error】修复建议:**")
                     report_lines.append("  1. 检查相关文件的.meta文件是否格式正确")
                     report_lines.append("  2. 在编辑器中重新导入出错的文件")
                     report_lines.append("  3. 删除损坏的.meta文件，让编辑器重新生成")
@@ -3376,11 +3348,11 @@ class ResourceChecker(QThread):
                 
                 report_lines.append("")
                 
-                report_lines.append("详细问题列表:")
+                report_lines.append("**详细问题列表:**")
                 report_lines.append("=" * 60)
                 
                 for issue_type, issues in issues_by_type.items():
-                    report_lines.append(f"\n【{issue_type}】({len(issues)} 个问题)")
+                    report_lines.append(f"\n**【{issue_type}】({len(issues)} 个问题)**")
                     report_lines.append("-" * 50)
                     
                     for i, issue in enumerate(issues, 1):
@@ -3388,7 +3360,7 @@ class ResourceChecker(QThread):
                         file_name = os.path.basename(file_path)
                         message = issue.get('message', '')
                         
-                        report_lines.append(f"  问题 {i}:")
+                        report_lines.append(f"  **问题 {i}:**")
                         report_lines.append(f"    文件名: {file_name}")
                         report_lines.append(f"    完整路径: {file_path}")
                         report_lines.append(f"    问题描述: {message}")
@@ -3441,25 +3413,6 @@ class ResourceChecker(QThread):
                             report_lines.append(f"    问题级别: {severity_desc}")
                         
                         report_lines.append("")
-                
-                # 在报告最后添加执行的检查项目和文件列表
-                report_lines.append("\n执行的检查项目:")
-                report_lines.append("-" * 40)
-                report_lines.append("  ✓ Meta文件完整性检查 - 严格检查SVN和Git中的.meta文件及GUID一致性")
-                report_lines.append("  ✓ 中文字符检查 - 检查文件名是否包含中文字符")
-                report_lines.append("  ✓ 图片尺寸检查 - 检查图片尺寸是否为2的幂次且不超过2048")
-                report_lines.append("  ✓ GUID一致性检查 - 检查是否存在重复的GUID")
-                report_lines.append("  ✓ GUID唯一性检查 - 确保上传资产与Git仓库之间的GUID唯一性")
-                report_lines.append("  ✓ GUID引用完整性检查 - 确保每个引用的GUID都能找到对应文件")
-                report_lines.append("  ✓ 内部依赖完整性检查 - 检查本次推送文件包的依赖关系")
-                report_lines.append("")
-                
-                # 显示检查的文件列表
-                report_lines.append("检查的文件列表:")
-                report_lines.append("-" * 40)
-                for i, file_path in enumerate(self.upload_files, 1):
-                    report_lines.append(f"  {i}. {file_path}")
-                report_lines.append("")
             
             else:
                 report_lines.append("🎉 所有检查项目都通过了！")
@@ -3476,17 +3429,17 @@ class ResourceChecker(QThread):
             # 返回报告数据
             return {
                 'total_files': total_files,
-                'total_issues': len(all_issues),
+                'total_issues': len(blocking_issues),
                 'issues_by_type': issues_by_type,
                 'report_text': '\n'.join(report_lines),
-                'has_errors': len(all_issues) > 0
+                'has_errors': len(blocking_issues) > 0
             }
             
         except Exception as e:
             error_report = f"生成报告时发生错误: {str(e)}"
             return {
                 'total_files': total_files,
-                'total_issues': len(all_issues),
+                'total_issues': 0,
                 'issues_by_type': {},
                 'report_text': error_report,
                 'has_errors': True,
