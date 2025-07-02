@@ -1468,42 +1468,111 @@ class GitSvnManager:
             return False
     
     def reset_git_repository(self) -> Tuple[bool, str]:
-        """快速重置Git本地仓库"""
+        """重置更新Git仓库 - 强制同步到远程分支最新状态"""
         if not self.git_path or not os.path.exists(self.git_path):
             return False, "Git仓库路径无效"
         
         try:
+            print("🔄 [RESET] ========== 开始重置更新Git仓库 ==========")
+            
             # 1. 获取当前分支名
             current_branch = self.get_current_branch()
             if not current_branch:
                 return False, "无法获取当前分支"
             
-            # 2. 清理未跟踪的文件 (git clean -f)
-            result = subprocess.run(['git', 'clean', '-f'], 
-                                  cwd=self.git_path, 
-                                  capture_output=True, 
-                                  text=True,
-                                  encoding='utf-8',
-                                  errors='ignore')
+            print(f"🌿 [RESET] 当前分支: {current_branch}")
+            
+            # 2. 获取远程最新信息 (git fetch origin)
+            print("🌐 [RESET] 步骤1/3: 获取远程最新信息...")
+            result = subprocess.run(
+                ['git', 'fetch', 'origin'], 
+                cwd=self.git_path, 
+                capture_output=True, 
+                text=True,
+                encoding='utf-8',
+                errors='ignore',
+                timeout=60  # 网络操作超时设置
+            )
             if result.returncode != 0:
-                return False, f"清理未跟踪文件失败: {result.stderr}"
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                print(f"❌ [RESET] fetch失败: {error_msg}")
+                return False, f"获取远程信息失败: {error_msg}"
             
-            # 3. 硬重置到当前分支 (git reset --hard 当前分支名)
-            result = subprocess.run(['git', 'reset', '--hard', current_branch], 
-                                  cwd=self.git_path, 
-                                  capture_output=True, 
-                                  text=True,
-                                  encoding='utf-8',
-                                  errors='ignore')
+            print("✅ [RESET] 远程信息获取成功")
+            
+            # 3. 清理未跟踪的文件和目录 (git clean -f -d)
+            print("🧹 [RESET] 步骤2/3: 清理未跟踪文件...")
+            result = subprocess.run(
+                ['git', 'clean', '-f', '-d'], 
+                cwd=self.git_path, 
+                capture_output=True, 
+                text=True,
+                encoding='utf-8',
+                errors='ignore'
+            )
             if result.returncode != 0:
-                return False, f"重置到分支失败: {result.stderr}"
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                print(f"⚠️ [RESET] clean警告: {error_msg}")
+                # clean命令即使有警告也继续执行
+            else:
+                cleaned_files = result.stdout.strip()
+                if cleaned_files:
+                    print(f"🗑️ [RESET] 已清理文件:\n{cleaned_files}")
+                else:
+                    print("✅ [RESET] 无需清理文件")
             
-            return True, f"快速重置完成 - 清理文件并重置到分支 {current_branch}"
+            # 4. 硬重置到远程分支 (git reset --hard origin/分支名)
+            print("💥 [RESET] 步骤3/3: 硬重置到远程分支...")
+            remote_branch = f"origin/{current_branch}"
+            result = subprocess.run(
+                ['git', 'reset', '--hard', remote_branch], 
+                cwd=self.git_path, 
+                capture_output=True, 
+                text=True,
+                encoding='utf-8',
+                errors='ignore'
+            )
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                print(f"❌ [RESET] reset失败: {error_msg}")
+                return False, f"重置到远程分支失败: {error_msg}"
             
+            reset_info = result.stdout.strip()
+            print(f"✅ [RESET] 重置成功: {reset_info}")
+            
+            # 5. 验证重置结果
+            print("🔍 [RESET] 验证重置结果...")
+            result = subprocess.run(
+                ['git', 'status', '--porcelain'], 
+                cwd=self.git_path, 
+                capture_output=True, 
+                text=True,
+                encoding='utf-8',
+                errors='ignore'
+            )
+            
+            if result.returncode == 0:
+                status_output = result.stdout.strip()
+                if not status_output:
+                    print("✅ [RESET] 工作区已清理干净")
+                else:
+                    print(f"⚠️ [RESET] 工作区仍有变化:\n{status_output}")
+            
+            print("🎉 [RESET] ========== 重置更新完成 ==========")
+            return True, f"重置更新完成！已同步到远程分支 {current_branch} 最新状态"
+            
+        except subprocess.TimeoutExpired:
+            error_msg = "网络超时：获取远程信息耗时过长"
+            print(f"⏰ [RESET] {error_msg}")
+            return False, error_msg
         except subprocess.CalledProcessError as e:
-            return False, f"Git命令执行失败: {e}"
+            error_msg = f"Git命令执行失败: {e}"
+            print(f"❌ [RESET] {error_msg}")
+            return False, error_msg
         except Exception as e:
-            return False, f"重置Git仓库时发生异常: {e}"
+            error_msg = f"重置Git仓库时发生异常: {e}"
+            print(f"💥 [RESET] {error_msg}")
+            return False, error_msg
     
     def pull_current_branch(self) -> Tuple[bool, str]:
         """拉取当前分支的最新代码"""
@@ -2326,6 +2395,7 @@ class ResourceChecker(QThread):
     status_updated = pyqtSignal(str)
     check_completed = pyqtSignal(bool, str)
     detailed_report = pyqtSignal(dict)
+    git_sync_required = pyqtSignal(dict)  # 新增：Git同步需求信号
     
     def __init__(self, upload_files, git_manager, target_directory):
         super().__init__()
@@ -2352,6 +2422,19 @@ class ResourceChecker(QThread):
         """运行检查任务"""
         try:
             self.status_updated.emit("开始检查资源...")
+            
+            # 🔍 第一步：检查Git同步状态
+            self.status_updated.emit("🔍 检查Git仓库同步状态...")
+            self.progress_updated.emit(2)
+            
+            git_sync_result = self._check_git_sync_status()
+            if not git_sync_result['is_up_to_date']:
+                # 发出需要同步的信号，暂停后续检查
+                self.git_sync_required.emit(git_sync_result)
+                return  # 等待用户决定是否更新
+            
+            self.status_updated.emit("✅ Git仓库状态正常，继续检查资源...")
+            self.progress_updated.emit(5)
             
             # 检查所有问题
             all_issues = []
@@ -3561,6 +3644,233 @@ class ResourceChecker(QThread):
         
         return git_guids
 
+    def _check_git_sync_status(self) -> Dict[str, Any]:
+        """检查Git仓库同步状态，判断是否需要更新"""
+        result = {
+            'is_up_to_date': True,
+            'needs_pull': False,
+            'needs_reset': False,
+            'remote_ahead': 0,
+            'local_ahead': 0,
+            'current_branch': '',
+            'remote_reachable': False,
+            'conflict_risk': False,
+            'message': '',
+            'details': []
+        }
+        
+        try:
+            print("🔍 [SYNC_CHECK] ========== 开始Git同步状态检查 ==========")
+            
+            if not self.git_manager or not self.git_manager.git_path:
+                print("❌ [SYNC_CHECK] Git路径未配置")
+                result['message'] = "Git路径未配置"
+                return result
+            
+            print(f"📁 [SYNC_CHECK] Git路径: {self.git_manager.git_path}")
+            
+            # 1. 获取当前分支 (快速本地操作)
+            print("🌿 [SYNC_CHECK] 步骤1/3: 获取当前分支...")
+            current_branch = self.git_manager.get_current_branch()
+            result['current_branch'] = current_branch
+            
+            if not current_branch:
+                print("❌ [SYNC_CHECK] 无法获取当前分支")
+                result['message'] = "无法获取当前分支"
+                return result
+            
+            print(f"✅ [SYNC_CHECK] 当前分支: {current_branch}")
+            
+            # 2. 极速检查远程连接 (1秒超时)
+            print("🌐 [SYNC_CHECK] 步骤2/3: 检查远程连接 (1秒快速检查)...")
+            try:
+                # 首先检查远程仓库URL是否配置
+                remote_check = subprocess.run(
+                    ['git', 'remote', 'get-url', 'origin'],
+                    cwd=self.git_manager.git_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=1
+                )
+                
+                if remote_check.returncode != 0:
+                    print("❌ [SYNC_CHECK] 未配置远程仓库")
+                    result['message'] = "未配置远程仓库，跳过同步检查"
+                    return result
+                
+                remote_url = remote_check.stdout.strip()
+                print(f"🔗 [SYNC_CHECK] 远程URL: {remote_url}")
+                
+                # 极速检查远程连接（1秒超时）
+                fetch_result = subprocess.run(
+                    ['git', 'ls-remote', '--heads', 'origin'],  # 更快的检查方式
+                    cwd=self.git_manager.git_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=1  # 极短超时，快速失败
+                )
+                
+                if fetch_result.returncode == 0:
+                    result['remote_reachable'] = True
+                    print("✅ [SYNC_CHECK] 远程连接正常")
+                else:
+                    print(f"⚠️ [SYNC_CHECK] 远程连接异常: {fetch_result.stderr}")
+                    result['message'] = "远程仓库连接异常，跳过同步检查"
+                    return result
+                    
+            except subprocess.TimeoutExpired:
+                print("⏰ [SYNC_CHECK] 远程连接超时 (1秒) - 网络可能较慢")
+                result['message'] = "远程仓库连接超时，跳过同步检查"
+                return result
+            except subprocess.CalledProcessError as e:
+                print(f"❌ [SYNC_CHECK] 远程连接失败: {e}")
+                result['message'] = "无法连接到远程仓库，跳过同步检查"
+                return result
+            
+            # 3. 快速获取远程更新 (5秒超时)
+            print("📥 [SYNC_CHECK] 步骤3/3: 获取远程更新 (5秒超时)...")
+            try:
+                fetch_result = subprocess.run(
+                    ['git', 'fetch', 'origin', '--quiet'],  # 添加quiet减少输出
+                    cwd=self.git_manager.git_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=5  # 进一步缩短超时到5秒
+                )
+                
+                if fetch_result.returncode == 0:
+                    print("✅ [SYNC_CHECK] 远程信息获取成功")
+                else:
+                    print(f"⚠️ [SYNC_CHECK] 获取远程信息异常: {fetch_result.stderr}")
+                    result['message'] = "获取远程信息失败"
+                    return result
+                    
+            except subprocess.TimeoutExpired:
+                print("⏰ [SYNC_CHECK] 获取远程更新超时 (5秒) - 网络较慢，跳过同步检查")
+                result['message'] = "获取远程更新超时，跳过同步检查"
+                return result
+            except subprocess.CalledProcessError as e:
+                print(f"❌ [SYNC_CHECK] 获取远程更新失败: {e}")
+                result['message'] = "获取远程更新失败"
+                return result
+            
+            # 4. 检查分支同步状态 (快速本地操作)
+            print("📊 [SYNC_CHECK] 分析分支差异...")
+            try:
+                # 检查本地分支与远程分支的差异
+                rev_list_cmd = ['git', 'rev-list', '--count', '--left-right', f'HEAD...origin/{current_branch}']
+                print(f"🔧 [SYNC_CHECK] 执行命令: {' '.join(rev_list_cmd)}")
+                
+                rev_result = subprocess.run(
+                    rev_list_cmd,
+                    cwd=self.git_manager.git_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=5  # 本地操作，5秒足够
+                )
+                
+                print(f"📋 [SYNC_CHECK] Git命令返回值: {rev_result.returncode}")
+                print(f"📋 [SYNC_CHECK] Git命令输出: '{rev_result.stdout.strip()}'")
+                if rev_result.stderr:
+                    print(f"📋 [SYNC_CHECK] Git命令错误输出: '{rev_result.stderr.strip()}'")
+                
+                if rev_result.returncode == 0:
+                    # 解析结果：local_ahead remote_ahead
+                    output = rev_result.stdout.strip()
+                    if output:
+                        counts = output.split('\t')
+                        print(f"🔍 [SYNC_CHECK] 分割后的数据: {counts}")
+                        
+                        if len(counts) >= 2:
+                            result['local_ahead'] = int(counts[0]) if counts[0] else 0
+                            result['remote_ahead'] = int(counts[1]) if counts[1] else 0
+                        elif len(counts) == 1:
+                            # 可能只有一个数字，检查是否用空格分割
+                            space_counts = output.split()
+                            if len(space_counts) >= 2:
+                                result['local_ahead'] = int(space_counts[0]) if space_counts[0] else 0
+                                result['remote_ahead'] = int(space_counts[1]) if space_counts[1] else 0
+                                print(f"🔍 [SYNC_CHECK] 空格分割后的数据: {space_counts}")
+                    else:
+                        print("🔍 [SYNC_CHECK] Git命令输出为空，可能没有差异")
+                    
+                    print(f"📈 [SYNC_CHECK] 本地领先: {result['local_ahead']}, 远程领先: {result['remote_ahead']}")
+                    
+                    # 判断是否需要同步
+                    if result['remote_ahead'] > 0:
+                        result['is_up_to_date'] = False
+                        result['needs_pull'] = True
+                        print(f"⚠️ [SYNC_CHECK] 设置is_up_to_date=False，因为remote_ahead={result['remote_ahead']}")
+                        
+                        if result['local_ahead'] > 0:
+                            # 本地和远程都有新提交，可能有冲突
+                            result['conflict_risk'] = True
+                            result['needs_reset'] = True
+                            result['message'] = f"分支分歧：本地领先{result['local_ahead']}个提交，远程领先{result['remote_ahead']}个提交"
+                            result['details'].append("⚠️ 检测到分支分歧，推荐使用重置更新避免冲突")
+                            print("⚠️ [SYNC_CHECK] 检测到分支分歧")
+                        else:
+                            # 只有远程有新提交，可以安全合并
+                            result['message'] = f"远程仓库有{result['remote_ahead']}个新提交需要拉取"
+                            result['details'].append("ℹ️ 可以安全拉取远程更新")
+                            print("📥 [SYNC_CHECK] 需要拉取远程更新")
+                    else:
+                        print("✅ [SYNC_CHECK] 远程没有新提交，保持is_up_to_date=True")
+                else:
+                    print(f"⚠️ [SYNC_CHECK] 分支比较失败: {rev_result.stderr}")
+                
+            except (subprocess.CalledProcessError, ValueError, subprocess.TimeoutExpired) as e:
+                print(f"❌ [SYNC_CHECK] 检查分支状态失败: {e}")
+                result['message'] = f"检查分支状态失败: {e}"
+                return result
+            
+            # 5. 检查工作区状态 (快速本地操作)
+            print("🔍 [SYNC_CHECK] 检查工作区状态...")
+            try:
+                status_result = subprocess.run(
+                    ['git', 'status', '--porcelain'],
+                    cwd=self.git_manager.git_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=3  # 本地操作，3秒足够
+                )
+                
+                if status_result.returncode == 0:
+                    if status_result.stdout.strip():
+                        result['details'].append("⚠️ 工作区有未提交的更改")
+                        if result['needs_pull']:
+                            result['needs_reset'] = True  # 有未提交更改时建议重置
+                            result['details'].append("💡 建议使用重置更新来处理工作区更改")
+                        print("⚠️ [SYNC_CHECK] 工作区有未提交更改")
+                    else:
+                        print("✅ [SYNC_CHECK] 工作区干净")
+                        
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                print("⚠️ [SYNC_CHECK] 检查工作区状态失败，忽略")
+                pass  # 忽略状态检查失败
+            
+            # 6. 生成最终建议
+            if result['is_up_to_date']:
+                result['message'] = "Git仓库已是最新状态"
+                print("✅ [SYNC_CHECK] Git仓库已是最新状态")
+            
+            # 输出最终检查结果
+            print("🎯 [SYNC_CHECK] ========== 最终检查结果 ==========")
+            print(f"📊 [SYNC_CHECK] is_up_to_date: {result['is_up_to_date']}")
+            print(f"📊 [SYNC_CHECK] needs_pull: {result['needs_pull']}")  
+            print(f"📊 [SYNC_CHECK] needs_reset: {result['needs_reset']}")
+            print(f"📊 [SYNC_CHECK] local_ahead: {result['local_ahead']}")
+            print(f"📊 [SYNC_CHECK] remote_ahead: {result['remote_ahead']}")
+            print(f"📊 [SYNC_CHECK] message: {result['message']}")
+            print("🎉 [SYNC_CHECK] ========== Git同步状态检查完成 ==========")
+            return result
+            
+        except Exception as e:
+            error_msg = f"Git状态检查失败: {e}"
+            print(f"💥 [SYNC_CHECK] {error_msg}")
+            result['message'] = error_msg
+            return result
+
 
 class BranchSelectorDialog(QDialog):
     """分支选择对话框"""
@@ -4190,6 +4500,27 @@ class ArtResourceManager(QMainWindow):
         """)
         self.show_cache_info_btn.clicked.connect(self.show_cache_info)
         cache_layout.addWidget(self.show_cache_info_btn)
+        
+        # 测试Git同步状态按钮
+        self.test_git_sync_btn = QPushButton("测试Git同步")
+        self.test_git_sync_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9C27B0;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #8E24AA;
+            }
+            QPushButton:pressed {
+                background-color: #7B1FA2;
+            }
+        """)
+        self.test_git_sync_btn.clicked.connect(self.test_git_sync_status)
+        cache_layout.addWidget(self.test_git_sync_btn)
         
         advanced_layout.addLayout(cache_layout)
         
@@ -4887,10 +5218,88 @@ class ArtResourceManager(QMainWindow):
         self.checker_thread.status_updated.connect(self.log_text.append)
         self.checker_thread.check_completed.connect(self.on_check_completed)
         self.checker_thread.detailed_report.connect(self.on_detailed_report_received)
+        self.checker_thread.git_sync_required.connect(self.on_git_sync_required)
         
         self.checker_thread.start()
         self.log_text.append("开始检查资源...")
     
+    def on_git_sync_required(self, sync_info: dict):
+        """处理Git同步需求"""
+        self.progress_bar.setVisible(False)
+        
+        # 构建同步状态描述
+        current_branch = sync_info.get('current_branch', '未知')
+        message = sync_info.get('message', '')
+        details = sync_info.get('details', [])
+        needs_reset = sync_info.get('needs_reset', False)
+        conflict_risk = sync_info.get('conflict_risk', False)
+        
+        # 构建详细信息
+        detail_text = f"🔍 **Git仓库同步检查**\n\n"
+        detail_text += f"**当前分支**: {current_branch}\n"
+        detail_text += f"**状态**: {message}\n\n"
+        
+        if details:
+            detail_text += "**详细信息**:\n"
+            for detail in details:
+                detail_text += f"• {detail}\n"
+            detail_text += "\n"
+        
+        if needs_reset:
+            detail_text += "**推荐操作**: 重置更新仓库\n"
+            detail_text += "重置更新会：\n"
+            detail_text += "• 重置本地更改到远程分支状态\n"
+            detail_text += "• 拉取最新的远程更新\n"
+            detail_text += "• 避免合并冲突\n\n"
+        else:
+            detail_text += "**推荐操作**: 拉取远程更新\n\n"
+        
+        detail_text += "❓ **是否要更新仓库后继续检查？**"
+        
+        # 显示对话框
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("需要更新Git仓库")
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setText(detail_text)
+        
+        # 添加按钮
+        if needs_reset:
+            update_button = msg_box.addButton("重置更新仓库", QMessageBox.AcceptRole)
+        else:
+            update_button = msg_box.addButton("拉取更新", QMessageBox.AcceptRole)
+        
+        cancel_button = msg_box.addButton("取消检查", QMessageBox.RejectRole)
+        msg_box.setDefaultButton(update_button)
+        
+        # 记录日志
+        self.log_text.append(f"⚠️ Git仓库需要更新：{message}")
+        if details:
+            for detail in details:
+                self.log_text.append(f"   {detail}")
+        
+        # 显示对话框并处理结果
+        msg_box.exec()
+        
+        if msg_box.clickedButton() == update_button:
+            self.log_text.append("用户选择更新仓库...")
+            if needs_reset:
+                self.log_text.append("🔄 执行重置更新操作...")
+                self.reset_update_merge(skip_confirmation=True)  # 跳过二次确认
+            else:
+                self.log_text.append("📥 执行拉取更新操作...")
+                self.pull_current_branch()
+            
+            # 更新完成后自动重新开始检查
+            QTimer.singleShot(2000, self.restart_check_after_update)
+        else:
+            self.log_text.append("用户取消了检查操作")
+            self.result_text.append("❌ 检查已取消：需要先更新Git仓库")
+
+    def restart_check_after_update(self):
+        """更新后重新开始检查"""
+        self.log_text.append("🔄 仓库更新完成，重新开始检查...")
+        self.check_and_push()
+
     def on_check_completed(self, success: bool, message: str):
         """检查完成回调"""
         self.progress_bar.setVisible(False)
@@ -5106,26 +5515,31 @@ class ArtResourceManager(QMainWindow):
         finally:
             self.progress_bar.setVisible(False)
     
-    def reset_update_merge(self):
+    def reset_update_merge(self, skip_confirmation=False):
         """重置更新仓库"""
         if not self.git_path_edit.text():
             QMessageBox.warning(self, "警告", "请先设置Git仓库路径！")
             return
         
-        reply = QMessageBox.question(
-            self, 
-            "确认快速重置", 
-            "此操作将快速重置Git本地仓库，包括：\n\n"
-            "• 清理所有未跟踪的文件\n"
-            "• 硬重置到服务器上的当前分支\n\n"
-            "⚠️ 警告：此操作会丢失未提交的更改！确定要继续吗？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply != QMessageBox.Yes:
-            self.log_text.append("用户取消了重置操作")
-            return
+        # 如果不是自动调用，需要用户确认
+        if not skip_confirmation:
+            reply = QMessageBox.question(
+                self, 
+                "确认重置更新仓库", 
+                "此操作将重置更新Git仓库到远程最新状态，包括：\n\n"
+                "• 获取远程仓库最新信息 (git fetch)\n"
+                "• 清理所有未跟踪的文件和目录 (git clean -f -d)\n"
+                "• 强制重置到远程分支最新状态 (git reset --hard origin/分支名)\n\n"
+                "⚠️ 警告：此操作会丢失所有未提交的本地更改！\n"
+                "✅ 优势：彻底解决分支冲突，确保与远程仓库完全同步\n\n"
+                "确定要继续吗？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply != QMessageBox.Yes:
+                self.log_text.append("用户取消了重置操作")
+                return
         
         self.log_text.append("开始重置Git仓库...")
         self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
@@ -5531,6 +5945,66 @@ class ArtResourceManager(QMainWindow):
             error_msg = f"获取缓存信息时发生异常: {e}"
             QMessageBox.critical(self, "错误", error_msg)
             self.log_text.append(f"❌ {error_msg}")
+
+    def test_git_sync_status(self):
+        """测试Git同步状态检查功能"""
+        if not self.git_manager or not self.git_manager.git_path:
+            QMessageBox.warning(self, "警告", "请先配置Git路径")
+            return
+            
+        try:
+            self.log_text.append("🔍 开始测试Git同步状态检查...")
+            
+            # 创建一个临时的ResourceChecker实例来测试Git同步检查
+            checker = ResourceChecker([], self.git_manager, "")
+            result = checker._check_git_sync_status()
+            
+            # 格式化显示同步状态信息
+            status_text = f"""**Git同步状态测试结果**
+
+**基本状态**
+- 仓库最新: {'是' if result['is_up_to_date'] else '否'}
+- 需要拉取: {'是' if result['needs_pull'] else '否'}
+- 需要重置: {'是' if result['needs_reset'] else '否'}
+- 冲突风险: {'是' if result['conflict_risk'] else '否'}
+
+**分支信息**
+- 当前分支: {result.get('current_branch', '未知')}
+- 本地领先: {result['local_ahead']} 个提交
+- 远程领先: {result['remote_ahead']} 个提交
+- 远程可达: {'是' if result.get('remote_reachable', False) else '否'}
+
+**状态消息**
+{result.get('message', '无消息')}
+
+**详细信息**"""
+            
+            if result.get('details'):
+                for detail in result['details']:
+                    status_text += f"\n- {detail}"
+            else:
+                status_text += "\n- 无详细信息"
+                
+            # 使用对话框显示结果
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Git同步状态测试结果")
+            msg_box.setText(status_text)
+            
+            # 根据结果设置图标
+            if result['is_up_to_date']:
+                msg_box.setIcon(QMessageBox.Information)
+            elif result['conflict_risk']:
+                msg_box.setIcon(QMessageBox.Warning)
+            else:
+                msg_box.setIcon(QMessageBox.Question)
+            
+            msg_box.exec_()
+            
+            self.log_text.append("✅ Git同步状态测试完成")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"Git同步状态测试失败：{str(e)}")
+            self.log_text.append(f"❌ Git同步状态测试失败：{str(e)}")
 
     def on_files_dropped(self, file_paths: List[str]):
         """处理拖拽文件事件"""
