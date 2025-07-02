@@ -89,6 +89,45 @@ class ResourceDependencyAnalyzer:
             print(f"解析meta文件失败: {meta_path}, 错误: {e}")
         return None
     
+    def parse_meta_file_debug(self, meta_path: str, show_content: bool = False) -> str:
+        """调试版本的meta文件解析，可以显示文件内容"""
+        try:
+            with open(meta_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
+                
+                if show_content:
+                    print(f"📄 [DEBUG] Meta文件内容 ({meta_path}):")
+                    print("-" * 50)
+                    print(content[:500])  # 显示前500个字符
+                    print("-" * 50)
+                
+                # 支持YAML格式 - guid: xxxxx
+                yaml_match = re.search(r'guid:\s*([a-f0-9]{32})', content, re.IGNORECASE)
+                if yaml_match:
+                    guid = yaml_match.group(1).lower()
+                    print(f"✅ [DEBUG] YAML格式匹配到GUID: {guid}")
+                    return guid
+                
+                # 支持JSON格式 - "m_GUID": "xxxxx" (字符串形式)
+                json_match = re.search(r'"m_GUID":\s*"([a-f0-9]{32})"', content, re.IGNORECASE)
+                if json_match:
+                    guid = json_match.group(1).lower()
+                    print(f"✅ [DEBUG] JSON格式匹配到GUID: {guid}")
+                    return guid
+                
+                # 尝试找到任何包含"guid"的行
+                lines_with_guid = [line.strip() for line in content.split('\n') if 'guid' in line.lower()]
+                if lines_with_guid:
+                    print(f"❓ [DEBUG] 找到包含'guid'的行但未匹配:")
+                    for line in lines_with_guid[:3]:  # 显示前3行
+                        print(f"   {line}")
+                
+                print(f"❌ [DEBUG] 未找到有效GUID格式")
+                
+        except Exception as e:
+            print(f"解析meta文件失败: {meta_path}, 错误: {e}")
+        return None
+    
     def parse_editor_asset(self, file_path: str) -> Set[str]:
         """解析编辑器资源文件，提取依赖的GUID"""
         dependencies = set()
@@ -593,9 +632,56 @@ class GitGuidCacheManager:
     
     def __init__(self, git_path: str):
         self.git_path = git_path
-        self.cache_file = os.path.join(git_path, '.git', 'guid_cache.json')
+        self.cache_available = False
+        self.cache_file = None
         self.cache_data = None
         self.analyzer = ResourceDependencyAnalyzer()
+        
+        # 尝试获取Git缓存路径
+        try:
+            self.cache_file = self._get_git_cache_path()
+            self.cache_available = True
+            print(f"✅ [CACHE] GUID缓存可用: {self.cache_file}")
+        except Exception as e:
+            print(f"⚠️ [CACHE] GUID缓存不可用: {e}")
+            print("📝 [CACHE] 将使用实时扫描模式（性能较慢但功能完整）")
+    
+    def _get_git_cache_path(self) -> str:
+        """使用Git命令获取缓存文件路径"""
+        try:
+            # 使用Git命令获取真实的.git目录
+            result = subprocess.run(
+                ['git', 'rev-parse', '--git-dir'], 
+                cwd=self.git_path,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0:
+                git_dir = result.stdout.strip()
+                
+                # 处理相对路径
+                if not os.path.isabs(git_dir):
+                    git_dir = os.path.join(self.git_path, git_dir)
+                
+                # 确保目录存在且可写
+                git_dir = os.path.abspath(git_dir)
+                if not os.path.exists(git_dir):
+                    raise Exception(f"Git目录不存在: {git_dir}")
+                
+                if not os.access(git_dir, os.W_OK):
+                    raise Exception(f"Git目录不可写: {git_dir}")
+                
+                cache_file = os.path.join(git_dir, 'guid_cache.json')
+                return cache_file
+            else:
+                raise Exception(f"Git命令失败: {result.stderr.strip()}")
+                
+        except subprocess.TimeoutExpired:
+            raise Exception("Git命令超时")
+        except Exception as e:
+            raise Exception(f"无法获取Git目录: {e}")
     
     def _get_current_commit_hash(self) -> str:
         """获取当前commit hash"""
@@ -698,9 +784,12 @@ class GitGuidCacheManager:
             print(f"获取Git变更文件失败: {e}")
             return [], []
     
-    def _scan_all_meta_files(self) -> List[str]:
+    def _scan_all_meta_files(self, progress_callback=None) -> List[str]:
         """使用Git命令获取所有meta文件"""
         try:
+            if progress_callback:
+                progress_callback(f"🔍 [DEBUG] 开始扫描meta文件，Git路径: {self.git_path}")
+            
             result = subprocess.run(
                 ['git', 'ls-files', '*.meta'],
                 cwd=self.git_path,
@@ -710,20 +799,69 @@ class GitGuidCacheManager:
             )
             
             files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
+            if progress_callback:
+                progress_callback(f"🔍 [DEBUG] Git命令找到 {len(files)} 个meta文件")
+            
+            # 显示前5个文件样本
+            if files:
+                if progress_callback:
+                    progress_callback(f"🔍 [DEBUG] 前5个meta文件样本:")
+                    for i, file in enumerate(files[:5]):
+                        progress_callback(f"   {i+1}. {file}")
+            else:
+                if progress_callback:
+                    progress_callback(f"⚠️ [DEBUG] Git命令没有找到任何meta文件!")
+                    progress_callback(f"🔍 [DEBUG] 尝试其他Git命令进行诊断...")
+                
+                # 检查所有文件
+                all_files_result = subprocess.run(
+                    ['git', 'ls-files'],
+                    cwd=self.git_path,
+                    capture_output=True,
+                    text=True
+                )
+                if all_files_result.returncode == 0:
+                    all_files = [f.strip() for f in all_files_result.stdout.split('\n') if f.strip()]
+                    meta_files_count = sum(1 for f in all_files if f.endswith('.meta'))
+                    if progress_callback:
+                        progress_callback(f"🔍 [DEBUG] Git ls-files总文件数: {len(all_files)}, 其中meta文件: {meta_files_count}")
+                    
+                    if meta_files_count > 0:
+                        if progress_callback:
+                            progress_callback(f"🔍 [DEBUG] 找到的meta文件样本:")
+                            meta_samples = [f for f in all_files if f.endswith('.meta')][:5]
+                            for i, file in enumerate(meta_samples):
+                                progress_callback(f"   {i+1}. {file}")
+                        # 返回所有meta文件
+                        return [f for f in all_files if f.endswith('.meta')]
+            
             return files
             
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
+            print(f"❌ [DEBUG] Git命令失败: {e}")
+            print(f"❌ [DEBUG] 错误输出: {e.stderr}")
             # 如果git命令失败，回退到文件系统扫描
-            print("Git命令失败，回退到文件系统扫描")
+            print("🔄 [DEBUG] Git命令失败，回退到文件系统扫描")
+            return self._fallback_scan_meta_files()
+        except Exception as e:
+            print(f"❌ [DEBUG] 扫描meta文件异常: {e}")
             return self._fallback_scan_meta_files()
     
     def _fallback_scan_meta_files(self) -> List[str]:
         """回退的文件系统扫描方法"""
+        print(f"🔍 [DEBUG] 开始文件系统扫描: {self.git_path}")
+        
         meta_files = []
+        directories_scanned = 0
+        
         for root, dirs, files in os.walk(self.git_path):
             # 跳过.git目录
             if '.git' in dirs:
                 dirs.remove('.git')
+            
+            directories_scanned += 1
+            if directories_scanned % 1000 == 0:
+                print(f"🔍 [DEBUG] 已扫描 {directories_scanned} 个目录...")
                 
             for file in files:
                 if file.endswith('.meta'):
@@ -731,12 +869,33 @@ class GitGuidCacheManager:
                     rel_path = os.path.relpath(file_path, self.git_path)
                     meta_files.append(rel_path.replace('\\', '/'))
         
+        print(f"🔍 [DEBUG] 文件系统扫描完成: 扫描了 {directories_scanned} 个目录，找到 {len(meta_files)} 个meta文件")
+        
+        if meta_files:
+            print(f"🔍 [DEBUG] 文件系统扫描找到的前5个meta文件:")
+            for i, file in enumerate(meta_files[:5]):
+                print(f"   {i+1}. {file}")
+        
         return meta_files
     
     def _process_meta_files(self, meta_files: List[str], progress_callback=None) -> Dict[str, Dict[str, str]]:
         """处理meta文件列表，提取GUID信息"""
+        if progress_callback:
+            progress_callback(f"🔍 [DEBUG] 开始处理 {len(meta_files)} 个meta文件")
+            # 显示前几个文件样本
+            progress_callback(f"🔍 [DEBUG] 前5个待处理文件:")
+            for i, file in enumerate(meta_files[:5]):
+                progress_callback(f"   {i+1}. {file}")
+        
         guid_mapping = {}
         total_files = len(meta_files)
+        parse_success = 0
+        parse_failed = 0
+        file_not_found = 0
+        
+        # 记录样本
+        not_found_samples = []
+        parse_failed_samples = []
         
         for i, rel_meta_path in enumerate(meta_files):
             if progress_callback and i % 100 == 0:
@@ -747,12 +906,23 @@ class GitGuidCacheManager:
             
             # 检查文件是否存在
             if not os.path.exists(meta_path):
+                file_not_found += 1
+                if len(not_found_samples) < 5:  # 记录前5个不存在的文件
+                    not_found_samples.append(rel_meta_path)
+                if file_not_found <= 3 and progress_callback:  # 只显示前3个不存在的文件
+                    progress_callback(f"⚠️ [DEBUG] 文件不存在: {meta_path}")
                 continue
                 
             try:
                 guid = self.analyzer.parse_meta_file(meta_path)
                 
                 if guid and len(guid) == 32:
+                    parse_success += 1
+                    
+                    # 记录前几个成功解析的GUID
+                    if parse_success <= 5 and progress_callback:
+                        progress_callback(f"✅ [DEBUG] 成功解析GUID: {guid} <- {rel_meta_path}")
+                    
                     # 计算资源文件路径
                     if rel_meta_path.endswith('.meta'):
                         rel_resource_path = rel_meta_path[:-5]
@@ -769,10 +939,72 @@ class GitGuidCacheManager:
                         'relative_resource_path': rel_resource_path,
                         'resource_name': os.path.basename(rel_resource_path)
                     }
+                else:
+                    parse_failed += 1
+                    if len(parse_failed_samples) < 5:  # 记录前5个解析失败的文件
+                        parse_failed_samples.append((rel_meta_path, guid))
+                    if parse_failed <= 3 and progress_callback:  # 只显示前3个解析失败的文件
+                        progress_callback(f"❌ [DEBUG] GUID解析失败: {rel_meta_path} -> '{guid}'")
+                        
+                        # 使用调试版本分析前几个失败的文件
+                        if parse_failed <= 2:
+                            progress_callback(f"🔍 [DEBUG] 详细分析第{parse_failed}个失败文件:")
+                            debug_guid = self.analyzer.parse_meta_file_debug(meta_path, show_content=(parse_failed == 1))
+                            if progress_callback and parse_failed == 1:
+                                progress_callback(f"📄 [DEBUG] 如需查看详细内容，请检查控制台输出")
                     
             except Exception as e:
+                parse_failed += 1
+                if len(parse_failed_samples) < 5:  # 记录前5个异常文件
+                    parse_failed_samples.append((rel_meta_path, f"异常: {e}"))
+                if parse_failed <= 3 and progress_callback:  # 只显示前3个异常
+                    progress_callback(f"❌ [DEBUG] 解析meta文件异常: {rel_meta_path} - {e}")
                 if progress_callback:
                     progress_callback(f"解析meta文件失败: {rel_meta_path} - {e}")
+        
+        if progress_callback:
+            progress_callback(f"🔍 [DEBUG] 处理完成统计:")
+            progress_callback(f"   📄 总文件数: {total_files}")
+            progress_callback(f"   ✅ 解析成功: {parse_success}")
+            progress_callback(f"   ❌ 解析失败: {parse_failed}")
+            progress_callback(f"   🚫 文件不存在: {file_not_found}")
+            progress_callback(f"   🔑 提取GUID数: {len(guid_mapping)}")
+            
+            # 显示文件不存在的样本
+            if not_found_samples:
+                progress_callback(f"🚫 [DEBUG] 文件不存在样本:")
+                for i, sample in enumerate(not_found_samples):
+                    full_path = os.path.join(self.git_path, sample)
+                    progress_callback(f"   {i+1}. {sample}")
+                    progress_callback(f"      完整路径: {full_path}")
+                    progress_callback(f"      父目录存在: {os.path.exists(os.path.dirname(full_path))}")
+            
+            # 显示解析失败的样本
+            if parse_failed_samples:
+                progress_callback(f"❌ [DEBUG] 解析失败样本:")
+                for i, (sample_path, reason) in enumerate(parse_failed_samples):
+                    progress_callback(f"   {i+1}. {sample_path} -> {reason}")
+                    
+                    # 对第一个失败文件进行深度分析
+                    if i == 0:
+                        progress_callback(f"🔍 [DEBUG] 第一个失败文件深度分析:")
+                        full_path = os.path.join(self.git_path, sample_path)
+                        if os.path.exists(full_path):
+                            try:
+                                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    content = f.read()
+                                    progress_callback(f"   文件大小: {len(content)} 字符")
+                                    progress_callback(f"   前200字符: {repr(content[:200])}")
+                                    # 查找包含guid的行
+                                    lines = content.split('\n')
+                                    guid_lines = [line.strip() for line in lines if 'guid' in line.lower()]
+                                    if guid_lines:
+                                        progress_callback(f"   包含'guid'的行数: {len(guid_lines)}")
+                                        progress_callback(f"   第一行: {repr(guid_lines[0])}")
+                                    else:
+                                        progress_callback(f"   未找到包含'guid'的行")
+                            except Exception as e:
+                                progress_callback(f"   读取文件异常: {e}")
         
         return guid_mapping
     
@@ -781,24 +1013,43 @@ class GitGuidCacheManager:
         
         if progress_callback:
             progress_callback("🔍 检查GUID缓存状态...")
+            progress_callback(f"🔍 [DEBUG] Git路径: {self.git_path}")
+            progress_callback(f"🔍 [DEBUG] Git路径存在: {os.path.exists(self.git_path)}")
+            progress_callback(f"🔍 [DEBUG] 是否为目录: {os.path.isdir(self.git_path)}")
         
         # 获取当前commit hash
         current_hash = self._get_current_commit_hash()
+        if progress_callback:
+            progress_callback(f"🔍 [DEBUG] 当前commit hash: {current_hash}")
+        
         if not current_hash:
             if progress_callback:
+                progress_callback(f"❌ [DEBUG] 无法获取Git commit hash")
                 progress_callback("❌ 无法获取Git commit hash，可能不是Git仓库")
             return {}
         
         # 加载缓存
         cache_data = self._load_cache()
         last_hash = cache_data.get("last_commit_hash", "")
+        cached_guids = cache_data.get("guid_mapping", {})
+        
+        if progress_callback:
+            progress_callback(f"🔍 [DEBUG] 缓存状态检查:")
+            progress_callback(f"   🏷️ 缓存中的commit hash: {last_hash}")
+            progress_callback(f"   🔑 缓存中的GUID数量: {len(cached_guids)}")
+            progress_callback(f"   ✅ Hash匹配: {current_hash == last_hash}")
+            progress_callback(f"   ✅ 缓存有数据: {bool(cached_guids)}")
         
         # 检查缓存是否有效
         if current_hash == last_hash and cache_data.get("guid_mapping"):
             if progress_callback:
+                progress_callback(f"✅ [DEBUG] 缓存命中！使用缓存数据")
                 total_guids = cache_data.get("total_guids", 0)
                 progress_callback(f"✅ 使用GUID缓存，共 {total_guids} 个GUID")
             return cache_data["guid_mapping"]
+        else:
+            if progress_callback:
+                progress_callback(f"⚠️ [DEBUG] 缓存未命中，需要重新扫描")
         
         # 缓存无效，需要更新
         if progress_callback:
@@ -858,7 +1109,7 @@ class GitGuidCacheManager:
             if progress_callback:
                 progress_callback("📁 开始全量扫描Git仓库...")
             
-            all_meta_files = self._scan_all_meta_files()
+            all_meta_files = self._scan_all_meta_files(progress_callback)
             if progress_callback:
                 progress_callback(f"📄 找到 {len(all_meta_files)} 个meta文件")
             

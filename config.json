@@ -1,13 +1,13 @@
 {
   "svn_path": "G:\\Svn_repo\\MiniProject_Art_NewPrefab",
-  "git_path": "G:\\minirepo\\AssetRuntime_Branch08\\assetruntime\\CommonResource",
+  "git_path": "G:\\minirepo\\AssetRuntime_Branch04\\assetruntime\\CommonResource",
   "window_geometry": {
-    "x": -2632,
-    "y": 205,
+    "x": 0,
+    "y": 34,
     "width": 2560,
     "height": 1346
   },
-  "last_selected_branch": "★ user/dingyiyang/1.47 (当前)",
+  "last_selected_branch": "★ Branch_buzzRes/feature-BuzzRes-0124v (当前)",
   "resource_types": {
     "prefab": true,
     "material": true,
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_sk.skeleton.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_sk.skeleton",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_body4.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_body4.mesh",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_yellow.mat.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_yellow.mat",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_purple.mat.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_purple.mat",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_bull_gloss.mat.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_bull_gloss.mat"
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\VFX_110181.prefab.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\VFX_110181.prefab",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\Material#383.mat.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\Material#383.mat",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\male1.png.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\male1.png",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\body_sk.skeleton.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\body_sk.skeleton",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\body_body0.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110181\\body_body0.mesh"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"
