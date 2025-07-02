@@ -33,6 +33,14 @@ try:
     from config import ConfigManager
     debug_print("配置管理器导入成功")
     
+    debug_print("导入CRLF自动修复模块...")
+    try:
+        from crlf_auto_fix import CRLFAutoFixer
+        debug_print("CRLF自动修复模块导入成功")
+    except ImportError:
+        debug_print("CRLF自动修复模块导入失败，将使用备用方案")
+        CRLFAutoFixer = None
+    
 except Exception as e:
     print(f"导入错误: {e}")
     import traceback
@@ -580,6 +588,323 @@ class ResourceDependencyAnalyzer:
         return result
 
 
+class GitGuidCacheManager:
+    """Git仓库GUID缓存管理器 - 用于优化GUID扫描性能"""
+    
+    def __init__(self, git_path: str):
+        self.git_path = git_path
+        self.cache_file = os.path.join(git_path, '.git', 'guid_cache.json')
+        self.cache_data = None
+        self.analyzer = ResourceDependencyAnalyzer()
+    
+    def _get_current_commit_hash(self) -> str:
+        """获取当前commit hash"""
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'], 
+                cwd=self.git_path, 
+                capture_output=True, 
+                text=True, 
+                check=True
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError:
+            return ""
+    
+    def _load_cache(self) -> Dict[str, Any]:
+        """加载缓存数据"""
+        if self.cache_data is not None:
+            return self.cache_data
+            
+        try:
+            if os.path.exists(self.cache_file):
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    self.cache_data = json.load(f)
+                return self.cache_data
+        except Exception as e:
+            print(f"加载GUID缓存失败: {e}")
+        
+        # 返回空缓存结构
+        self.cache_data = {
+            "version": "1.0",
+            "last_scan_time": "",
+            "last_commit_hash": "",
+            "total_guids": 0,
+            "guid_mapping": {}
+        }
+        return self.cache_data
+    
+    def _save_cache(self, cache_data: Dict[str, Any]) -> bool:
+        """保存缓存数据"""
+        try:
+            # 确保.git目录存在
+            git_dir = os.path.dirname(self.cache_file)
+            if not os.path.exists(git_dir):
+                os.makedirs(git_dir, exist_ok=True)
+                
+            # 保存缓存
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+            self.cache_data = cache_data
+            return True
+        except Exception as e:
+            print(f"保存GUID缓存失败: {e}")
+            return False
+    
+    def _get_changed_meta_files(self, last_commit_hash: str) -> Tuple[List[str], List[str]]:
+        """获取变更的meta文件列表
+        
+        Returns:
+            Tuple[List[str], List[str]]: (added_or_modified_files, deleted_files)
+        """
+        try:
+            if not last_commit_hash:
+                # 如果没有上次的hash，需要全量扫描
+                return [], []
+            
+            # 获取变更的文件列表
+            result = subprocess.run(
+                ['git', 'diff', '--name-status', last_commit_hash, 'HEAD'],
+                cwd=self.git_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            added_modified = []
+            deleted = []
+            
+            for line in result.stdout.strip().split('\n'):
+                if not line:
+                    continue
+                    
+                parts = line.split('\t')
+                if len(parts) < 2:
+                    continue
+                    
+                status = parts[0]
+                file_path = parts[1]
+                
+                if file_path.endswith('.meta'):
+                    if status == 'D':  # Deleted
+                        deleted.append(file_path)
+                    else:  # Added, Modified, etc.
+                        added_modified.append(file_path)
+            
+            return added_modified, deleted
+            
+        except subprocess.CalledProcessError as e:
+            print(f"获取Git变更文件失败: {e}")
+            return [], []
+    
+    def _scan_all_meta_files(self) -> List[str]:
+        """使用Git命令获取所有meta文件"""
+        try:
+            result = subprocess.run(
+                ['git', 'ls-files', '*.meta'],
+                cwd=self.git_path,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
+            return files
+            
+        except subprocess.CalledProcessError:
+            # 如果git命令失败，回退到文件系统扫描
+            print("Git命令失败，回退到文件系统扫描")
+            return self._fallback_scan_meta_files()
+    
+    def _fallback_scan_meta_files(self) -> List[str]:
+        """回退的文件系统扫描方法"""
+        meta_files = []
+        for root, dirs, files in os.walk(self.git_path):
+            # 跳过.git目录
+            if '.git' in dirs:
+                dirs.remove('.git')
+                
+            for file in files:
+                if file.endswith('.meta'):
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, self.git_path)
+                    meta_files.append(rel_path.replace('\\', '/'))
+        
+        return meta_files
+    
+    def _process_meta_files(self, meta_files: List[str], progress_callback=None) -> Dict[str, Dict[str, str]]:
+        """处理meta文件列表，提取GUID信息"""
+        guid_mapping = {}
+        total_files = len(meta_files)
+        
+        for i, rel_meta_path in enumerate(meta_files):
+            if progress_callback and i % 100 == 0:
+                progress = int((i / total_files) * 100)
+                progress_callback(f"处理meta文件: {i}/{total_files} ({progress}%)")
+            
+            meta_path = os.path.join(self.git_path, rel_meta_path)
+            
+            # 检查文件是否存在
+            if not os.path.exists(meta_path):
+                continue
+                
+            try:
+                guid = self.analyzer.parse_meta_file(meta_path)
+                
+                if guid and len(guid) == 32:
+                    # 计算资源文件路径
+                    if rel_meta_path.endswith('.meta'):
+                        rel_resource_path = rel_meta_path[:-5]
+                    else:
+                        rel_resource_path = rel_meta_path
+                    
+                    # 标准化路径
+                    rel_resource_path = rel_resource_path.replace('\\', '/')
+                    rel_meta_path = rel_meta_path.replace('\\', '/')
+                    
+                    guid_mapping[guid] = {
+                        'meta_path': meta_path,
+                        'relative_meta_path': rel_meta_path,
+                        'relative_resource_path': rel_resource_path,
+                        'resource_name': os.path.basename(rel_resource_path)
+                    }
+                    
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"解析meta文件失败: {rel_meta_path} - {e}")
+        
+        return guid_mapping
+    
+    def get_git_repository_guids(self, progress_callback=None) -> Dict[str, Dict[str, str]]:
+        """获取Git仓库GUID映射，支持缓存和增量更新"""
+        
+        if progress_callback:
+            progress_callback("🔍 检查GUID缓存状态...")
+        
+        # 获取当前commit hash
+        current_hash = self._get_current_commit_hash()
+        if not current_hash:
+            if progress_callback:
+                progress_callback("❌ 无法获取Git commit hash，可能不是Git仓库")
+            return {}
+        
+        # 加载缓存
+        cache_data = self._load_cache()
+        last_hash = cache_data.get("last_commit_hash", "")
+        
+        # 检查缓存是否有效
+        if current_hash == last_hash and cache_data.get("guid_mapping"):
+            if progress_callback:
+                total_guids = cache_data.get("total_guids", 0)
+                progress_callback(f"✅ 使用GUID缓存，共 {total_guids} 个GUID")
+            return cache_data["guid_mapping"]
+        
+        # 缓存无效，需要更新
+        if progress_callback:
+            if last_hash:
+                progress_callback(f"🔄 检测到Git变更，开始增量更新...")
+            else:
+                progress_callback(f"🆕 首次扫描，建立GUID缓存...")
+        
+        # 获取变更的文件
+        if last_hash:
+            added_modified, deleted = self._get_changed_meta_files(last_hash)
+            if progress_callback:
+                progress_callback(f"📊 变更统计: 新增/修改 {len(added_modified)} 个，删除 {len(deleted)} 个meta文件")
+        else:
+            added_modified, deleted = [], []
+        
+        # 决定是增量更新还是全量扫描
+        if last_hash and cache_data.get("guid_mapping"):
+            # 增量更新
+            guid_mapping = dict(cache_data["guid_mapping"])
+            
+            # 处理删除的文件
+            for deleted_file in deleted:
+                if progress_callback:
+                    progress_callback(f"🗑️ 移除已删除文件: {deleted_file}")
+                
+                # 找到并移除对应的GUID
+                to_remove = []
+                for guid, info in guid_mapping.items():
+                    if info.get('relative_meta_path') == deleted_file:
+                        to_remove.append(guid)
+                
+                for guid in to_remove:
+                    del guid_mapping[guid]
+            
+            # 处理新增/修改的文件
+            if added_modified:
+                if progress_callback:
+                    progress_callback(f"🔄 处理变更的meta文件...")
+                
+                new_mappings = self._process_meta_files(added_modified, progress_callback)
+                
+                # 移除旧的GUID映射（如果文件被修改）
+                for file_path in added_modified:
+                    to_remove = []
+                    for guid, info in guid_mapping.items():
+                        if info.get('relative_meta_path') == file_path:
+                            to_remove.append(guid)
+                    
+                    for guid in to_remove:
+                        del guid_mapping[guid]
+                
+                # 添加新的映射
+                guid_mapping.update(new_mappings)
+        else:
+            # 全量扫描
+            if progress_callback:
+                progress_callback("📁 开始全量扫描Git仓库...")
+            
+            all_meta_files = self._scan_all_meta_files()
+            if progress_callback:
+                progress_callback(f"📄 找到 {len(all_meta_files)} 个meta文件")
+            
+            guid_mapping = self._process_meta_files(all_meta_files, progress_callback)
+        
+        # 更新缓存
+        new_cache_data = {
+            "version": "1.0",
+            "last_scan_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_commit_hash": current_hash,
+            "total_guids": len(guid_mapping),
+            "guid_mapping": guid_mapping
+        }
+        
+        if self._save_cache(new_cache_data):
+            if progress_callback:
+                progress_callback(f"💾 GUID缓存已更新，共 {len(guid_mapping)} 个GUID")
+        else:
+            if progress_callback:
+                progress_callback("⚠️ GUID缓存保存失败")
+        
+        return guid_mapping
+    
+    def clear_cache(self) -> bool:
+        """清除缓存"""
+        try:
+            if os.path.exists(self.cache_file):
+                os.remove(self.cache_file)
+            self.cache_data = None
+            return True
+        except Exception as e:
+            print(f"清除GUID缓存失败: {e}")
+            return False
+    
+    def get_cache_info(self) -> Dict[str, Any]:
+        """获取缓存信息"""
+        cache_data = self._load_cache()
+        return {
+            "cache_exists": os.path.exists(self.cache_file),
+            "last_scan_time": cache_data.get("last_scan_time", ""),
+            "last_commit_hash": cache_data.get("last_commit_hash", "")[:8] + "..." if cache_data.get("last_commit_hash") else "",
+            "total_guids": cache_data.get("total_guids", 0),
+            "cache_file_size": os.path.getsize(self.cache_file) if os.path.exists(self.cache_file) else 0
+        }
+
+
 class GitSvnManager:
     """Git和SVN仓库管理器"""
     
@@ -599,6 +924,10 @@ class GitSvnManager:
         self.path_mapping_enabled = True
         self.path_mapping_rules = self._load_default_mapping_rules()
         self._load_path_mapping_config()
+        
+        # 🔧 CRLF自动修复器
+        self.crlf_fixer = None
+        self._init_crlf_fixer()
     
     def _load_default_mapping_rules(self) -> dict:
         """加载默认路径映射规则"""
@@ -812,6 +1141,18 @@ class GitSvnManager:
         print(f"   ==========================================")
         return test_path
     
+    def _init_crlf_fixer(self):
+        """初始化CRLF修复器"""
+        try:
+            if CRLFAutoFixer and self.git_path:
+                self.crlf_fixer = CRLFAutoFixer(self.git_path)
+                print("🔧 [CRLF] CRLF自动修复器初始化成功")
+            else:
+                print("⚠️ [CRLF] CRLF自动修复器不可用或Git路径未设置")
+        except Exception as e:
+            print(f"❌ [CRLF] CRLF修复器初始化失败: {e}")
+            self.crlf_fixer = None
+    
     def set_paths(self, git_path: str, svn_path: str):
         """设置Git和SVN路径"""
         # 如果路径发生变化，清除缓存
@@ -820,6 +1161,9 @@ class GitSvnManager:
             
         self.git_path = git_path
         self.svn_path = svn_path
+        
+        # 重新初始化CRLF修复器
+        self._init_crlf_fixer()
         
         # 不自动配置Git换行符，保护团队协作环境
         print(f"   📝 Git换行符处理：手动解决模式（保护团队协作）")
@@ -1216,6 +1560,44 @@ class GitSvnManager:
         
         return files
 
+    def _is_crlf_error(self, error_message: str) -> bool:
+        """检测是否为CRLF相关错误"""
+        crlf_indicators = [
+            "LF would be replaced by CRLF",
+            "CRLF would be replaced by LF",
+            "in the working copy",
+            "line endings",
+            "warning: in the working copy of"
+        ]
+        return any(indicator in error_message for indicator in crlf_indicators)
+    
+    def _auto_fix_crlf_issue(self, error_message: str) -> tuple:
+        """自动修复CRLF问题
+        
+        Returns:
+            tuple: (是否修复成功, 详细信息)
+        """
+        try:
+            if not self.crlf_fixer:
+                return False, "CRLF修复器未初始化"
+            
+            print("🔧 [CRLF] 尝试自动修复CRLF问题...")
+            
+            # 使用CRLF修复器进行智能修复
+            result = self.crlf_fixer.smart_fix_crlf_error(error_message)
+            
+            if result['success']:
+                print(f"✅ [CRLF] 自动修复成功: {result['message']}")
+                return True, result['message']
+            else:
+                print(f"❌ [CRLF] 自动修复失败: {result['message']}")
+                return False, result['message']
+                
+        except Exception as e:
+            error_info = f"CRLF自动修复异常: {str(e)}"
+            print(f"❌ [CRLF] {error_info}")
+            return False, error_info
+    
     def push_files_to_git(self, source_files: List[str], target_directory: str = "CommonResource") -> Tuple[bool, str]:
         """
         将文件推送到Git仓库
@@ -1389,25 +1771,63 @@ class GitSvnManager:
             if result.returncode != 0:
                 print(f"   ❌ 批量添加失败: {result.stderr}")
                 
-                # 检查是否为CRLF问题，提供保守的解决方案
-                if "LF would be replaced by CRLF" in result.stderr or "CRLF would be replaced by LF" in result.stderr:
-                    error_msg = (
-                        "🚨 Git换行符冲突检测到！\n\n"
-                        "💡 这是Windows/Unix换行符差异导致的，需要手动解决以避免影响团队协作。\n\n"
-                        "🛠️ 推荐解决方案（请选择一种）：\n\n"
-                        "【方案1 - 临时解决】\n"
-                        "在目标Git仓库中执行：\n"
-                        "git config core.safecrlf false\n"
-                        "然后重新推送\n\n"
-                        "【方案2 - 使用工具】\n"
-                        "运行独立修复工具：\n"
-                        f"python fix_git_crlf.py \"{self.git_path}\"\n\n"
-                        "【方案3 - 手动处理】\n"
-                        "使用'重置更新仓库'功能重新初始化\n\n"
-                        "⚠️ 注意：为保证团队协作，建议与团队讨论后再修改Git配置\n\n"
-                        f"详细错误: {result.stderr}"
-                    )
-                    return False, error_msg
+                # 检查是否为CRLF问题，提供智能解决方案
+                if self._is_crlf_error(result.stderr):
+                    print(f"   🔧 检测到CRLF问题，尝试自动修复...")
+                    
+                    # 尝试自动修复CRLF问题
+                    auto_fix_result = self._auto_fix_crlf_issue(result.stderr)
+                    if auto_fix_result[0]:  # 修复成功
+                        print(f"   ✅ CRLF问题已自动修复，重新尝试添加文件...")
+                        
+                        # 重新尝试添加文件
+                        if len(relative_paths) > 10:
+                            retry_result = subprocess.run(['git', 'add'] + relative_paths, 
+                                                  cwd=self.git_path, 
+                                                  capture_output=True, 
+                                                  text=True,
+                                                  encoding='utf-8',
+                                                  errors='ignore',
+                                                  timeout=60)
+                        else:
+                            retry_result = None
+                            for relative_path in relative_paths:
+                                retry_result = subprocess.run(['git', 'add', relative_path], 
+                                                      cwd=self.git_path, 
+                                                      capture_output=True, 
+                                                      text=True,
+                                                      encoding='utf-8',
+                                                      errors='ignore',
+                                                      timeout=30)
+                                if retry_result.returncode != 0:
+                                    break
+                        
+                        if retry_result and retry_result.returncode == 0:
+                            print(f"   ✅ 重新添加文件成功")
+                            result = retry_result  # 更新结果
+                        else:
+                            error_msg = f"CRLF问题修复成功，但重新添加文件失败: {retry_result.stderr if retry_result else '未知错误'}"
+                            return False, error_msg
+                    else:
+                        # 自动修复失败，提供手动指导
+                        error_msg = (
+                            "🚨 Git换行符冲突检测到！\n\n"
+                            f"🔧 自动修复尝试失败: {auto_fix_result[1]}\n\n"
+                            "💡 这是Windows/Unix换行符差异导致的，需要手动解决以避免影响团队协作。\n\n"
+                            "🛠️ 推荐解决方案（请选择一种）：\n\n"
+                            "【方案1 - 临时解决】\n"
+                            "在目标Git仓库中执行：\n"
+                            "git config core.safecrlf false\n"
+                            "然后重新推送\n\n"
+                            "【方案2 - 使用工具】\n"
+                            "运行独立修复工具：\n"
+                            f"python crlf_auto_fix.py \"{self.git_path}\"\n\n"
+                            "【方案3 - 手动处理】\n"
+                            "使用'重置更新仓库'功能重新初始化\n\n"
+                            "⚠️ 注意：为保证团队协作，建议与团队讨论后再修改Git配置\n\n"
+                            f"详细错误: {result.stderr}"
+                        )
+                        return False, error_msg
                 else:
                     return False, f"添加文件到Git失败: {result.stderr}"
             else:
@@ -3079,77 +3499,83 @@ class ResourceChecker(QThread):
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     def _get_git_repository_guids(self) -> Dict[str, Dict[str, str]]:
-        """扫描Git仓库获取所有GUID及其路径信息
+        """扫描Git仓库获取所有GUID及其路径信息 - 使用高性能缓存
         
         Returns:
             Dict[str, Dict[str, str]]: {guid: {'meta_path': str, 'relative_resource_path': str, 'resource_name': str}}
         """
-        git_guids = {}
-        
         if not self.git_manager.git_path or not os.path.exists(self.git_manager.git_path):
             self.status_updated.emit(f"❌ Git仓库路径无效: {self.git_manager.git_path}")
+            return {}
+        
+        try:
+            # 创建缓存管理器
+            cache_manager = GitGuidCacheManager(self.git_manager.git_path)
+            
+            # 使用缓存管理器获取GUID映射，传递进度回调
+            def progress_callback(message):
+                self.status_updated.emit(message)
+            
+            git_guids = cache_manager.get_git_repository_guids(progress_callback)
+            
+            # 输出缓存信息
+            cache_info = cache_manager.get_cache_info()
+            if cache_info['cache_exists']:
+                cache_size_kb = cache_info['cache_file_size'] / 1024
+                self.status_updated.emit(f"📊 缓存信息:")
+                self.status_updated.emit(f"   📅 上次扫描: {cache_info['last_scan_time']}")
+                self.status_updated.emit(f"   🏷️ 提交版本: {cache_info['last_commit_hash']}")
+                self.status_updated.emit(f"   📁 缓存大小: {cache_size_kb:.1f} KB")
+            
             return git_guids
+            
+        except Exception as e:
+            self.status_updated.emit(f"❌ GUID缓存系统异常: {e}")
+            self.status_updated.emit(f"🔄 回退到传统扫描方式...")
+            
+            # 回退到原始的扫描方式
+            return self._fallback_git_repository_scan()
+    
+    def _fallback_git_repository_scan(self) -> Dict[str, Dict[str, str]]:
+        """回退的传统扫描方式"""
+        git_guids = {}
         
-        self.status_updated.emit(f"🔍 开始扫描Git仓库: {self.git_manager.git_path}")
-        
-        # 标准化Git路径
-        git_path_normalized = os.path.normpath(self.git_manager.git_path)
+        self.status_updated.emit(f"🔍 开始传统扫描Git仓库: {self.git_manager.git_path}")
         
         # 统计信息
         scan_stats = {
             'directories_scanned': 0,
             'meta_files_found': 0,
             'valid_guids': 0,
-            'invalid_guids': 0,
-            'parse_errors': 0,
-            'sample_guids': [],
-            'deep_directories': []
+            'parse_errors': 0
         }
         
         try:
             for root, dirs, files in os.walk(self.git_manager.git_path):
+                # 跳过.git目录以提高性能
+                if '.git' in dirs:
+                    dirs.remove('.git')
+                
                 scan_stats['directories_scanned'] += 1
                 
-                # 计算目录深度（用于调试）
-                relative_root = os.path.relpath(root, self.git_manager.git_path)
-                depth = relative_root.count(os.sep) if relative_root != '.' else 0
-                
-                # 记录深层目录（超过10层的目录）
-                if depth > 10:
-                    scan_stats['deep_directories'].append({
-                        'path': relative_root,
-                        'depth': depth
-                    })
-                
-                # 每扫描100个目录输出一次进度
-                if scan_stats['directories_scanned'] % 100 == 0:
+                # 每扫描1000个目录输出一次进度
+                if scan_stats['directories_scanned'] % 1000 == 0:
                     self.status_updated.emit(f"  📁 已扫描 {scan_stats['directories_scanned']} 个目录...")
-                
-                # 记录深层目录（用于调试）
-                if depth > 15:
-                    self.status_updated.emit(f"  🔍 深层目录: {relative_root} (深度: {depth})")
                 
                 for file in files:
                     if file.endswith('.meta'):
                         scan_stats['meta_files_found'] += 1
                         meta_path = os.path.join(root, file)
-                        relative_meta_path = os.path.relpath(meta_path, git_path_normalized)
-                        
-                        # 记录特定文件（用于调试）
-                        if 'Character_NPR_Opaque.templatemat.meta' in file:
-                            self.status_updated.emit(f"  🎯 找到目标文件: {meta_path}")
-                            self.status_updated.emit(f"     相对路径: {relative_meta_path}")
-                            self.status_updated.emit(f"     目录深度: {depth}")
+                        relative_meta_path = os.path.relpath(meta_path, self.git_manager.git_path)
                         
                         try:
-                            # 使用ResourceDependencyAnalyzer的parse_meta_file方法
                             analyzer = ResourceDependencyAnalyzer()
                             guid = analyzer.parse_meta_file(meta_path)
                             
-                            if guid and len(guid) == 32:  # 有效的GUID长度
-                                # 计算对应的资源文件相对路径
+                            if guid and len(guid) == 32:
+                                # 计算资源文件相对路径
                                 if relative_meta_path.endswith('.meta'):
-                                    relative_resource_path = relative_meta_path[:-5]  # 移除.meta后缀
+                                    relative_resource_path = relative_meta_path[:-5]
                                 else:
                                     relative_resource_path = relative_meta_path
                                 
@@ -3164,70 +3590,21 @@ class ResourceChecker(QThread):
                                 }
                                 
                                 scan_stats['valid_guids'] += 1
-                                
-                                # 记录特定GUID
-                                if guid == 'a52adbec141594d439747c542824c830':
-                                    self.status_updated.emit(f"  ✅ 找到目标GUID: {guid}")
-                                    self.status_updated.emit(f"     文件路径: {meta_path}")
-                                    self.status_updated.emit(f"     资源路径: {relative_resource_path}")
-                                
-                                # 记录样本GUID
-                                if len(scan_stats['sample_guids']) < 10:
-                                    scan_stats['sample_guids'].append({
-                                        'guid': guid,
-                                        'file': relative_meta_path,
-                                        'resource': relative_resource_path,
-                                        'depth': depth
-                                    })
-                            else:
-                                scan_stats['invalid_guids'] += 1
-                                # 记录无效GUID的详细信息
-                                if scan_stats['invalid_guids'] <= 5:  # 只记录前5个无效GUID
-                                    self.status_updated.emit(f"  ⚠️ 无效GUID: '{guid}' 在文件 {relative_meta_path}")
                         
                         except Exception as e:
                             scan_stats['parse_errors'] += 1
-                            # 记录解析错误的详细信息
-                            if scan_stats['parse_errors'] <= 5:  # 只记录前5个错误
-                                scan_stats['sample_guids'].append({
-                                    'guid': 'ERROR',
-                                    'file': relative_meta_path,
-                                    'error': str(e),
-                                    'reason': f'异常: {str(e)}'
-                                })
-                            self.status_updated.emit(f"  ❌ 解析meta文件异常: {meta_path}")
-                            self.status_updated.emit(f"     错误: {e}")
+                            if scan_stats['parse_errors'] <= 3:  # 只显示前3个错误
+                                self.status_updated.emit(f"  ❌ 解析meta文件失败: {relative_meta_path}")
                             
         except Exception as e:
-            self.status_updated.emit(f"❌ 扫描Git仓库异常: {e}")
-            import traceback
-            traceback.print_exc()
+            self.status_updated.emit(f"❌ 传统扫描异常: {e}")
         
         # 输出扫描统计信息
-        self.status_updated.emit(f"📊 Git仓库扫描完成:")
+        self.status_updated.emit(f"📊 传统扫描完成:")
         self.status_updated.emit(f"   📁 扫描目录数: {scan_stats['directories_scanned']}")
         self.status_updated.emit(f"   📄 找到meta文件: {scan_stats['meta_files_found']}")
         self.status_updated.emit(f"   ✅ 有效GUID: {scan_stats['valid_guids']}")
-        self.status_updated.emit(f"   ❌ 无效GUID: {scan_stats['invalid_guids']}")
         self.status_updated.emit(f"   🚫 解析错误: {scan_stats['parse_errors']}")
-        
-        # 显示样本GUID
-        if scan_stats['sample_guids']:
-            self.status_updated.emit(f"📋 样本GUID:")
-            for i, sample in enumerate(scan_stats['sample_guids'][:5]):  # 只显示前5个
-                if sample['guid'] == 'ERROR':
-                    self.status_updated.emit(f"   {i+1}. ❌ {sample['file']} - {sample['reason']}")
-                else:
-                    self.status_updated.emit(f"   {i+1}. {sample['guid']} - {sample.get('resource', sample['file'])} (深度:{sample['depth']})")
-        
-        # 显示深层目录信息
-        if scan_stats['deep_directories']:
-            deep_count = len(scan_stats['deep_directories'])
-            self.status_updated.emit(f"🔍 发现 {deep_count} 个深层目录 (>10层):")
-            for deep_dir in scan_stats['deep_directories'][:3]:  # 只显示前3个
-                self.status_updated.emit(f"   📁 {deep_dir['path']} (深度: {deep_dir['depth']})")
-            if deep_count > 3:
-                self.status_updated.emit(f"   ... 还有 {deep_count - 3} 个深层目录")
         
         return git_guids
 
@@ -3816,6 +4193,98 @@ class ArtResourceManager(QMainWindow):
         mapping_layout.addWidget(self.toggle_mapping_btn)
         
         advanced_layout.addLayout(mapping_layout)
+        
+        # GUID缓存管理
+        cache_layout = QHBoxLayout()
+        cache_layout.addWidget(QLabel("GUID缓存管理:"))
+        
+        self.clear_cache_btn = QPushButton("清除GUID缓存")
+        self.clear_cache_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF5722;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #E64A19;
+            }
+            QPushButton:pressed {
+                background-color: #D84315;
+            }
+        """)
+        self.clear_cache_btn.clicked.connect(self.clear_guid_cache)
+        cache_layout.addWidget(self.clear_cache_btn)
+        
+        self.show_cache_info_btn = QPushButton("显示缓存信息")
+        self.show_cache_info_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #607D8B;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #546E7A;
+            }
+            QPushButton:pressed {
+                background-color: #455A64;
+            }
+        """)
+        self.show_cache_info_btn.clicked.connect(self.show_cache_info)
+        cache_layout.addWidget(self.show_cache_info_btn)
+        
+        advanced_layout.addLayout(cache_layout)
+        
+        # CRLF问题处理
+        crlf_layout = QHBoxLayout()
+        crlf_layout.addWidget(QLabel("CRLF问题处理:"))
+        
+        self.quick_fix_crlf_btn = QPushButton("快速修复CRLF")
+        self.quick_fix_crlf_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #E65100;
+            }
+        """)
+        self.quick_fix_crlf_btn.clicked.connect(self.quick_fix_crlf)
+        crlf_layout.addWidget(self.quick_fix_crlf_btn)
+        
+        self.smart_fix_crlf_btn = QPushButton("智能修复CRLF")
+        self.smart_fix_crlf_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+        """)
+        self.smart_fix_crlf_btn.clicked.connect(self.smart_fix_crlf)
+        crlf_layout.addWidget(self.smart_fix_crlf_btn)
+        
+        advanced_layout.addLayout(crlf_layout)
         
         # 一键部署git仓库
         deploy_layout = QHBoxLayout()
@@ -5050,6 +5519,66 @@ class ArtResourceManager(QMainWindow):
             self.result_text.append(msg)
             QMessageBox.information(self, "查询结果", msg)
 
+    def clear_guid_cache(self):
+        """清除GUID缓存"""
+        try:
+            if not self.git_manager.git_path or not os.path.exists(self.git_manager.git_path):
+                QMessageBox.warning(self, "警告", "Git仓库路径无效，无法清除缓存")
+                return
+            
+            # 创建缓存管理器并清除缓存
+            cache_manager = GitGuidCacheManager(self.git_manager.git_path)
+            
+            if cache_manager.clear_cache():
+                QMessageBox.information(self, "成功", "GUID缓存已清除！\n下次上传时将重新建立缓存。")
+                self.log_text.append("✅ GUID缓存已清除")
+            else:
+                QMessageBox.warning(self, "失败", "清除GUID缓存失败")
+                self.log_text.append("❌ 清除GUID缓存失败")
+                
+        except Exception as e:
+            error_msg = f"清除缓存时发生异常: {e}"
+            QMessageBox.critical(self, "错误", error_msg)
+            self.log_text.append(f"❌ {error_msg}")
+    
+    def show_cache_info(self):
+        """显示GUID缓存信息"""
+        try:
+            if not self.git_manager.git_path or not os.path.exists(self.git_manager.git_path):
+                QMessageBox.warning(self, "警告", "Git仓库路径无效，无法获取缓存信息")
+                return
+            
+            # 创建缓存管理器并获取缓存信息
+            cache_manager = GitGuidCacheManager(self.git_manager.git_path)
+            cache_info = cache_manager.get_cache_info()
+            
+            # 构建信息字符串
+            info_lines = []
+            if cache_info['cache_exists']:
+                info_lines.append(f"✅ 缓存状态: 存在")
+                info_lines.append(f"📅 上次扫描时间: {cache_info['last_scan_time']}")
+                info_lines.append(f"🏷️ Git提交版本: {cache_info['last_commit_hash']}")
+                info_lines.append(f"🎯 缓存GUID数量: {cache_info['total_guids']:,}")
+                info_lines.append(f"📁 缓存文件大小: {cache_info['cache_file_size'] / 1024:.1f} KB")
+                
+                # 计算性能提升预期
+                if cache_info['total_guids'] > 1000:
+                    estimated_time_saved = cache_info['total_guids'] / 100  # 粗略估算
+                    info_lines.append(f"⚡ 预计节省扫描时间: ~{estimated_time_saved:.0f}秒")
+            else:
+                info_lines.append("❌ 缓存状态: 不存在")
+                info_lines.append("📝 说明: 首次上传时将自动建立缓存")
+            
+            info_text = "\n".join(info_lines)
+            
+            QMessageBox.information(self, "GUID缓存信息", info_text)
+            self.log_text.append("📊 已显示GUID缓存信息")
+            
+        except Exception as e:
+            error_msg = f"获取缓存信息时发生异常: {e}"
+            QMessageBox.critical(self, "错误", error_msg)
+            self.log_text.append(f"❌ {error_msg}")
+
     def on_files_dropped(self, file_paths: List[str]):
         """处理拖拽文件事件"""
         print(f"DEBUG: on_files_dropped called with {len(file_paths)} files")
@@ -5448,6 +5977,91 @@ class ArtResourceManager(QMainWindow):
         else:
             self.log_text.append(f"❌ 部署失败: {message}")
             QMessageBox.critical(self, "部署失败", f"一键部署git仓库失败：\n\n{message}")
+    
+    def quick_fix_crlf(self):
+        """快速修复CRLF问题"""
+        try:
+            git_path = self.git_path_edit.text().strip()
+            if not git_path:
+                QMessageBox.warning(self, "警告", "请先设置Git仓库路径")
+                return
+            
+            if not os.path.exists(git_path):
+                QMessageBox.warning(self, "警告", "Git仓库路径不存在")
+                return
+            
+            # 显示确认对话框
+            reply = QMessageBox.question(self, "确认修复", 
+                                       "🔧 即将执行快速CRLF修复：\n\n"
+                                       "• 设置 core.safecrlf=false\n"
+                                       "• 设置 core.autocrlf=false\n"
+                                       "• 重置Git缓存\n\n"
+                                       "⚠️ 注意：这将修改当前仓库的Git配置\n"
+                                       "确定要继续吗？",
+                                       QMessageBox.Yes | QMessageBox.No)
+            
+            if reply != QMessageBox.Yes:
+                return
+            
+            # 调用Git管理器的CRLF修复器
+            if not self.git_manager.crlf_fixer:
+                QMessageBox.warning(self, "错误", "CRLF修复器未初始化")
+                return
+            
+            result = self.git_manager.crlf_fixer.quick_fix()
+            
+            if result['success']:
+                QMessageBox.information(self, "成功", 
+                                      f"✅ 快速修复成功！\n\n{result['message']}")
+            else:
+                QMessageBox.warning(self, "失败", 
+                                  f"❌ 快速修复失败：\n{result['message']}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"快速修复异常：{str(e)}")
+    
+    def smart_fix_crlf(self):
+        """智能修复CRLF问题"""
+        try:
+            git_path = self.git_path_edit.text().strip()
+            if not git_path:
+                QMessageBox.warning(self, "警告", "请先设置Git仓库路径")
+                return
+            
+            if not os.path.exists(git_path):
+                QMessageBox.warning(self, "警告", "Git仓库路径不存在")
+                return
+            
+            # 显示确认对话框
+            reply = QMessageBox.question(self, "确认修复", 
+                                       "🧠 即将执行智能CRLF修复：\n\n"
+                                       "• 检测常见CRLF问题\n"
+                                       "• 智能创建.gitattributes文件\n"
+                                       "• 处理Unity二进制文件\n"
+                                       "• 预防性修复潜在问题\n\n"
+                                       "✅ 这是推荐的修复方式，对团队协作友好\n"
+                                       "确定要继续吗？",
+                                       QMessageBox.Yes | QMessageBox.No)
+            
+            if reply != QMessageBox.Yes:
+                return
+            
+            # 调用Git管理器的CRLF修复器
+            if not self.git_manager.crlf_fixer:
+                QMessageBox.warning(self, "错误", "CRLF修复器未初始化")
+                return
+            
+            result = self.git_manager.crlf_fixer.preventive_fix()
+            
+            if result['success']:
+                QMessageBox.information(self, "成功", 
+                                      f"✅ 智能修复成功！\n\n{result['message']}")
+            else:
+                QMessageBox.warning(self, "失败", 
+                                  f"❌ 智能修复失败：\n{result['message']}")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"智能修复异常：{str(e)}")
 
 
 class DeployRepositoriesThread(QThread):
