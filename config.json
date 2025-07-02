@@ -2,7 +2,7 @@
   "svn_path": "G:\\Svn_repo\\MiniProject_Art_NewPrefab",
   "git_path": "G:\\minirepo\\AssetRuntime_Branch08\\assetruntime\\CommonResource",
   "window_geometry": {
-    "x": -2560,
+    "x": 0,
     "y": 34,
     "width": 2560,
     "height": 1346
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_zuiba.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_zuiba.mesh",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_sk.skeleton.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_sk.skeleton",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_face32.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_face32.mesh",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_body0.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_body0.mesh",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_biaoqyanj.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140486\\Model\\body_biaoqyanj.mesh"
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Model\\body_sk.skeleton.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Model\\body_sk.skeleton",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Model\\body_body1.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Model\\body_body1.mesh",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Model\\body_body0.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Model\\body_body0.mesh",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Material\\male1.mat.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Material\\male1.mat",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Expand\\Animation.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140094\\Animation\\100155.skAnim.meta"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"
