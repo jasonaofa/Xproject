@@ -24,7 +24,7 @@ try:
                                  QProgressBar, QSplitter, QGroupBox, QGridLayout,
                                  QListWidget, QListWidgetItem, QTabWidget, QDialog, QCompleter,
                                  QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout,
-                                 QInputDialog, QSpinBox, QAbstractItemView)
+                                 QInputDialog, QSpinBox, QAbstractItemView, QRadioButton)
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QStringListModel
     from PyQt5.QtGui import QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent
     debug_print("PyQt5导入成功")
@@ -1918,7 +1918,7 @@ class GitSvnManager:
             print(f"❌ [CRLF] {error_info}")
             return False, error_info
     
-    def push_files_to_git(self, source_files: List[str], target_directory: str = "CommonResource") -> Tuple[bool, str]:
+    def push_files_to_git(self, source_files: List[str], target_directory: str = "CommonResource", folder_upload_modes: dict = None) -> Tuple[bool, str]:
         """
         将文件推送到Git仓库
         
@@ -1973,6 +1973,53 @@ class GitSvnManager:
             target_base_path = self.git_path
             print(f"   ✅ 最终target_base_path: {target_base_path}")
             print(f"   📝 说明: 直接使用git_path，避免路径重复")
+            
+            # 2.5. 处理文件夹替换模式（在复制文件之前删除需要替换的文件夹）
+            if folder_upload_modes:
+                print(f"🗑️ [DEBUG] 开始处理文件夹替换模式...")
+                replace_folders = [info for info in folder_upload_modes.values() if info.get('mode') == 'replace']
+                
+                if replace_folders:
+                    print(f"   发现 {len(replace_folders)} 个需要替换的文件夹")
+                    
+                    for folder_info in replace_folders:
+                        target_folder_path = folder_info.get('target_path')
+                        folder_name = folder_info.get('folder_name')
+                        
+                        if target_folder_path and os.path.exists(target_folder_path):
+                            print(f"   🗑️ 删除现有文件夹: {folder_name}")
+                            print(f"      路径: {target_folder_path}")
+                            
+                            try:
+                                # 使用 git rm 删除文件夹
+                                relative_path = os.path.relpath(target_folder_path, self.git_path)
+                                delete_result = subprocess.run(['git', 'rm', '-r', relative_path], 
+                                                              cwd=self.git_path, 
+                                                              capture_output=True, 
+                                                              text=True,
+                                                              encoding='utf-8',
+                                                              errors='ignore',
+                                                              timeout=30)
+                                
+                                if delete_result.returncode == 0:
+                                    print(f"      ✅ Git删除成功: {folder_name}")
+                                else:
+                                    print(f"      ⚠️ Git删除失败，尝试直接删除文件夹: {delete_result.stderr}")
+                                    # 如果git rm失败，直接删除文件夹
+                                    import shutil
+                                    shutil.rmtree(target_folder_path, ignore_errors=True)
+                                    print(f"      ✅ 直接删除成功: {folder_name}")
+                                    
+                            except Exception as e:
+                                print(f"      ❌ 删除文件夹失败: {folder_name} - {str(e)}")
+                                # 继续处理，不中断整个推送流程
+                        else:
+                            print(f"   ℹ️ 文件夹不存在，无需删除: {folder_name}")
+                            print(f"      目标路径: {target_folder_path}")
+                else:
+                    print(f"   ℹ️ 没有需要替换的文件夹")
+            else:
+                print(f"🔍 [DEBUG] 未提供文件夹上传模式信息，跳过文件夹删除步骤")
             
             copied_files = []
             failed_files = []
@@ -4123,6 +4170,105 @@ class ResourceChecker(QThread):
             return result
 
 
+class FolderUploadModeDialog(QDialog):
+    """文件夹上传模式选择对话框"""
+    
+    REPLACE_MODE = "replace"  # 替换模式
+    MERGE_MODE = "merge"      # 合并模式
+    
+    def __init__(self, folder_names, parent=None):
+        super().__init__(parent)
+        self.folder_names = folder_names
+        self.selected_mode = None
+        
+        self.setWindowTitle("文件夹上传模式选择")
+        self.setModal(True)
+        self.resize(500, 350)
+        self.init_ui()
+        
+    def init_ui(self):
+        """初始化界面"""
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # 文件夹信息
+        info_label = QLabel("检测到您拖入了文件夹：")
+        info_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+        layout.addWidget(info_label)
+        
+        # 文件夹名称显示
+        folder_display = QLabel()
+        if len(self.folder_names) == 1:
+            folder_display.setText(f"📁 {self.folder_names[0]}")
+        else:
+            folder_text = "\n".join([f"📁 {name}" for name in self.folder_names])
+            folder_display.setText(folder_text)
+        folder_display.setStyleSheet("background-color: #f0f0f0; padding: 8px; border-radius: 4px; margin-bottom: 15px;")
+        layout.addWidget(folder_display)
+        
+        # 选择提示
+        select_label = QLabel("请选择上传模式：")
+        select_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+        layout.addWidget(select_label)
+        
+        # 替换模式选项
+        self.replace_radio = QRadioButton("替换模式")
+        self.replace_radio.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
+        layout.addWidget(self.replace_radio)
+        
+        replace_desc = QLabel("• 删除Git仓库中的同名文件夹\n• 用拖入的文件夹完全替换\n• 确保文件夹内容完全一致")
+        replace_desc.setStyleSheet("color: #666; margin-left: 20px; margin-bottom: 15px;")
+        layout.addWidget(replace_desc)
+        
+        # 合并模式选项
+        self.merge_radio = QRadioButton("合并模式")
+        self.merge_radio.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
+        layout.addWidget(self.merge_radio)
+        
+        merge_desc = QLabel("• 保持Git仓库中的现有文件\n• 添加或更新拖入文件夹中的文件\n• 不会删除Git仓库中的其他文件")
+        merge_desc.setStyleSheet("color: #666; margin-left: 20px; margin-bottom: 15px;")
+        layout.addWidget(merge_desc)
+        
+        # 警告信息
+        warning_label = QLabel("⚠️ 注意：替换模式会删除Git仓库中的同名文件夹！")
+        warning_label.setStyleSheet("color: #d32f2f; font-weight: bold; background-color: #ffebee; padding: 8px; border-radius: 4px; margin-bottom: 15px;")
+        layout.addWidget(warning_label)
+        
+        # 按钮布局
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        self.ok_button = QPushButton("确定")
+        self.ok_button.setEnabled(False)  # 初始状态为禁用
+        self.ok_button.clicked.connect(self.accept)
+        button_layout.addWidget(self.ok_button)
+        
+        cancel_button = QPushButton("取消")
+        cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_button)
+        
+        layout.addLayout(button_layout)
+        
+        # 监听单选按钮变化
+        self.replace_radio.toggled.connect(self.on_selection_changed)
+        self.merge_radio.toggled.connect(self.on_selection_changed)
+        
+    def on_selection_changed(self):
+        """处理选择变化"""
+        # 只有用户选择了选项，确定按钮才启用
+        self.ok_button.setEnabled(
+            self.replace_radio.isChecked() or self.merge_radio.isChecked()
+        )
+    
+    def get_selected_mode(self):
+        """获取选择的模式"""
+        if self.replace_radio.isChecked():
+            return self.REPLACE_MODE
+        elif self.merge_radio.isChecked():
+            return self.MERGE_MODE
+        return None
+
+
 class BranchSelectorDialog(QDialog):
     """分支选择对话框"""
     
@@ -4427,6 +4573,8 @@ class ArtResourceManager(QMainWindow):
         self.config_manager = ConfigManager()
         self.git_manager = GitSvnManager()
         self.upload_files = []
+        # 文件夹上传模式跟踪
+        self.folder_upload_modes = {}  # 格式：{folder_path: {"mode": "replace", "target_path": "..."}}
         self.init_ui()
         self.load_settings()
 
@@ -5424,6 +5572,8 @@ class ArtResourceManager(QMainWindow):
         """清空文件列表"""
         self.upload_files.clear()
         self.file_list.clear_all_items()
+        # 清空文件夹上传模式信息
+        self.folder_upload_modes.clear()
     
     def check_and_push(self):
         """检查资源（不自动推送）"""
@@ -5619,7 +5769,8 @@ class ArtResourceManager(QMainWindow):
             
             # 执行推送操作 - 直接使用git_path，不需要额外的target_directory参数
             # 因为git_path已经是完整的目标路径（例如：G:\minirepo\AssetRuntime_Branch07\assetruntime\CommonResource）
-            success, message = self.git_manager.push_files_to_git(self.upload_files)
+            # 传递文件夹上传模式信息以支持替换模式
+            success, message = self.git_manager.push_files_to_git(self.upload_files, folder_upload_modes=self.folder_upload_modes)
             
             self.progress_bar.setValue(100)
             self.progress_bar.setVisible(False)
@@ -6278,24 +6429,50 @@ class ArtResourceManager(QMainWindow):
             self.log_text.append(f"❌ 拖拽失败：SVN仓库路径不存在")
             return
         
-        valid_files, invalid_files = self._validate_dropped_files(file_paths, svn_repo_path)
+        # 分离文件和文件夹
+        files = [path for path in file_paths if os.path.isfile(path)]
+        folders = [path for path in file_paths if os.path.isdir(path)]
         
-        if invalid_files:
-            self._show_invalid_files_warning(invalid_files, svn_repo_path, len(valid_files))
+        print(f"DEBUG: 分离结果 - 文件: {len(files)}, 文件夹: {len(folders)}")
         
-        if not valid_files:
-            self.log_text.append("❌ 没有有效文件可添加")
-            return
+        total_added = 0
         
-        added_count = self._add_valid_files(valid_files)
-        
-        if added_count > 0:
-            success_msg = f"成功添加了 {added_count} 个有效文件到上传列表"
-            if invalid_files:
-                success_msg += f"\n\n⚠️ 同时跳过了 {len(invalid_files)} 个无效文件"
+        # 处理文件（使用现有逻辑）
+        if files:
+            print(f"DEBUG: 处理文件: {files}")
+            valid_files, invalid_files = self._validate_dropped_files(files, svn_repo_path)
             
-            self.log_text.append(f"✅ 通过拖拽添加了 {added_count} 个文件")
+            if invalid_files:
+                self._show_invalid_files_warning(invalid_files, svn_repo_path, len(valid_files))
+            
+            if valid_files:
+                added_count = self._add_valid_files(valid_files)
+                total_added += added_count
+                
+                if added_count > 0:
+                    self.log_text.append(f"✅ 通过拖拽添加了 {added_count} 个文件")
+        
+        # 处理文件夹（新逻辑）
+        if folders:
+            print(f"DEBUG: 处理文件夹: {folders}")
+            
+            # 验证文件夹是否在SVN仓库目录下
+            valid_folders, invalid_folders = self._validate_dropped_files(folders, svn_repo_path)
+            
+            if invalid_folders:
+                self._show_invalid_files_warning(invalid_folders, svn_repo_path, len(valid_folders))
+            
+            if valid_folders:
+                folder_added_count = self._handle_folder_drops(valid_folders)
+                total_added += folder_added_count
+        
+        # 显示总结信息
+        if total_added > 0:
+            success_msg = f"成功添加了 {total_added} 个有效文件到上传列表"
+            self.log_text.append(f"✅ 拖拽操作完成，共添加 {total_added} 个文件")
             QMessageBox.information(self, "添加成功", success_msg)
+        elif not files and not folders:
+            self.log_text.append("❌ 没有有效文件或文件夹可添加")
         else:
             self.log_text.append("❌ 没有添加新文件（文件可能已存在或不在Assets目录下）")
 
@@ -6383,6 +6560,101 @@ class ArtResourceManager(QMainWindow):
             
         except Exception as e:
             return False
+
+    def _handle_folder_drops(self, folder_paths: List[str]) -> int:
+        """处理文件夹拖拽的主方法"""
+        total_added = 0
+        
+        for folder_path in folder_paths:
+            folder_name = os.path.basename(folder_path)
+            
+            # 为每个文件夹显示模式选择对话框
+            dialog = FolderUploadModeDialog([folder_name], self)
+            
+            if dialog.exec_() == QDialog.Accepted:
+                selected_mode = dialog.get_selected_mode()
+                
+                print(f"DEBUG: 用户为文件夹 {folder_name} 选择了模式: {selected_mode}")
+                
+                if selected_mode == FolderUploadModeDialog.REPLACE_MODE:
+                    added_count = self._handle_replace_mode(folder_path)
+                    total_added += added_count
+                elif selected_mode == FolderUploadModeDialog.MERGE_MODE:
+                    added_count = self._handle_merge_mode(folder_path)
+                    total_added += added_count
+                
+                self._log_folder_mode_selection(folder_path, selected_mode)
+            else:
+                # 用户取消了文件夹的上传
+                self.log_text.append(f"❌ 用户取消了文件夹 {folder_name} 的上传")
+        
+        return total_added
+    
+    def _handle_replace_mode(self, folder_path: str) -> int:
+        """处理替换模式：记录文件夹信息，在推送时执行删除"""
+        folder_name = os.path.basename(folder_path)
+        
+        # 计算在Git仓库中的目标路径
+        svn_repo_path = self.svn_path_edit.text().strip()
+        git_path = self.git_path_edit.text().strip()
+        
+        # 计算相对于SVN仓库的路径
+        relative_path = os.path.relpath(folder_path, svn_repo_path)
+        
+        # 应用路径映射
+        mapped_path = self.git_manager.apply_path_mapping(relative_path)
+        
+        # 在Git仓库中的完整目标路径
+        target_folder_path = os.path.join(git_path, mapped_path).replace('\\', '/')
+        
+        # 记录文件夹上传模式信息
+        self.folder_upload_modes[folder_path] = {
+            "mode": "replace",
+            "target_path": target_folder_path,
+            "folder_name": folder_name
+        }
+        
+        print(f"DEBUG: 替换模式 - 源路径: {folder_path}")
+        print(f"DEBUG: 替换模式 - 目标路径: {target_folder_path}")
+        
+        # 添加文件夹中的所有文件到上传列表
+        added_count = self._add_folder_files_to_upload_list(folder_path)
+        
+        return added_count
+    
+    def _handle_merge_mode(self, folder_path: str) -> int:
+        """处理合并模式：使用现有的添加文件逻辑"""
+        # 合并模式就是现有的逻辑，直接添加文件夹中的所有文件
+        added_count = self._add_folder_files_to_upload_list(folder_path)
+        
+        return added_count
+    
+    def _add_folder_files_to_upload_list(self, folder_path: str) -> int:
+        """将文件夹中的所有有效文件添加到上传列表"""
+        added_count = 0
+        svn_repo_path = self.svn_path_edit.text().strip()
+        
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                full_path = os.path.join(root, file)
+                if self._is_valid_assets_file(full_path, svn_repo_path):
+                    if full_path not in self.upload_files:
+                        self.upload_files.append(full_path)
+                        self.file_list.add_file_item(full_path)
+                        added_count += 1
+        
+        return added_count
+    
+    def _log_folder_mode_selection(self, folder_path: str, mode: str):
+        """记录文件夹模式选择的日志"""
+        folder_name = os.path.basename(folder_path)
+        
+        if mode == FolderUploadModeDialog.REPLACE_MODE:
+            self.log_text.append(f"🔄 文件夹 {folder_name} 选择了替换模式")
+            self.log_text.append(f"   ⚠️ 将删除Git仓库中的同名文件夹")
+        elif mode == FolderUploadModeDialog.MERGE_MODE:
+            self.log_text.append(f"📁 文件夹 {folder_name} 选择了合并模式")
+            self.log_text.append(f"   ✅ 将与Git仓库中的现有文件合并")
 
     def open_branch_selector(self):
         """打开分支选择对话框 - 使用已缓存的分支数据"""
