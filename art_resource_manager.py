@@ -1401,9 +1401,30 @@ class GitGuidCacheManager:
             if os.path.exists(self.cache_file):
                 os.remove(self.cache_file)
             self.cache_data = None
+            print(f"✅ [CACHE] GUID缓存已清除")
             return True
         except Exception as e:
-            print(f"清除GUID缓存失败: {e}")
+            print(f"❌ [CACHE] 清除GUID缓存失败: {e}")
+            return False
+    
+    def clear_guid_cache_for_git_path(self, git_path: str) -> bool:
+        """为指定Git路径清除GUID缓存"""
+        try:
+            if not git_path:
+                return False
+            
+            # 创建临时缓存管理器来清除缓存
+            temp_cache_manager = GitGuidCacheManager(git_path)
+            success = temp_cache_manager.clear_cache()
+            
+            if success:
+                print(f"✅ [CACHE] 已清除Git路径的GUID缓存: {git_path}")
+            else:
+                print(f"⚠️ [CACHE] 清除Git路径的GUID缓存失败: {git_path}")
+            
+            return success
+        except Exception as e:
+            print(f"❌ [CACHE] 清除Git路径GUID缓存异常: {e}")
             return False
     
     def get_cache_info(self) -> Dict[str, Any]:
@@ -1619,6 +1640,26 @@ class GitSvnManager:
         self.path_mapping_enabled = enabled
         self._save_path_mapping_config()
         print(f"🔧 [CONFIG] 路径映射: {'启用' if enabled else '禁用'}")
+    
+    def clear_guid_cache_for_git_path(self, git_path: str) -> bool:
+        """为指定Git路径清除GUID缓存"""
+        try:
+            if not git_path:
+                return False
+            
+            # 创建临时缓存管理器来清除缓存
+            temp_cache_manager = GitGuidCacheManager(git_path)
+            success = temp_cache_manager.clear_cache()
+            
+            if success:
+                print(f"✅ [CACHE] 已清除Git路径的GUID缓存: {git_path}")
+            else:
+                print(f"⚠️ [CACHE] 清除Git路径的GUID缓存失败: {git_path}")
+            
+            return success
+        except Exception as e:
+            print(f"❌ [CACHE] 清除Git路径GUID缓存异常: {e}")
+            return False
     
     def test_path_mapping(self, test_path: str) -> str:
         """测试路径映射效果"""
@@ -2054,6 +2095,10 @@ class GitSvnManager:
             
             if result.returncode == 0:
                 print(f"   ✅ 成功切换到分支: {branch_name}")
+                
+                # 清除GUID缓存，因为分支切换后仓库内容可能发生变化
+                self.clear_guid_cache_for_git_path(self.git_path)
+                
                 return True
             else:
                 print(f"   ❌ 分支切换失败: {result.stderr}")
@@ -2196,6 +2241,10 @@ class GitSvnManager:
                     print(f"⚠️ [RESET] 工作区仍有变化:\n{status_output}")
             
             print("🎉 [RESET] ========== 重置更新完成 ==========")
+            
+            # 清除GUID缓存，因为仓库内容已重置
+            self.clear_guid_cache_for_git_path(self.git_path)
+            
             return True, f"重置更新完成！已同步到远程分支 {current_branch} 最新状态"
             
         except subprocess.TimeoutExpired:
@@ -2255,6 +2304,10 @@ class GitSvnManager:
                 return False, f"拉取分支失败: {error_msg}"
             
             print("✅ [PULL] 拉取成功")
+            
+            # 清除GUID缓存，因为仓库内容已更新
+            self.clear_guid_cache_for_git_path(self.git_path)
+            
             return True, f"拉取成功 - 已更新分支 {current_branch} 到最新版本"
             
         except subprocess.TimeoutExpired:
@@ -2791,6 +2844,9 @@ class GitSvnManager:
             success_msg = f"成功推送 {len(copied_files)} 个文件到分支 {current_branch} (耗时 {total_time:.1f}秒)"
             if failed_files:
                 success_msg += f"，{len(failed_files)} 个文件失败"
+            
+            # 清除GUID缓存，因为仓库内容已更新
+            self.clear_guid_cache_for_git_path(self.git_path)
             
             return True, success_msg
             
@@ -6115,8 +6171,9 @@ class ArtResourceManager(QMainWindow):
             
             if success:
                 self.log_text.append(f"✅ 分支切换成功: 已切换到 {selected_branch}")
+                self.log_text.append("🔄 GUID缓存已自动清除（分支切换后仓库内容可能变化）")
                 self.result_text.append(f"✅ 分支切换成功: {current_branch} -> {selected_branch}")
-                QMessageBox.information(self, "切换成功", f"已成功切换到分支: {selected_branch}")
+                QMessageBox.information(self, "切换成功", f"已成功切换到分支: {selected_branch}\n\n🔄 GUID缓存已自动清除，确保下次检查使用最新数据。")
                 
                 # 异步刷新分支列表，避免阻塞界面（强制更新，因为分支已切换）
                 self.refresh_branches_async(fast_mode=True, force_update_ui=True)
@@ -6491,8 +6548,9 @@ class ArtResourceManager(QMainWindow):
             
             if success:
                 self.log_text.append(f"✓ 拉取成功: {message}")
+                self.log_text.append("🔄 GUID缓存已自动清除（仓库内容已更新）")
                 self.result_text.append(f"✓ Git分支拉取成功: {message}")
-                QMessageBox.information(self, "拉取成功", message)
+                QMessageBox.information(self, "拉取成功", f"{message}\n\n🔄 GUID缓存已自动清除，确保下次检查使用最新数据。")
                 # 异步刷新分支列表，避免阻塞界面（强制更新，因为可能有新分支）
                 self.refresh_branches_async(fast_mode=True, force_update_ui=True)
                 self.show_current_branch()
@@ -6548,8 +6606,9 @@ class ArtResourceManager(QMainWindow):
             
             if success:
                 self.log_text.append(f"✓ 重置成功: {message}")
+                self.log_text.append("🔄 GUID缓存已自动清除（仓库内容已重置）")
                 self.result_text.append(f"✓ Git仓库重置成功: {message}")
-                QMessageBox.information(self, "重置成功", message)
+                QMessageBox.information(self, "重置成功", f"{message}\n\n🔄 GUID缓存已自动清除，确保下次检查使用最新数据。")
                 # 异步刷新分支列表，避免阻塞界面（强制更新，因为状态已重置）
                 self.refresh_branches_async(fast_mode=True, force_update_ui=True)
                 self.show_current_branch()
