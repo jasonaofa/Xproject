@@ -1,0 +1,48 @@
+开始执行打包脚本...
+============================================================
+🎯 资源管理器自动打包工具
+============================================================
+Python版本: 3.10.0 (tags/v3.10.0:b494f59, Oct  4 2021, 19:00:18) [MSC v.1929 64 bit (AMD64)]
+当前目录: C:\Users\dingyiyang\Xproject
+✅ PyInstaller 已安装
+✅ 创建了 ArtResourceManager.spec 文件
+🚀 开始打包...
+执行命令: C:\Users\dingyiyang\AppData\Local\Programs\Python\Python310\python.exe -m PyInstaller --clean ArtResourceManager.spec
+Exception in thread Thread-2 (_readerthread):
+Traceback (most recent call last):
+  File "C:\Users\dingyiyang\AppData\Local\Programs\Python\Python310\lib\threading.py", line 1009, in _bootstrap_inner
+    self.run()
+  File "C:\Users\dingyiyang\AppData\Local\Programs\Python\Python310\lib\threading.py", line 946, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\dingyiyang\AppData\Local\Programs\Python\Python310\lib\subprocess.py", line 1494, in _readerthread
+    buffer.append(fh.read())
+  File "C:\Users\dingyiyang\AppData\Local\Programs\Python\Python310\lib\codecs.py", line 322, in decode
+    (result, consumed) = self._buffer_decode(data, self.errors, final)
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xc3 in position 6581: invalid continuation byte
+✅ 打包成功！
+✅ exe文件已复制到项目根目录
+  删除了dist目录
+🧹 清理构建文件...
+  删除目录: build
+  删除文件: ArtResourceManager.spec
+
+============================================================
+🎉 打包完成！
+============================================================
+📁 生成的文件:
+  美术资源上传工具.exe - 可执行文件
+
+💡 使用说明:
+  1. 双击 美术资源上传工具.exe 即可运行
+  2. 无需安装Python环境
+  3. 可以分发给其他用户使用
+
+⚠️  注意事项:
+  1. 首次运行可能被杀毒软件拦截，请添加信任
+  2. exe文件较大是正常现象（包含了所有依赖）
+  3. 如需修改代码，请重新运行此打包脚本
+
+✅ 打包成功完成！
+日志文件已保存到: build_log.txt
+
+按Enter键退出...

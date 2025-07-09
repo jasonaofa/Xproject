@@ -44,7 +44,6 @@ a = Analysis(
     binaries=[],
     datas=[
         ('config.json', '.'),
-        ('path_mapping_config.json', '.'),
     ],
     hiddenimports=[
         'PyQt5.QtCore',

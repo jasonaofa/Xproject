@@ -1464,15 +1464,23 @@ class GitSvnManager:
         self._init_crlf_fixer()
     
     def _load_default_mapping_rules(self) -> dict:
-        """加载默认路径映射规则"""
+        """加载内置路径映射规则"""
         return {
+            "assets_to_minigame": {
+                "name": "Assets根目录映射（排除Git路径）",
+                "description": "将Assets目录映射到Assets/Resources/minigame，但排除已经是Git格式的路径",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\/](?!Resources[\\/]minigame[\\/])",
+                "target_pattern": "Assets\\Resources\\minigame\\",
+                "priority": 1
+            },
             "entity_to_minigame": {
                 "name": "实体资源映射",
                 "description": "将entity目录映射到Resources/minigame/entity",
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]entity($|[\\\/])",
                 "target_pattern": "Assets\\Resources\\minigame\\entity\\",
-                "priority": 1
+                "priority": 2
             },
             "ui_mapping": {
                 "name": "UI资源映射", 
@@ -1480,7 +1488,7 @@ class GitSvnManager:
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]ui($|[\\\/])",
                 "target_pattern": "Assets\\Resources\\ui\\",
-                "priority": 2
+                "priority": 3
             },
             "audio_mapping": {
                 "name": "音频资源映射",
@@ -1488,7 +1496,7 @@ class GitSvnManager:
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]audio($|[\\\/])",
                 "target_pattern": "Assets\\Resources\\audio\\",
-                "priority": 3
+                "priority": 4
             },
             "texture_mapping": {
                 "name": "贴图资源映射",
@@ -1496,57 +1504,42 @@ class GitSvnManager:
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]texture($|[\\\/])",
                 "target_pattern": "Assets\\Resources\\textures\\",
-                "priority": 4
+                "priority": 5
+            },
+            "prefab_mapping": {
+                "name": "Prefab资源映射",
+                "description": "将prefab目录映射到Resources/minigame/prefab",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\\/]prefab($|[\\\/])",
+                "target_pattern": "Assets\\Resources\\minigame\\prefab\\",
+                "priority": 6
             }
         }
     
     def _load_path_mapping_config(self):
-        """从配置文件加载路径映射设置"""
+        """加载内置路径映射配置"""
         try:
-            config_path = "path_mapping_config.json"
-            if os.path.exists(config_path):
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    
-                self.path_mapping_enabled = config.get('enabled', True)
-                
-                # 合并用户自定义规则和默认规则
-                user_rules = config.get('rules', {})
-                for rule_id, rule_data in user_rules.items():
-                    if rule_id in self.path_mapping_rules:
-                        # 更新现有规则
-                        self.path_mapping_rules[rule_id].update(rule_data)
-                    else:
-                        # 添加新规则
-                        self.path_mapping_rules[rule_id] = rule_data
-                        
-                print(f"📋 [CONFIG] 加载路径映射配置: {len(self.path_mapping_rules)} 条规则")
-            else:
-                print(f"📋 [CONFIG] 使用默认路径映射配置")
-                self._save_path_mapping_config()  # 保存默认配置
+            # 直接使用内置规则，不再依赖外部JSON文件
+            self.path_mapping_enabled = True
+            self.path_mapping_rules = self._load_default_mapping_rules()
+            
+            print(f"📋 [CONFIG] 使用内置路径映射配置: {len(self.path_mapping_rules)} 条规则")
+            
+            # 显示启用的规则
+            enabled_rules = [rule for rule in self.path_mapping_rules.values() if rule.get('enabled', True)]
+            print(f"📋 [CONFIG] 启用的规则: {len(enabled_rules)} 条")
+            for rule in enabled_rules:
+                print(f"   - {rule['name']}: {rule['source_pattern']} -> {rule['target_pattern']}")
                 
         except Exception as e:
-            print(f"❌ [CONFIG] 加载路径映射配置失败: {e}")
+            print(f"❌ [CONFIG] 加载内置路径映射配置失败: {e}")
             print(f"📋 [CONFIG] 使用默认配置")
+            self.path_mapping_rules = self._load_default_mapping_rules()
     
     def _save_path_mapping_config(self):
-        """保存路径映射配置到文件"""
-        try:
-            config = {
-                "enabled": self.path_mapping_enabled,
-                "rules": self.path_mapping_rules,
-                "version": "1.0",
-                "description": "美术资源管理工具 - 路径映射配置"
-            }
-            
-            config_path = "path_mapping_config.json"
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-                
-            print(f"💾 [CONFIG] 路径映射配置已保存到: {config_path}")
-            
-        except Exception as e:
-            print(f"❌ [CONFIG] 保存路径映射配置失败: {e}")
+        """保存路径映射配置（已弃用，现在使用内置配置）"""
+        print(f"📋 [CONFIG] 路径映射配置已内置，无需外部文件")
+        print(f"📋 [CONFIG] 当前启用的规则: {len([r for r in self.path_mapping_rules.values() if r.get('enabled', True)])} 条")
     
     def apply_path_mapping(self, assets_path: str) -> str:
         """
@@ -1617,29 +1610,25 @@ class GitSvnManager:
         return self.path_mapping_rules.copy()
     
     def update_path_mapping_rule(self, rule_id: str, rule_data: dict):
-        """更新路径映射规则"""
+        """更新路径映射规则（运行时修改，重启后恢复默认）"""
         self.path_mapping_rules[rule_id] = rule_data
-        self._save_path_mapping_config()
-        print(f"📝 [CONFIG] 更新映射规则: {rule_id}")
+        print(f"📝 [CONFIG] 更新映射规则: {rule_id} (运行时修改)")
     
     def add_path_mapping_rule(self, rule_id: str, rule_data: dict):
-        """添加新的路径映射规则"""
+        """添加新的路径映射规则（运行时添加，重启后恢复默认）"""
         self.path_mapping_rules[rule_id] = rule_data
-        self._save_path_mapping_config()
-        print(f"➕ [CONFIG] 添加映射规则: {rule_id}")
+        print(f"➕ [CONFIG] 添加映射规则: {rule_id} (运行时添加)")
     
     def remove_path_mapping_rule(self, rule_id: str):
-        """删除路径映射规则"""
+        """删除路径映射规则（运行时删除，重启后恢复默认）"""
         if rule_id in self.path_mapping_rules:
             del self.path_mapping_rules[rule_id]
-            self._save_path_mapping_config()
-            print(f"🗑️ [CONFIG] 删除映射规则: {rule_id}")
+            print(f"🗑️ [CONFIG] 删除映射规则: {rule_id} (运行时删除)")
     
     def set_path_mapping_enabled(self, enabled: bool):
-        """启用/禁用路径映射"""
+        """启用/禁用路径映射（运行时修改，重启后恢复默认）"""
         self.path_mapping_enabled = enabled
-        self._save_path_mapping_config()
-        print(f"🔧 [CONFIG] 路径映射: {'启用' if enabled else '禁用'}")
+        print(f"🔧 [CONFIG] 路径映射: {'启用' if enabled else '禁用'} (运行时修改)")
     
     def clear_guid_cache_for_git_path(self, git_path: str) -> bool:
         """为指定Git路径清除GUID缓存"""
