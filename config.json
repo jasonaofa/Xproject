@@ -2,12 +2,12 @@
   "svn_path": "G:\\Svn_repo\\MiniProject_Art_NewPrefab",
   "git_path": "G:\\minirepo\\AssetRuntime_Branch09\\assetruntime\\CommonResource",
   "window_geometry": {
-    "x": 0,
+    "x": -2560,
     "y": 34,
     "width": 2560,
     "height": 1346
   },
-  "last_selected_branch": "★ miniw/release/v1.48.0 (当前)",
+  "last_selected_branch": "★ miniw/buzzRes/250730 (当前)",
   "resource_types": {
     "prefab": true,
     "material": true,
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_3401/juxie_rongjie03.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Texture\\Noise_wl_011.png.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Texture\\Noise_wl_011.png",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/avatar/1000_3401/juxie_rongjie03.mat",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\VFX.prefab.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_tuowei02.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_tuowei_liang.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\paopao.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_tu.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Model\\jichu_feng_1.mesh.meta"
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_toushi1.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_toushi1.mesh",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_toushi003.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_toushi003.mesh",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_tousha1.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_tousha1.mesh",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_sk.skeleton.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_sk.skeleton",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_Object001.mesh.meta",
+    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140489\\Timeline\\charater\\Model\\body_Object001.mesh"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"

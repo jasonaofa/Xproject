@@ -3196,11 +3196,12 @@ class ResourceChecker(QThread):
     detailed_report = pyqtSignal(dict)
     git_sync_required = pyqtSignal(dict)  # 新增：Git同步需求信号
     
-    def __init__(self, upload_files, git_manager, target_directory):
+    def __init__(self, upload_files, git_manager, target_directory, folder_upload_modes=None):
         super().__init__()
         self.upload_files = upload_files
         self.git_manager = git_manager
         self.target_directory = target_directory
+        self.folder_upload_modes = folder_upload_modes or {}
         self.analyzer = ResourceDependencyAnalyzer()
         
         # 需要检查GUID引用的文件类型（按优先级排序）
@@ -3311,6 +3312,14 @@ class ResourceChecker(QThread):
     def _check_meta_files(self) -> List[Dict[str, str]]:
         """检查Meta文件完整性 - 严格的GUID一致性检查"""
         issues = []
+        
+        # 检查是否有替换模式的文件夹
+        has_replace_mode = False
+        if hasattr(self, 'folder_upload_modes') and self.folder_upload_modes:
+            for folder_info in self.folder_upload_modes.values():
+                if folder_info.get('mode') == 'replace':
+                    has_replace_mode = True
+                    break
         
         for file_path in self.upload_files:
             try:
@@ -3425,45 +3434,57 @@ class ResourceChecker(QThread):
                         })
                 
                 elif svn_has_meta and git_has_meta:
-                    # 两边都有.meta文件，检查GUID一致性
-                    if svn_guid and git_guid:
-                        if svn_guid != git_guid:
+                    # 两边都有.meta文件，检查GUID一致性（仅在非替换模式下）
+                    if not has_replace_mode:
+                        if svn_guid and git_guid:
+                            if svn_guid != git_guid:
+                                issues.append({
+                                    'file': file_path,
+                                    'type': 'guid_mismatch',
+                                    'message': f'GUID不一致 - SVN: {svn_guid}, Git: {git_guid}',
+                                    'svn_path': file_path,
+                                    'git_path': git_file_path,
+                                    'svn_guid': svn_guid,
+                                    'git_guid': git_guid
+                                })
+                            # 如果GUID一致，则通过检查，不添加问题
+                        elif not svn_guid and not git_guid:
                             issues.append({
                                 'file': file_path,
-                                'type': 'guid_mismatch',
-                                'message': f'GUID不一致 - SVN: {svn_guid}, Git: {git_guid}',
+                                'type': 'guid_invalid_both',
+                                'message': 'SVN和Git中的.meta文件都没有有效GUID',
+                                'svn_path': file_path,
+                                'git_path': git_file_path
+                            })
+                        elif not svn_guid:
+                            issues.append({
+                                'file': file_path,
+                                'type': 'guid_invalid_svn',
+                                'message': f'SVN中的.meta文件无效GUID，Git中有效(GUID: {git_guid})',
                                 'svn_path': file_path,
                                 'git_path': git_file_path,
-                                'svn_guid': svn_guid,
                                 'git_guid': git_guid
                             })
-                        # 如果GUID一致，则通过检查，不添加问题
-                    elif not svn_guid and not git_guid:
-                        issues.append({
-                            'file': file_path,
-                            'type': 'guid_invalid_both',
-                            'message': 'SVN和Git中的.meta文件都没有有效GUID',
-                            'svn_path': file_path,
-                            'git_path': git_file_path
-                        })
-                    elif not svn_guid:
-                        issues.append({
-                            'file': file_path,
-                            'type': 'guid_invalid_svn',
-                            'message': f'SVN中的.meta文件无效GUID，Git中有效(GUID: {git_guid})',
-                            'svn_path': file_path,
-                            'git_path': git_file_path,
-                            'git_guid': git_guid
-                        })
-                    elif not git_guid:
-                        issues.append({
-                            'file': file_path,
-                            'type': 'guid_invalid_git',
-                            'message': f'Git中的.meta文件无效GUID，SVN中有效(GUID: {svn_guid})',
-                            'svn_path': file_path,
-                            'git_path': git_file_path,
-                            'svn_guid': svn_guid
-                        })
+                        elif not git_guid:
+                            issues.append({
+                                'file': file_path,
+                                'type': 'guid_invalid_git',
+                                'message': f'Git中的.meta文件无效GUID，SVN中有效(GUID: {svn_guid})',
+                                'svn_path': file_path,
+                                'git_path': git_file_path,
+                                'svn_guid': svn_guid
+                            })
+                    else:
+                        # 替换模式下，跳过GUID一致性检查
+                        # 只检查SVN中的.meta文件是否有效
+                        if not svn_guid:
+                            issues.append({
+                                'file': file_path,
+                                'type': 'guid_invalid_svn',
+                                'message': f'SVN中的.meta文件无效GUID（替换模式下忽略Git中的GUID）',
+                                'svn_path': file_path,
+                                'git_path': git_file_path
+                            })
                         
             except Exception as e:
                 issues.append({
@@ -3588,6 +3609,18 @@ class ResourceChecker(QThread):
         try:
             self.status_updated.emit("🔍 开始GUID唯一性检查...")
             
+            # 检查是否有替换模式的文件夹
+            has_replace_mode = False
+            if hasattr(self, 'folder_upload_modes') and self.folder_upload_modes:
+                for folder_info in self.folder_upload_modes.values():
+                    if folder_info.get('mode') == 'replace':
+                        has_replace_mode = True
+                        break
+            
+            if has_replace_mode:
+                self.status_updated.emit("⚠️ 检测到替换模式，跳过与Git仓库的GUID冲突检查")
+                self.status_updated.emit("   原因：替换模式会删除Git中的旧文件，不存在GUID冲突问题")
+            
             # 第一步：预处理，建立文件映射关系
             self.status_updated.emit("分析文件结构...")
             meta_files = set()  # 所有需要处理的meta文件
@@ -3671,60 +3704,69 @@ class ResourceChecker(QThread):
             else:
                 self.status_updated.emit("✅ 未发现内部GUID重复")
             
-            # 第四步：检查与Git仓库的冲突
-            self.status_updated.emit("扫描Git仓库中的GUID...")
-            git_guids = self._get_git_repository_guids()
-            self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
+            # 第四步：检查与Git仓库的冲突（仅在非替换模式下）
+            if not has_replace_mode:
+                self.status_updated.emit("扫描Git仓库中的GUID...")
+                git_guids = self._get_git_repository_guids()
+                self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
+                
+                git_conflicts = []
+                file_updates = []
+                debug_count = 0  # 限制调试输出
+            else:
+                # 替换模式下，跳过Git冲突检查
+                git_guids = {}
+                git_conflicts = []
+                file_updates = []
+                self.status_updated.emit("✅ 替换模式：跳过Git仓库GUID冲突检查")
             
-            git_conflicts = []
-            file_updates = []
-            debug_count = 0  # 限制调试输出
-            
-            for guid, meta_file in guid_to_meta.items():
-                if guid in git_guids:
-                    resource_file = meta_file[:-5] if meta_file.endswith('.meta') else meta_file
-                    git_file_info = git_guids[guid]
-                    
-                    # 计算上传文件的相对路径（相对于SVN根目录）
-                    upload_relative_path = self._get_upload_file_relative_path(resource_file)
-                    git_relative_path = git_file_info['relative_resource_path']
-                    
-                    # 调试信息（只输出前3个）
-                    if debug_count < 3:
-                        self.status_updated.emit(f"🔍 路径比较调试:")
-                        self.status_updated.emit(f"   文件: {os.path.basename(resource_file)}")
-                        self.status_updated.emit(f"   上传路径: '{upload_relative_path}'")
-                        self.status_updated.emit(f"   Git路径: '{git_relative_path}'")
+            # 只在非替换模式下进行Git冲突检查
+            if not has_replace_mode:
+                for guid, meta_file in guid_to_meta.items():
+                    if guid in git_guids:
+                        resource_file = meta_file[:-5] if meta_file.endswith('.meta') else meta_file
+                        git_file_info = git_guids[guid]
                         
-                        # 显示路径映射结果
-                        if hasattr(self.git_manager, 'apply_path_mapping'):
-                            mapped_path = self.git_manager.apply_path_mapping(upload_relative_path)
-                            self.status_updated.emit(f"   映射后路径: '{mapped_path}'")
+                        # 计算上传文件的相对路径（相对于SVN根目录）
+                        upload_relative_path = self._get_upload_file_relative_path(resource_file)
+                        git_relative_path = git_file_info['relative_resource_path']
                         
-                        debug_count += 1
-                    
-                    # 路径比较 - 使用映射
-                    if self._compare_file_paths(upload_relative_path, git_relative_path):
-                        # 同一文件的更新
-                        file_updates.append({
-                            'guid': guid,
-                            'meta_file': meta_file,
-                            'resource_file': resource_file,
-                            'upload_path': upload_relative_path,
-                            'git_path': git_relative_path
-                        })
-                        self.status_updated.emit(f"📝 文件更新: {guid[:8]}... ({os.path.basename(resource_file)})")
-                    else:
-                        # 真正的GUID冲突 - 不同文件使用相同GUID
-                        git_conflicts.append({
-                            'guid': guid,
-                            'meta_file': meta_file,
-                            'resource_file': resource_file,
-                            'upload_path': upload_relative_path,
-                            'git_path': git_relative_path,
-                            'git_file_name': git_file_info['resource_name']
-                        })
-                        self.status_updated.emit(f"⚠️ GUID冲突: {guid[:8]}... (上传:{os.path.basename(resource_file)} vs Git:{git_file_info['resource_name']})")
+                        # 调试信息（只输出前3个）
+                        if debug_count < 3:
+                            self.status_updated.emit(f"🔍 路径比较调试:")
+                            self.status_updated.emit(f"   文件: {os.path.basename(resource_file)}")
+                            self.status_updated.emit(f"   上传路径: '{upload_relative_path}'")
+                            self.status_updated.emit(f"   Git路径: '{git_relative_path}'")
+                            
+                            # 显示路径映射结果
+                            if hasattr(self.git_manager, 'apply_path_mapping'):
+                                mapped_path = self.git_manager.apply_path_mapping(upload_relative_path)
+                                self.status_updated.emit(f"   映射后路径: '{mapped_path}'")
+                            
+                            debug_count += 1
+                        
+                        # 路径比较 - 使用映射
+                        if self._compare_file_paths(upload_relative_path, git_relative_path):
+                            # 同一文件的更新
+                            file_updates.append({
+                                'guid': guid,
+                                'meta_file': meta_file,
+                                'resource_file': resource_file,
+                                'upload_path': upload_relative_path,
+                                'git_path': git_relative_path
+                            })
+                            self.status_updated.emit(f"📝 文件更新: {guid[:8]}... ({os.path.basename(resource_file)})")
+                        else:
+                            # 真正的GUID冲突 - 不同文件使用相同GUID
+                            git_conflicts.append({
+                                'guid': guid,
+                                'meta_file': meta_file,
+                                'resource_file': resource_file,
+                                'upload_path': upload_relative_path,
+                                'git_path': git_relative_path,
+                                'git_file_name': git_file_info['resource_name']
+                            })
+                            self.status_updated.emit(f"⚠️ GUID冲突: {guid[:8]}... (上传:{os.path.basename(resource_file)} vs Git:{git_file_info['resource_name']})")
             
             # 记录文件更新（信息级别，不是错误）
             for update in file_updates:
@@ -3760,9 +3802,14 @@ class ResourceChecker(QThread):
             self.status_updated.emit("📊 GUID唯一性检查完成:")
             self.status_updated.emit(f"   📄 上传文件GUID数量: {total_unique_guids}")
             self.status_updated.emit(f"   🔄 内部重复: {internal_duplicate_count}")
-            self.status_updated.emit(f"   📝 文件更新: {file_update_count}")
-            self.status_updated.emit(f"   ⚡ GUID冲突: {git_conflict_count}")
-            self.status_updated.emit(f"   🎯 Git仓库GUID数量: {len(git_guids)}")
+            
+            if has_replace_mode:
+                self.status_updated.emit(f"   🔄 替换模式: 跳过Git冲突检查")
+                self.status_updated.emit(f"   📝 文件更新: {file_update_count}")
+            else:
+                self.status_updated.emit(f"   📝 文件更新: {file_update_count}")
+                self.status_updated.emit(f"   ⚡ GUID冲突: {git_conflict_count}")
+                self.status_updated.emit(f"   🎯 Git仓库GUID数量: {len(git_guids)}")
             
             if issues:
                 self.status_updated.emit(f"❌ GUID唯一性检查发现 {len(issues)} 个问题")
@@ -6157,7 +6204,8 @@ class ArtResourceManager(QMainWindow):
         self.checker_thread = ResourceChecker(
             self.upload_files, 
             self.git_manager, 
-            "CommonResource"
+            "CommonResource",
+            self.folder_upload_modes
         )
         
         self.checker_thread.progress_updated.connect(self.progress_bar.setValue)
