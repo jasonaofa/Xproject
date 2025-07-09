@@ -5,7 +5,7 @@
       "name": "Assets根目录映射（排除Git路径）",
       "description": "将Assets目录映射到Assets/Resources/minigame，但排除已经是Git格式的路径",
       "enabled": true,
-      "source_pattern": "^Assets[\\/](?!Resources[\\/]minigame[\\/])",
+      "source_pattern": "^Assets[\\\\/](?!Resources[\\\\/]minigame[\\\\/])",
       "target_pattern": "Assets\\Resources\\minigame\\",
       "priority": 1
     }
