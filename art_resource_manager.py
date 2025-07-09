@@ -5027,27 +5027,6 @@ class ArtResourceManager(QMainWindow):
         self.show_git_url_btn.clicked.connect(self.show_git_url)
         btn_layout.addWidget(self.show_git_url_btn)
         
-        # Git仓库诊断按钮
-        self.diagnose_git_btn = QPushButton("诊断Git仓库")
-        self.diagnose_git_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FF9800;
-                color: white;
-                font-weight: bold;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #F57C00;
-            }
-            QPushButton:pressed {
-                background-color: #EF6C00;
-            }
-        """)
-        self.diagnose_git_btn.clicked.connect(self.diagnose_git_repository_ui)
-        btn_layout.addWidget(self.diagnose_git_btn)
-        
         layout.addLayout(btn_layout)
         
 
@@ -5187,6 +5166,27 @@ class ArtResourceManager(QMainWindow):
         """)
         self.test_git_sync_btn.clicked.connect(self.test_git_sync_status)
         cache_layout.addWidget(self.test_git_sync_btn)
+        
+        # Git仓库诊断按钮
+        self.diagnose_git_btn = QPushButton("诊断Git仓库")
+        self.diagnose_git_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #EF6C00;
+            }
+        """)
+        self.diagnose_git_btn.clicked.connect(self.diagnose_git_repository_ui)
+        cache_layout.addWidget(self.diagnose_git_btn)
         
         advanced_layout.addLayout(cache_layout)
         
