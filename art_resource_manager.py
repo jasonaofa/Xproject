@@ -1564,21 +1564,123 @@ class GitSvnManager:
             return []
     
     def get_current_branch(self) -> str:
-        """获取当前Git分支"""
+        """获取当前Git分支 - 增强版，支持多种获取策略"""
         if not self.git_path or not os.path.exists(self.git_path):
             return ""
         
         try:
+            # 策略1: 使用 git branch --show-current (标准方法)
+            print("🔍 [DEBUG] 尝试获取当前分支 - 策略1: git branch --show-current")
             result = subprocess.run(['git', 'branch', '--show-current'], 
                                   cwd=self.git_path, 
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)  # 5秒超时
-            if result.returncode == 0:
-                self.current_branch = result.stdout.strip()
-                return self.current_branch
+                                  timeout=5)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                current_branch = result.stdout.strip()
+                self.current_branch = current_branch
+                print(f"   ✅ 策略1成功: {current_branch}")
+                return current_branch
+            
+            print(f"   ⚠️ 策略1失败: {result.stderr.strip()}")
+            
+            # 策略2: 使用 git rev-parse --abbrev-ref HEAD (处理分离头指针)
+            print("🔍 [DEBUG] 尝试获取当前分支 - 策略2: git rev-parse --abbrev-ref HEAD")
+            result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=5)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                current_branch = result.stdout.strip()
+                # 如果是HEAD，说明在分离头指针状态
+                if current_branch == "HEAD":
+                    print("   ⚠️ 检测到分离头指针状态")
+                    # 策略3: 尝试获取最近的提交信息
+                    commit_result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
+                                                 cwd=self.git_path, 
+                                                 capture_output=True, 
+                                                 text=True,
+                                                 encoding='utf-8',
+                                                 errors='ignore',
+                                                 timeout=5)
+                    if commit_result.returncode == 0:
+                        commit_hash = commit_result.stdout.strip()
+                        print(f"   📍 分离头指针状态，当前提交: {commit_hash}")
+                        # 返回一个特殊标识，表示分离头指针状态
+                        self.current_branch = f"DETACHED_HEAD_{commit_hash}"
+                        return self.current_branch
+                else:
+                    self.current_branch = current_branch
+                    print(f"   ✅ 策略2成功: {current_branch}")
+                    return current_branch
+            
+            print(f"   ⚠️ 策略2失败: {result.stderr.strip()}")
+            
+            # 策略3: 使用 git status --porcelain -b 获取分支信息
+            print("🔍 [DEBUG] 尝试获取当前分支 - 策略3: git status --porcelain -b")
+            result = subprocess.run(['git', 'status', '--porcelain', '-b'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=5)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                if lines:
+                    # 第一行包含分支信息
+                    first_line = lines[0]
+                    if first_line.startswith('## '):
+                        branch_info = first_line[3:]  # 去掉 '## '
+                        # 提取分支名（去掉跟踪信息）
+                        if '...' in branch_info:
+                            branch_name = branch_info.split('...')[0]
+                        else:
+                            branch_name = branch_info
+                        
+                        if branch_name and branch_name != "HEAD":
+                            self.current_branch = branch_name
+                            print(f"   ✅ 策略3成功: {branch_name}")
+                            return branch_name
+            
+            print(f"   ⚠️ 策略3失败")
+            
+            # 策略4: 检查是否有本地分支
+            print("🔍 [DEBUG] 尝试获取当前分支 - 策略4: 检查本地分支")
+            result = subprocess.run(['git', 'branch'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=5)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('*'):
+                        # 找到当前分支
+                        branch_name = line[1:].strip()
+                        if branch_name:
+                            self.current_branch = branch_name
+                            print(f"   ✅ 策略4成功: {branch_name}")
+                            return branch_name
+            
+            print(f"   ⚠️ 策略4失败")
+            
+            # 所有策略都失败，返回空字符串
+            print("❌ [DEBUG] 所有获取当前分支的策略都失败了")
+            return ""
+            
         except subprocess.TimeoutExpired as e:
             print(f"⏰ 获取当前分支超时: {e}")
         except Exception as e:
@@ -1670,6 +1772,24 @@ class GitSvnManager:
                                       errors='ignore',
                                       timeout=checkout_timeout)
             
+            # 如果切换失败，检查是否是因为分离头指针状态
+            if result.returncode != 0 and "HEAD is now at" in result.stderr:
+                print(f"   ⚠️ 检测到分离头指针状态，尝试强制切换...")
+                # 强制切换到分支
+                force_result = subprocess.run(['git', 'checkout', '-f', branch_name], 
+                                            cwd=self.git_path, 
+                                            capture_output=True, 
+                                            text=True,
+                                            encoding='utf-8',
+                                            errors='ignore',
+                                            timeout=checkout_timeout)
+                if force_result.returncode == 0:
+                    print(f"   ✅ 强制切换成功")
+                    return True
+                else:
+                    print(f"   ❌ 强制切换失败: {force_result.stderr}")
+                    result = force_result
+            
             if result.returncode == 0:
                 print(f"   ✅ 成功切换到分支: {branch_name}")
                 return True
@@ -1730,6 +1850,10 @@ class GitSvnManager:
             current_branch = self.get_current_branch()
             if not current_branch:
                 return False, "无法获取当前分支"
+            
+            # 检查是否为分离头指针状态
+            if current_branch.startswith("DETACHED_HEAD_"):
+                return False, f"当前处于分离头指针状态，无法重置。请先切换到具体分支。"
             
             print(f"🌿 [RESET] 当前分支: {current_branch}")
             
@@ -1826,7 +1950,7 @@ class GitSvnManager:
             return False, error_msg
     
     def pull_current_branch(self) -> Tuple[bool, str]:
-        """拉取当前分支的最新代码"""
+        """拉取当前分支的最新代码 - 增强版，支持分离头指针状态"""
         if not self.git_path or not os.path.exists(self.git_path):
             return False, "Git仓库路径无效"
         
@@ -1836,28 +1960,43 @@ class GitSvnManager:
             if not current_branch:
                 return False, "无法获取当前分支"
             
+            # 检查是否为分离头指针状态
+            if current_branch.startswith("DETACHED_HEAD_"):
+                return False, f"当前处于分离头指针状态，无法拉取。请先切换到具体分支。"
+            
             # 2. 获取远程仓库信息 (git fetch)
+            print("🌐 [PULL] 获取远程信息...")
             result = subprocess.run(['git', 'fetch', 'origin'], 
                                   cwd=self.git_path, 
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
-                                  errors='ignore')
+                                  errors='ignore',
+                                  timeout=60)
             if result.returncode != 0:
-                return False, f"获取远程信息失败: {result.stderr}"
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                return False, f"获取远程信息失败: {error_msg}"
+            
+            print("✅ [PULL] 远程信息获取成功")
             
             # 3. 拉取当前分支 (git pull origin 当前分支名)
+            print(f"📥 [PULL] 拉取分支: {current_branch}")
             result = subprocess.run(['git', 'pull', 'origin', current_branch], 
                                   cwd=self.git_path, 
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
-                                  errors='ignore')
+                                  errors='ignore',
+                                  timeout=60)
             if result.returncode != 0:
-                return False, f"拉取分支失败: {result.stderr}"
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                return False, f"拉取分支失败: {error_msg}"
             
+            print("✅ [PULL] 拉取成功")
             return True, f"拉取成功 - 已更新分支 {current_branch} 到最新版本"
             
+        except subprocess.TimeoutExpired:
+            return False, "拉取操作超时，请检查网络连接"
         except subprocess.CalledProcessError as e:
             return False, f"Git命令执行失败: {e}"
         except Exception as e:
@@ -1879,6 +2018,106 @@ class GitSvnManager:
                 files.append(file_path)
         
         return files
+    
+    def diagnose_git_repository(self) -> Dict[str, Any]:
+        """诊断Git仓库状态，返回详细信息"""
+        diagnosis = {
+            'git_path': self.git_path,
+            'path_exists': False,
+            'is_git_repo': False,
+            'current_branch': '',
+            'branch_status': '',
+            'remote_status': '',
+            'working_tree_status': '',
+            'issues': [],
+            'recommendations': []
+        }
+        
+        if not self.git_path:
+            diagnosis['issues'].append("Git路径未设置")
+            diagnosis['recommendations'].append("请先设置Git仓库路径")
+            return diagnosis
+        
+        if not os.path.exists(self.git_path):
+            diagnosis['issues'].append("Git路径不存在")
+            diagnosis['recommendations'].append("请检查Git仓库路径是否正确")
+            return diagnosis
+        
+        diagnosis['path_exists'] = True
+        
+        # 检查是否为Git仓库
+        try:
+            result = subprocess.run(['git', 'rev-parse', '--git-dir'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=5)
+            if result.returncode == 0:
+                diagnosis['is_git_repo'] = True
+            else:
+                diagnosis['issues'].append("不是有效的Git仓库")
+                diagnosis['recommendations'].append("请选择正确的Git仓库目录")
+                return diagnosis
+        except Exception as e:
+            diagnosis['issues'].append(f"检查Git仓库时出错: {e}")
+            return diagnosis
+        
+        # 获取当前分支状态
+        current_branch = self.get_current_branch()
+        diagnosis['current_branch'] = current_branch
+        
+        if not current_branch:
+            diagnosis['issues'].append("无法获取当前分支")
+            diagnosis['recommendations'].append("Git仓库可能处于异常状态")
+        elif current_branch.startswith("DETACHED_HEAD_"):
+            diagnosis['branch_status'] = "分离头指针状态"
+            diagnosis['issues'].append("当前处于分离头指针状态")
+            diagnosis['recommendations'].append("请切换到具体分支")
+        else:
+            diagnosis['branch_status'] = "正常分支状态"
+        
+        # 检查远程仓库状态
+        try:
+            result = subprocess.run(['git', 'remote', '-v'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                diagnosis['remote_status'] = "已配置远程仓库"
+            else:
+                diagnosis['remote_status'] = "未配置远程仓库"
+                diagnosis['issues'].append("未配置远程仓库")
+                diagnosis['recommendations'].append("请配置远程仓库")
+        except Exception as e:
+            diagnosis['remote_status'] = f"检查远程仓库时出错: {e}"
+        
+        # 检查工作区状态
+        try:
+            result = subprocess.run(['git', 'status', '--porcelain'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=5)
+            if result.returncode == 0:
+                if result.stdout.strip():
+                    diagnosis['working_tree_status'] = "有未提交的更改"
+                    diagnosis['issues'].append("工作区有未提交的更改")
+                    diagnosis['recommendations'].append("请提交或暂存更改")
+                else:
+                    diagnosis['working_tree_status'] = "工作区干净"
+            else:
+                diagnosis['working_tree_status'] = "无法检查工作区状态"
+        except Exception as e:
+            diagnosis['working_tree_status'] = f"检查工作区时出错: {e}"
+        
+        return diagnosis
 
     def _is_crlf_error(self, error_message: str) -> bool:
         """检测是否为CRLF相关错误"""
@@ -4781,6 +5020,27 @@ class ArtResourceManager(QMainWindow):
         self.show_git_url_btn.clicked.connect(self.show_git_url)
         btn_layout.addWidget(self.show_git_url_btn)
         
+        # Git仓库诊断按钮
+        self.diagnose_git_btn = QPushButton("诊断Git仓库")
+        self.diagnose_git_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #F57C00;
+            }
+            QPushButton:pressed {
+                background-color: #EF6C00;
+            }
+        """)
+        self.diagnose_git_btn.clicked.connect(self.diagnose_git_repository_ui)
+        btn_layout.addWidget(self.diagnose_git_btn)
+        
         layout.addLayout(btn_layout)
         
 
@@ -6407,6 +6667,60 @@ class ArtResourceManager(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"Git同步状态测试失败：{str(e)}")
             self.log_text.append(f"❌ Git同步状态测试失败：{str(e)}")
+
+    def diagnose_git_repository_ui(self):
+        """Git仓库诊断UI"""
+        if not self.git_path_edit.text():
+            QMessageBox.warning(self, "警告", "请先设置Git仓库路径！")
+            return
+        
+        self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
+        
+        try:
+            # 显示进度条
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            
+            # 执行诊断
+            diagnosis = self.git_manager.diagnose_git_repository()
+            
+            # 构建诊断报告
+            report = "🔍 Git仓库诊断报告\n"
+            report += "=" * 50 + "\n\n"
+            
+            report += f"📁 Git路径: {diagnosis['git_path']}\n"
+            report += f"✅ 路径存在: {'是' if diagnosis['path_exists'] else '否'}\n"
+            report += f"🔧 是Git仓库: {'是' if diagnosis['is_git_repo'] else '否'}\n"
+            report += f"🌿 当前分支: {diagnosis['current_branch']}\n"
+            report += f"📊 分支状态: {diagnosis['branch_status']}\n"
+            report += f"🌐 远程状态: {diagnosis['remote_status']}\n"
+            report += f"📝 工作区状态: {diagnosis['working_tree_status']}\n\n"
+            
+            if diagnosis['issues']:
+                report += "❌ 发现的问题:\n"
+                for issue in diagnosis['issues']:
+                    report += f"   • {issue}\n"
+                report += "\n"
+            
+            if diagnosis['recommendations']:
+                report += "💡 建议解决方案:\n"
+                for rec in diagnosis['recommendations']:
+                    report += f"   • {rec}\n"
+                report += "\n"
+            
+            if not diagnosis['issues']:
+                report += "✅ Git仓库状态正常！\n"
+            
+            # 显示诊断结果
+            QMessageBox.information(self, "Git仓库诊断", report)
+            
+            # 记录到日志
+            self.log_text.append("🔍 Git仓库诊断完成")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "诊断失败", f"诊断Git仓库时发生错误：\n{str(e)}")
+        finally:
+            self.progress_bar.setVisible(False)
 
     def on_files_dropped(self, file_paths: List[str]):
         """处理拖拽文件事件"""
