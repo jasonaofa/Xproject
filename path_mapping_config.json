@@ -1,37 +1,13 @@
 {
   "enabled": true,
   "rules": {
-    "entity_to_minigame": {
-      "name": "实体资源映射",
-      "description": "将entity目录映射到Resources/minigame/entity",
+    "assets_to_minigame": {
+      "name": "Assets根目录映射（排除Git路径）",
+      "description": "将Assets目录映射到Assets/Resources/minigame，但排除已经是Git格式的路径",
       "enabled": true,
-      "source_pattern": "^Assets[\\\\\\/]entity[\\\\\\/]",
-      "target_pattern": "Assets\\Resources\\minigame\\entity\\",
+      "source_pattern": "^Assets[\\/](?!Resources[\\/]minigame[\\/])",
+      "target_pattern": "Assets\\Resources\\minigame\\",
       "priority": 1
-    },
-    "ui_mapping": {
-      "name": "UI资源映射",
-      "description": "将ui目录映射到Resources/ui",
-      "enabled": true,
-      "source_pattern": "^Assets[\\\\\\/]ui[\\\\\\/]",
-      "target_pattern": "Assets\\Resources\\ui\\",
-      "priority": 2
-    },
-    "audio_mapping": {
-      "name": "音频资源映射",
-      "description": "将audio目录映射到Resources/audio",
-      "enabled": true,
-      "source_pattern": "^Assets[\\\\\\/]audio[\\\\\\/]",
-      "target_pattern": "Assets\\Resources\\audio\\",
-      "priority": 3
-    },
-    "texture_mapping": {
-      "name": "贴图资源映射",
-      "description": "将texture目录映射到Resources/textures",
-      "enabled": true,
-      "source_pattern": "^Assets[\\\\\\/]texture[\\\\\\/]",
-      "target_pattern": "Assets\\Resources\\textures\\",
-      "priority": 4
     }
   },
   "version": "1.0",
