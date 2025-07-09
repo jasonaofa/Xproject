@@ -5181,30 +5181,7 @@ class ArtResourceManager(QMainWindow):
         self.show_git_url_btn.clicked.connect(self.show_git_url)
         btn_layout.addWidget(self.show_git_url_btn)
         
-        # 增加依赖文件按钮
-        self.add_dependencies_btn = QPushButton("增加依赖文件")
-        self.add_dependencies_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                font-weight: bold;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:pressed {
-                background-color: #3d8b40;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-                color: #666666;
-            }
-        """)
-        self.add_dependencies_btn.clicked.connect(self.add_dependency_files)
-        btn_layout.addWidget(self.add_dependencies_btn)
+
         
         layout.addLayout(btn_layout)
         
@@ -5470,13 +5447,34 @@ class ArtResourceManager(QMainWindow):
         self.clear_files_btn.clicked.connect(self.clear_files)
         file_btn_layout.addWidget(self.clear_files_btn)
         
-        # 添加检查资源按钮
+        # 添加依赖文件按钮（无样式）
+        self.add_dependencies_btn = QPushButton("增加依赖文件")
+        self.add_dependencies_btn.clicked.connect(self.add_dependency_files)
+        file_btn_layout.addWidget(self.add_dependencies_btn)
+        
+        # 添加检查资源按钮（绿底白字）
         self.check_btn = QPushButton("检查资源")
         self.check_btn.clicked.connect(self.check_and_push)
-        # 设置加粗字体
-        font = self.check_btn.font()
-        font.setBold(True)
-        self.check_btn.setFont(font)
+        self.check_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
         file_btn_layout.addWidget(self.check_btn)
         
         file_layout.addLayout(file_btn_layout)
