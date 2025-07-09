@@ -153,12 +153,15 @@ class ResourceDependencyAnalyzer:
             # 检查文件格式
             if content.strip().startswith('{'):
                 # JSON格式
+                print(f"🔍 [DEBUG] 检测到JSON格式文件: {os.path.basename(file_path)}")
                 dependencies.update(self._parse_json_asset(content, file_path))
             elif content.startswith('%YAML'):
                 # YAML格式
+                print(f"🔍 [DEBUG] 检测到YAML格式文件: {os.path.basename(file_path)}")
                 dependencies.update(self._parse_yaml_asset(content, file_path))
             else:
                 # 尝试通用GUID提取
+                print(f"🔍 [DEBUG] 使用通用GUID提取: {os.path.basename(file_path)}")
                 dependencies.update(self._extract_guids_generic(content))
                 
         except Exception as e:
@@ -171,22 +174,33 @@ class ResourceDependencyAnalyzer:
         dependencies = set()
         
         try:
-            # 使用正则表达式提取所有GUID
-            guid_pattern = r'"m_GUID":\s*"([a-f0-9]{32})"'
-            guids = re.findall(guid_pattern, content)
-            
             # 获取文件自身的GUID
             self_guid = None
             meta_path = file_path + '.meta'
             if os.path.exists(meta_path):
                 self_guid = self.parse_meta_file(meta_path)
             
-            # 过滤掉自身GUID和常见系统GUID
-            for guid in guids:
-                if (guid != self_guid and 
-                    guid not in self.common_shader_guids and
-                    not guid.startswith('00000000000000')):
-                    dependencies.add(guid)
+            # 使用正则表达式提取所有GUID - 增强版本
+            guid_patterns = [
+                r'"m_GUID":\s*"([a-f0-9]{32})"',  # 标准m_GUID格式
+                r'"guid":\s*"([a-f0-9]{32})"',    # 标准guid格式
+                r'"GUID":\s*"([a-f0-9]{32})"',    # 大写GUID格式
+                r'"texture":\s*{[^}]*"guid":\s*"([a-f0-9]{32})"',  # 贴图引用
+                r'"texture":\s*{[^}]*"m_GUID":\s*"([a-f0-9]{32})"', # 贴图m_GUID引用
+                r'"m_Texture":\s*{[^}]*"guid":\s*"([a-f0-9]{32})"', # m_Texture引用
+                r'"m_Texture":\s*{[^}]*"m_GUID":\s*"([a-f0-9]{32})"', # m_Texture m_GUID引用
+            ]
+            
+            for pattern in guid_patterns:
+                guids = re.findall(pattern, content, re.IGNORECASE)
+                for guid in guids:
+                    guid = guid.lower()
+                    # 过滤掉自身GUID和常见系统GUID
+                    if (guid != self_guid and 
+                        guid not in self.common_shader_guids and
+                        not guid.startswith('00000000000000')):
+                        dependencies.add(guid)
+                        print(f"🔍 [DEBUG] 在JSON文件 {os.path.basename(file_path)} 中找到GUID: {guid}")
                     
         except Exception as e:
             print(f"解析JSON资源失败: {file_path}, 错误: {e}")
@@ -198,15 +212,37 @@ class ResourceDependencyAnalyzer:
         dependencies = set()
         
         try:
-            # YAML格式的GUID提取
+            # 获取文件自身的GUID
+            self_guid = None
+            meta_path = file_path + '.meta'
+            if os.path.exists(meta_path):
+                self_guid = self.parse_meta_file(meta_path)
+            
+            # YAML格式的GUID提取 - 增强版本
             guid_patterns = [
-                r'guid:\s*([a-f0-9]{32})',
-                r'm_GUID:\s*([a-f0-9]{32})'
+                r'guid:\s*([a-f0-9]{32})',           # 标准GUID格式
+                r'm_GUID:\s*([a-f0-9]{32})',         # m_GUID格式
+                r'texture:\s*{fileID:\s*\d+,\s*guid:\s*([a-f0-9]{32})',  # 材质中的贴图引用
+                r'texture:\s*{fileID:\s*0,\s*guid:\s*([a-f0-9]{32})',    # 材质中的贴图引用（fileID为0）
+                r'texture:\s*{guid:\s*([a-f0-9]{32})',                   # 简化的贴图引用
+                r'texture:\s*{.*?guid:\s*([a-f0-9]{32})',                # 材质中的贴图引用（任意内容）
+                r'm_Texture:\s*{fileID:\s*\d+,\s*guid:\s*([a-f0-9]{32})', # m_Texture引用
+                r'm_Texture:\s*{guid:\s*([a-f0-9]{32})',                 # m_Texture只有guid
+                r'texture2D:\s*{fileID:\s*\d+,\s*guid:\s*([a-f0-9]{32})', # texture2D引用
+                r'texture2D:\s*{guid:\s*([a-f0-9]{32})',                 # texture2D只有guid
+                r'([a-f0-9]{32})',                   # 通用32位十六进制（作为后备）
             ]
             
             for pattern in guid_patterns:
-                guids = re.findall(pattern, content)
-                dependencies.update(guids)
+                guids = re.findall(pattern, content, re.IGNORECASE | re.DOTALL)
+                for guid in guids:
+                    guid = guid.lower()
+                    # 过滤掉自身GUID和常见系统GUID
+                    if (guid != self_guid and 
+                        guid not in self.common_shader_guids and
+                        not guid.startswith('00000000000000')):
+                        dependencies.add(guid)
+                        print(f"🔍 [DEBUG] 在 {os.path.basename(file_path)} 中找到GUID: {guid}")
                 
         except Exception as e:
             print(f"解析YAML资源失败: {file_path}, 错误: {e}")
@@ -260,10 +296,17 @@ class ResourceDependencyAnalyzer:
         }
         
         try:
-            # 1. 建立搜索目录
+            # 1. 建立搜索目录 - 改进：使用整个SVN仓库作为搜索范围
             if not search_directories:
-                # 如果没有指定搜索目录，使用原始文件所在的目录
-                search_directories = list(set([os.path.dirname(f) for f in file_paths]))
+                # 如果没有指定搜索目录，尝试找到SVN仓库根目录
+                svn_root = self._find_svn_root_from_files(file_paths)
+                if svn_root:
+                    search_directories = [svn_root]
+                    print(f"🔍 自动找到SVN根目录: {svn_root}")
+                else:
+                    # 回退到原始文件所在的目录
+                    search_directories = list(set([os.path.dirname(f) for f in file_paths]))
+                    print(f"⚠️ 未找到SVN根目录，使用文件所在目录: {search_directories}")
             
             # 2. 扫描搜索目录中的所有meta文件，建立GUID映射
             print(f"🔍 开始扫描 {len(search_directories)} 个目录...")
@@ -300,6 +343,29 @@ class ResourceDependencyAnalyzer:
         
         return result
     
+    def _find_svn_root_from_files(self, file_paths: List[str]) -> str:
+        """从文件路径中找到SVN仓库根目录"""
+        if not file_paths:
+            return ""
+        
+        # 从第一个文件开始向上查找SVN根目录
+        first_file = file_paths[0]
+        current_path = os.path.dirname(os.path.abspath(first_file))
+        
+        while current_path:
+            # 检查是否有.svn目录
+            svn_dir = os.path.join(current_path, '.svn')
+            if os.path.exists(svn_dir) and os.path.isdir(svn_dir):
+                return current_path
+            
+            # 向上查找父目录
+            parent_path = os.path.dirname(current_path)
+            if parent_path == current_path:  # 已经到达根目录
+                break
+            current_path = parent_path
+        
+        return ""
+    
     def _scan_directory_for_guids(self, directory: str, guid_map: Dict[str, str]):
         """扫描目录中的所有meta文件，建立GUID映射"""
         try:
@@ -315,8 +381,18 @@ class ResourceDependencyAnalyzer:
         except Exception as e:
             print(f"❌ 扫描目录失败 {directory}: {e}")
     
-    def _analyze_file_dependencies(self, file_path: str, result: Dict[str, Any]):
+    def _analyze_file_dependencies(self, file_path: str, result: Dict[str, Any], analyzed_files: set = None):
         """分析单个文件的依赖"""
+        if analyzed_files is None:
+            analyzed_files = set()
+        
+        # 避免重复分析
+        if file_path in analyzed_files:
+            print(f"🔍 [DEBUG] 跳过重复分析: {os.path.basename(file_path)}")
+            return
+        
+        analyzed_files.add(file_path)
+        
         try:
             # 获取文件自身的GUID
             file_guid = None
@@ -345,37 +421,62 @@ class ResourceDependencyAnalyzer:
             # 分析文件中的GUID引用（只对非meta文件进行）
             if not file_path.endswith('.meta'):
                 referenced_guids = self.parse_editor_asset(file_path)
+                print(f"🔍 [DEBUG] {os.path.basename(file_path)} 中找到 {len(referenced_guids)} 个GUID引用")
+                
+                # 用于递归分析的依赖文件列表
+                recursive_deps = []
                 
                 for ref_guid in referenced_guids:
+                    print(f"🔍 [DEBUG] 处理GUID: {ref_guid}")
+                    
                     # 跳过内置资源和自身引用
                     if (ref_guid in self.builtin_guids or 
                         ref_guid in self.common_shader_guids or
                         ref_guid == file_guid or
                         ref_guid.startswith('00000000000000')):
+                        print(f"🔍 [DEBUG] 跳过GUID {ref_guid} (内置资源或自身引用)")
                         continue
                     
                     # 查找依赖文件
                     if ref_guid in result['guid_to_file_map']:
                         dep_file = result['guid_to_file_map'][ref_guid]
+                        print(f"🔍 [DEBUG] 找到依赖文件: {os.path.basename(dep_file)}")
+                        
                         if os.path.exists(dep_file):
                             result['dependency_files'].append(dep_file)
+                            print(f"🔍 [DEBUG] 添加依赖文件: {os.path.basename(dep_file)}")
                             
                             # 添加对应的meta文件
                             dep_meta = dep_file + '.meta'
                             if os.path.exists(dep_meta):
                                 result['meta_files'].append(dep_meta)
+                                print(f"🔍 [DEBUG] 添加依赖meta文件: {os.path.basename(dep_meta)}")
+                            
+                            # 如果是材质文件，添加到递归分析列表
+                            if dep_file.lower().endswith('.mat'):
+                                recursive_deps.append(dep_file)
+                                print(f"🔍 [DEBUG] 添加到递归分析: {os.path.basename(dep_file)}")
                         else:
+                            print(f"🔍 [DEBUG] 依赖文件不存在: {dep_file}")
                             result['missing_dependencies'].append({
                                 'guid': ref_guid,
                                 'referenced_by': file_path,
                                 'expected_path': dep_file
                             })
                     else:
+                        print(f"🔍 [DEBUG] 在GUID映射中未找到: {ref_guid}")
                         result['missing_dependencies'].append({
                             'guid': ref_guid,
                             'referenced_by': file_path,
                             'expected_path': 'unknown'
                         })
+                
+                # 递归分析材质文件中的贴图引用
+                if recursive_deps:
+                    print(f"🔍 [DEBUG] 开始递归分析 {len(recursive_deps)} 个材质文件...")
+                    for dep_file in recursive_deps:
+                        if dep_file not in result['original_files']:  # 避免重复分析
+                            self._analyze_file_dependencies(dep_file, result, analyzed_files)
                         
         except Exception as e:
             print(f"❌ 分析文件依赖失败 {file_path}: {e}")

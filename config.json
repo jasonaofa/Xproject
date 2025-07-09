@@ -2,7 +2,7 @@
   "svn_path": "G:\\Svn_repo\\MiniProject_Art_NewPrefab",
   "git_path": "G:\\minirepo\\AssetRuntime_Branch09\\assetruntime\\CommonResource",
   "window_geometry": {
-    "x": -2560,
+    "x": 0,
     "y": 34,
     "width": 2560,
     "height": 1346
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_daoju_xin.mesh.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\daoju_fengzheng.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\140437.overrideController.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\zhenzhu1.mat.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/140437/body.prefab.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\daoju_qiqiu1.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_face2.mesh.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_face4.mesh.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\body.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_face2_girl.mesh.meta"
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\VFX.prefab.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_tuowei02.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_tuowei_liang.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\paopao.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_tu.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Model\\jichu_feng_1.mesh.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_huanrao.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\sanguang.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Model\\tianxie_niu22_Plane003.mesh.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\avatar\\1000_3401\\juxie_rongjie01.mat.meta"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"
