@@ -8,7 +8,14 @@ CRLF自动修复模块
 import os
 import subprocess
 import re
+import platform
 from typing import List, Tuple
+
+# 添加Windows特定的subprocess标志
+if platform.system() == 'Windows':
+    SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
+else:
+    SUBPROCESS_FLAGS = 0
 
 
 class CRLFAutoFixer:
@@ -46,7 +53,7 @@ class CRLFAutoFixer:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=10)
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode != 0:
                 return False, f"设置core.safecrlf失败: {result.stderr}"
@@ -179,7 +186,7 @@ class CRLFAutoFixer:
                                               text=True,
                                               encoding='utf-8',
                                               errors='ignore',
-                                              timeout=10)
+                                              timeout=10, creationflags=SUBPROCESS_FLAGS)
                         
                         if result.returncode == 0:
                             print(f"   ✅ Unity文件属性已设置: {file_path}")
@@ -201,7 +208,7 @@ class CRLFAutoFixer:
             
             # 1. 设置基本Git配置
             subprocess.run(['git', 'config', 'core.safecrlf', 'false'], 
-                          cwd=self.git_path, capture_output=True, timeout=10)
+                          cwd=self.git_path, capture_output=True, timeout=10, creationflags=SUBPROCESS_FLAGS)
             
             # 2. 创建基本的.gitattributes文件
             gitattributes_path = os.path.join(self.git_path, '.gitattributes')

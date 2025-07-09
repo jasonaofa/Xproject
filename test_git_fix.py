@@ -10,6 +10,13 @@ import sys
 import subprocess
 import tempfile
 import shutil
+import platform
+
+# 添加Windows特定的subprocess标志
+if platform.system() == 'Windows':
+    SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
+else:
+    SUBPROCESS_FLAGS = 0
 
 def test_git_branch_detection():
     """测试Git分支检测功能"""
@@ -21,7 +28,7 @@ def test_git_branch_detection():
     
     try:
         # 初始化Git仓库
-        subprocess.run(['git', 'init'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'init'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         print("✅ Git仓库初始化成功")
         
         # 创建测试文件
@@ -30,12 +37,12 @@ def test_git_branch_detection():
             f.write('test content')
         
         # 添加并提交文件
-        subprocess.run(['git', 'add', 'test.txt'], cwd=temp_dir, check=True)
-        subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'add', 'test.txt'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
+        subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         print("✅ 初始提交完成")
         
         # 创建分支
-        subprocess.run(['git', 'checkout', '-b', 'test-branch'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'checkout', '-b', 'test-branch'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         print("✅ 创建测试分支完成")
         
         # 测试正常分支状态
@@ -43,23 +50,23 @@ def test_git_branch_detection():
         result = subprocess.run(['git', 'branch', '--show-current'], 
                               cwd=temp_dir, 
                               capture_output=True, 
-                              text=True)
+                              text=True, creationflags=SUBPROCESS_FLAGS)
         print(f"   当前分支: {result.stdout.strip()}")
         
         # 测试分离头指针状态
         print("\n🔍 测试2: 分离头指针状态")
-        subprocess.run(['git', 'checkout', 'HEAD~0'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'checkout', 'HEAD~0'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], 
                               cwd=temp_dir, 
                               capture_output=True, 
-                              text=True)
+                              text=True, creationflags=SUBPROCESS_FLAGS)
         print(f"   HEAD状态: {result.stdout.strip()}")
         
         # 测试获取提交哈希
         result = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], 
                               cwd=temp_dir, 
                               capture_output=True, 
-                              text=True)
+                              text=True, creationflags=SUBPROCESS_FLAGS)
         print(f"   提交哈希: {result.stdout.strip()}")
         
         print("\n✅ 所有测试完成！")
@@ -89,7 +96,7 @@ def test_enhanced_branch_detection():
                                   cwd=git_path, 
                                   capture_output=True, 
                                   text=True,
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
@@ -99,7 +106,7 @@ def test_enhanced_branch_detection():
                                   cwd=git_path, 
                                   capture_output=True, 
                                   text=True,
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 current_branch = result.stdout.strip()
@@ -109,7 +116,7 @@ def test_enhanced_branch_detection():
                                                  cwd=git_path, 
                                                  capture_output=True, 
                                                  text=True,
-                                                 timeout=5)
+                                                 timeout=5, creationflags=SUBPROCESS_FLAGS)
                     if commit_result.returncode == 0:
                         return f"DETACHED_HEAD_{commit_result.stdout.strip()}"
                 else:
@@ -120,7 +127,7 @@ def test_enhanced_branch_detection():
                                   cwd=git_path, 
                                   capture_output=True, 
                                   text=True,
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 lines = result.stdout.strip().split('\n')
@@ -141,7 +148,7 @@ def test_enhanced_branch_detection():
                                   cwd=git_path, 
                                   capture_output=True, 
                                   text=True,
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 lines = result.stdout.strip().split('\n')
@@ -164,7 +171,7 @@ def test_enhanced_branch_detection():
     
     try:
         # 初始化Git仓库
-        subprocess.run(['git', 'init'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'init'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         
         # 创建测试文件
         test_file = os.path.join(temp_dir, 'test.txt')
@@ -172,8 +179,8 @@ def test_enhanced_branch_detection():
             f.write('test content')
         
         # 添加并提交文件
-        subprocess.run(['git', 'add', 'test.txt'], cwd=temp_dir, check=True)
-        subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'add', 'test.txt'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
+        subprocess.run(['git', 'commit', '-m', 'Initial commit'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         
         # 测试正常分支
         print("\n🔍 测试正常分支状态:")
@@ -181,13 +188,13 @@ def test_enhanced_branch_detection():
         print(f"   检测结果: {branch}")
         
         # 创建新分支
-        subprocess.run(['git', 'checkout', '-b', 'feature-branch'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'checkout', '-b', 'feature-branch'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         print("\n🔍 测试切换到新分支:")
         branch = enhanced_get_current_branch(temp_dir)
         print(f"   检测结果: {branch}")
         
         # 测试分离头指针
-        subprocess.run(['git', 'checkout', 'HEAD~0'], cwd=temp_dir, check=True)
+        subprocess.run(['git', 'checkout', 'HEAD~0'], cwd=temp_dir, check=True, creationflags=SUBPROCESS_FLAGS)
         print("\n🔍 测试分离头指针状态:")
         branch = enhanced_get_current_branch(temp_dir)
         print(f"   检测结果: {branch}")
@@ -207,7 +214,7 @@ if __name__ == "__main__":
     
     # 检查Git是否可用
     try:
-        subprocess.run(['git', '--version'], check=True, capture_output=True)
+        subprocess.run(['git', '--version'], check=True, capture_output=True, creationflags=SUBPROCESS_FLAGS)
         print("✅ Git可用")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("❌ Git不可用，请确保已安装Git")

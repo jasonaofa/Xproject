@@ -9,8 +9,15 @@ import re
 import subprocess
 import shutil
 import time
+import platform
 from pathlib import Path
 from typing import List, Dict, Set, Tuple, Any
+
+# 添加Windows特定的subprocess标志
+if platform.system() == 'Windows':
+    SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
+else:
+    SUBPROCESS_FLAGS = 0
 
 # 添加错误处理和调试信息
 def debug_print(msg):
@@ -656,7 +663,7 @@ class GitGuidCacheManager:
                 capture_output=True,
                 text=True,
                 timeout=5
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0:
                 git_dir = result.stdout.strip()
@@ -692,7 +699,7 @@ class GitGuidCacheManager:
                 capture_output=True, 
                 text=True, 
                 check=True
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             return result.stdout.strip()
         except subprocess.CalledProcessError:
             return ""
@@ -756,7 +763,7 @@ class GitGuidCacheManager:
                 capture_output=True,
                 text=True,
                 check=True
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             
             added_modified = []
             deleted = []
@@ -796,7 +803,7 @@ class GitGuidCacheManager:
                 capture_output=True,
                 text=True,
                 check=True
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             
             files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
             if progress_callback:
@@ -819,7 +826,7 @@ class GitGuidCacheManager:
                     cwd=self.git_path,
                     capture_output=True,
                     text=True
-                )
+                , creationflags=SUBPROCESS_FLAGS)
                 if all_files_result.returncode == 0:
                     all_files = [f.strip() for f in all_files_result.stdout.split('\n') if f.strip()]
                     meta_files_count = sum(1 for f in all_files if f.endswith('.meta'))
@@ -1469,7 +1476,7 @@ class GitSvnManager:
                                           text=True,
                                           encoding='utf-8',
                                           errors='ignore',
-                                          timeout=fetch_timeout)
+                                          timeout=fetch_timeout, creationflags=SUBPROCESS_FLAGS)
                     
                     if result.returncode == 0:
                         print(f"   ✅ 远程信息获取成功")
@@ -1492,7 +1499,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=15)  # 获取分支列表用较短超时
+                                  timeout=15, creationflags=SUBPROCESS_FLAGS)  # 获取分支列表用较短超时
             
             if result.returncode != 0:
                 print(f"   ❌ 获取分支列表失败: {result.stderr}")
@@ -1541,7 +1548,7 @@ class GitSvnManager:
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=10)
+                                      timeout=10, creationflags=SUBPROCESS_FLAGS)
                 
                 if result.returncode == 0:
                     for line in result.stdout.split('\n'):
@@ -1577,7 +1584,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 current_branch = result.stdout.strip()
@@ -1595,7 +1602,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 current_branch = result.stdout.strip()
@@ -1609,7 +1616,7 @@ class GitSvnManager:
                                                  text=True,
                                                  encoding='utf-8',
                                                  errors='ignore',
-                                                 timeout=5)
+                                                 timeout=5, creationflags=SUBPROCESS_FLAGS)
                     if commit_result.returncode == 0:
                         commit_hash = commit_result.stdout.strip()
                         print(f"   📍 分离头指针状态，当前提交: {commit_hash}")
@@ -1631,7 +1638,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 lines = result.stdout.strip().split('\n')
@@ -1661,7 +1668,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 lines = result.stdout.strip().split('\n')
@@ -1725,7 +1732,7 @@ class GitSvnManager:
                                         text=True,
                                         encoding='utf-8',
                                         errors='ignore',
-                                        timeout=15)
+                                        timeout=15, creationflags=SUBPROCESS_FLAGS)
             
             if check_result.returncode != 0:
                 print(f"   ❌ 无法检查分支列表: {check_result.stderr}")
@@ -1760,7 +1767,7 @@ class GitSvnManager:
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=checkout_timeout)
+                                      timeout=checkout_timeout, creationflags=SUBPROCESS_FLAGS)
             else:
                 # 本地分支直接切换
                 print(f"   📍 切换到本地分支...")
@@ -1770,7 +1777,7 @@ class GitSvnManager:
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=checkout_timeout)
+                                      timeout=checkout_timeout, creationflags=SUBPROCESS_FLAGS)
             
             # 如果切换失败，检查是否是因为分离头指针状态
             if result.returncode != 0 and "HEAD is now at" in result.stderr:
@@ -1782,7 +1789,7 @@ class GitSvnManager:
                                             text=True,
                                             encoding='utf-8',
                                             errors='ignore',
-                                            timeout=checkout_timeout)
+                                            timeout=checkout_timeout, creationflags=SUBPROCESS_FLAGS)
                 if force_result.returncode == 0:
                     print(f"   ✅ 强制切换成功")
                     return True
@@ -1807,7 +1814,7 @@ class GitSvnManager:
                                                 text=True,
                                                 encoding='utf-8',
                                                 errors='ignore',
-                                                timeout=30)
+                                                timeout=30, creationflags=SUBPROCESS_FLAGS)
                     
                     if stash_result.returncode == 0:
                         print(f"   💾 本地更改已暂存")
@@ -1819,7 +1826,7 @@ class GitSvnManager:
                                                     text=True,
                                                     encoding='utf-8',
                                                     errors='ignore',
-                                                    timeout=checkout_timeout)
+                                                    timeout=checkout_timeout, creationflags=SUBPROCESS_FLAGS)
                         
                         if retry_result.returncode == 0:
                             print(f"   ✅ 强制切换成功")
@@ -1867,7 +1874,7 @@ class GitSvnManager:
                 encoding='utf-8',
                 errors='ignore',
                 timeout=60  # 网络操作超时设置
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 print(f"❌ [RESET] fetch失败: {error_msg}")
@@ -1884,7 +1891,7 @@ class GitSvnManager:
                 text=True,
                 encoding='utf-8',
                 errors='ignore'
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 print(f"⚠️ [RESET] clean警告: {error_msg}")
@@ -1906,7 +1913,7 @@ class GitSvnManager:
                 text=True,
                 encoding='utf-8',
                 errors='ignore'
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 print(f"❌ [RESET] reset失败: {error_msg}")
@@ -1924,7 +1931,7 @@ class GitSvnManager:
                 text=True,
                 encoding='utf-8',
                 errors='ignore'
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0:
                 status_output = result.stdout.strip()
@@ -1972,7 +1979,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=60)
+                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 return False, f"获取远程信息失败: {error_msg}"
@@ -1987,7 +1994,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=60)
+                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
             if result.returncode != 0:
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 return False, f"拉取分支失败: {error_msg}"
@@ -2053,7 +2060,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             if result.returncode == 0:
                 diagnosis['is_git_repo'] = True
             else:
@@ -2086,7 +2093,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             if result.returncode == 0 and result.stdout.strip():
                 diagnosis['remote_status'] = "已配置远程仓库"
             else:
@@ -2104,7 +2111,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=5)
+                                  timeout=5, creationflags=SUBPROCESS_FLAGS)
             if result.returncode == 0:
                 if result.stdout.strip():
                     diagnosis['working_tree_status'] = "有未提交的更改"
@@ -2238,7 +2245,7 @@ class GitSvnManager:
                                                               text=True,
                                                               encoding='utf-8',
                                                               errors='ignore',
-                                                              timeout=30)
+                                                              timeout=30, creationflags=SUBPROCESS_FLAGS)
                                 
                                 if delete_result.returncode == 0:
                                     print(f"      ✅ Git删除成功: {folder_name}")
@@ -2358,7 +2365,7 @@ class GitSvnManager:
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=60)
+                                      timeout=60, creationflags=SUBPROCESS_FLAGS)
             else:
                 print(f"   使用逐个添加模式...")
                 # 逐个添加文件
@@ -2369,7 +2376,7 @@ class GitSvnManager:
                                           text=True,
                                           encoding='utf-8',
                                           errors='ignore',
-                                          timeout=30)
+                                          timeout=30, creationflags=SUBPROCESS_FLAGS)
                     if result.returncode != 0:
                         print(f"   ❌ 添加文件失败: {relative_path} - {result.stderr}")
                         break
@@ -2394,7 +2401,7 @@ class GitSvnManager:
                                                   text=True,
                                                   encoding='utf-8',
                                                   errors='ignore',
-                                                  timeout=60)
+                                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
                         else:
                             retry_result = None
                             for relative_path in relative_paths:
@@ -2404,7 +2411,7 @@ class GitSvnManager:
                                                       text=True,
                                                       encoding='utf-8',
                                                       errors='ignore',
-                                                      timeout=30)
+                                                      timeout=30, creationflags=SUBPROCESS_FLAGS)
                                 if retry_result.returncode != 0:
                                     break
                         
@@ -2447,7 +2454,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=15)
+                                  timeout=15, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 changed_files = len(result.stdout.strip().split('\n'))
@@ -2465,7 +2472,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=60)  # 60秒超时
+                                  timeout=60, creationflags=SUBPROCESS_FLAGS)  # 60秒超时
             
             if result.returncode != 0:
                 if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
@@ -2497,7 +2504,7 @@ class GitSvnManager:
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=120)  # 2分钟超时
+                                      timeout=120, creationflags=SUBPROCESS_FLAGS)  # 2分钟超时
             else:
                 print(f"   🔧 普通仓库推送模式")
                 result = subprocess.run(['git', 'push', 'origin', current_branch], 
@@ -2506,7 +2513,7 @@ class GitSvnManager:
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=90)  # 1.5分钟超时
+                                      timeout=90, creationflags=SUBPROCESS_FLAGS)  # 1.5分钟超时
             
             push_time = time.time() - push_start_time
             print(f"   📊 推送耗时: {push_time:.2f}秒")
@@ -2554,7 +2561,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=10)
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
             
             current_autocrlf = result.stdout.strip() if result.returncode == 0 else ""
             print(f"   当前 core.autocrlf = '{current_autocrlf}'")
@@ -2568,7 +2575,7 @@ class GitSvnManager:
                                       text=True,
                                       encoding='utf-8',
                                       errors='ignore',
-                                      timeout=10)
+                                      timeout=10, creationflags=SUBPROCESS_FLAGS)
                 
                 if result.returncode == 0:
                     print(f"   ✅ core.autocrlf 设置成功")
@@ -2585,7 +2592,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=10)
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0:
                 print(f"   ✅ core.safecrlf 设置成功")
@@ -2718,7 +2725,7 @@ class GitSvnManager:
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=10)
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0 and result.stdout.strip():
                 url = result.stdout.strip()
@@ -4228,7 +4235,7 @@ class ResourceChecker(QThread):
                     capture_output=True,
                     text=True,
                     timeout=1
-                )
+                , creationflags=SUBPROCESS_FLAGS)
                 
                 if remote_check.returncode != 0:
                     print("❌ [SYNC_CHECK] 未配置远程仓库")
@@ -4245,7 +4252,7 @@ class ResourceChecker(QThread):
                     capture_output=True,
                     text=True,
                     timeout=1  # 极短超时，快速失败
-                )
+                , creationflags=SUBPROCESS_FLAGS)
                 
                 if fetch_result.returncode == 0:
                     result['remote_reachable'] = True
@@ -4273,7 +4280,7 @@ class ResourceChecker(QThread):
                     capture_output=True,
                     text=True,
                     timeout=5  # 进一步缩短超时到5秒
-                )
+                , creationflags=SUBPROCESS_FLAGS)
                 
                 if fetch_result.returncode == 0:
                     print("✅ [SYNC_CHECK] 远程信息获取成功")
@@ -4304,7 +4311,7 @@ class ResourceChecker(QThread):
                     capture_output=True,
                     text=True,
                     timeout=5  # 本地操作，5秒足够
-                )
+                , creationflags=SUBPROCESS_FLAGS)
                 
                 print(f"📋 [SYNC_CHECK] Git命令返回值: {rev_result.returncode}")
                 print(f"📋 [SYNC_CHECK] Git命令输出: '{rev_result.stdout.strip()}'")
@@ -4370,7 +4377,7 @@ class ResourceChecker(QThread):
                     capture_output=True,
                     text=True,
                     timeout=3  # 本地操作，3秒足够
-                )
+                , creationflags=SUBPROCESS_FLAGS)
                 
                 if status_result.returncode == 0:
                     if status_result.stdout.strip():
@@ -5408,7 +5415,7 @@ class ArtResourceManager(QMainWindow):
                 encoding='utf-8',
                 errors='ignore',
                 timeout=10
-            )
+            , creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode == 0:
                 # 获取git根目录路径
@@ -5541,9 +5548,9 @@ class ArtResourceManager(QMainWindow):
             if sys.platform == "win32":
                 os.startfile(path)
             elif sys.platform == "darwin":
-                subprocess.run(["open", path])
+                subprocess.run(["open", path], creationflags=SUBPROCESS_FLAGS)
             else:
-                subprocess.run(["xdg-open", path])
+                subprocess.run(["xdg-open", path], creationflags=SUBPROCESS_FLAGS)
             
             self.log_text.append(f"已打开SVN文件夹: {path}")
             
@@ -5566,9 +5573,9 @@ class ArtResourceManager(QMainWindow):
             if sys.platform == "win32":
                 os.startfile(path)
             elif sys.platform == "darwin":
-                subprocess.run(["open", path])
+                subprocess.run(["open", path], creationflags=SUBPROCESS_FLAGS)
             else:
-                subprocess.run(["xdg-open", path])
+                subprocess.run(["xdg-open", path], creationflags=SUBPROCESS_FLAGS)
             
             self.log_text.append(f"已打开Git文件夹: {path}")
             
@@ -6253,7 +6260,7 @@ class ArtResourceManager(QMainWindow):
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=10)
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
             
             if result.returncode != 0:
                 QMessageBox.critical(self, "错误", "无法获取远程仓库URL，请确保这是一个有效的Git仓库！")
@@ -6274,7 +6281,7 @@ class ArtResourceManager(QMainWindow):
                                   text=True,
                                   encoding='utf-8',
                                   errors='ignore',
-                                  timeout=10)
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
             if result.returncode == 0:
                 current_branch = result.stdout.strip()
         except:
@@ -6458,7 +6465,8 @@ class ArtResourceManager(QMainWindow):
                                   capture_output=True, 
                                   text=True,
                                   encoding='utf-8',
-                                  errors='ignore')
+                                  errors='ignore',
+                                  creationflags=SUBPROCESS_FLAGS)
             if result.returncode == 0:
                 url = result.stdout.strip()
                 self.log_text.append(f"Git仓库URL: {url}")
@@ -7407,7 +7415,8 @@ class DeployRepositoriesThread(QThread):
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
                 cwd=self.deploy_dir,
-                env=git_env
+                env=git_env,
+                creationflags=SUBPROCESS_FLAGS
             )
             
             # 实时读取输出
@@ -7468,7 +7477,8 @@ class DeployRepositoriesThread(QThread):
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
                 cwd=self.main_repo_path,
-                shell=True
+                shell=True,
+                creationflags=SUBPROCESS_FLAGS
             )
             
             # 设置超时和无输出检测
@@ -7605,7 +7615,8 @@ class DeleteAndRecloneThread(QThread):
                 stderr=subprocess.STDOUT,
                 text=True,
                 encoding='utf-8',
-                errors='ignore'
+                errors='ignore',
+                creationflags=SUBPROCESS_FLAGS
             )
             
             # 监控克隆进度
@@ -7651,7 +7662,7 @@ class DeleteAndRecloneThread(QThread):
                         encoding='utf-8',
                         errors='ignore',
                         timeout=30
-                    )
+                    , creationflags=SUBPROCESS_FLAGS)
                     
                     if checkout_result.returncode == 0:
                         self.status_updated.emit(f"✅ 已切换到分支: {self.current_branch}")
@@ -7717,7 +7728,7 @@ class DeleteAndRecloneThread(QThread):
                             shell=True,
                             capture_output=True,
                             text=True
-                        )
+                        , creationflags=SUBPROCESS_FLAGS)
                         if result.returncode != 0:
                             raise Exception(f"系统命令删除失败: {result.stderr}")
                     else:
@@ -7726,7 +7737,7 @@ class DeleteAndRecloneThread(QThread):
                             ['rm', '-rf', path],
                             capture_output=True,
                             text=True
-                        )
+                        , creationflags=SUBPROCESS_FLAGS)
                         if result.returncode != 0:
                             raise Exception(f"系统命令删除失败: {result.stderr}")
                 except Exception as e:
@@ -7742,12 +7753,12 @@ class DeleteAndRecloneThread(QThread):
                 try:
                     # 查找并关闭git.exe进程
                     subprocess.run(['taskkill', '/f', '/im', 'git.exe'], 
-                                 capture_output=True, timeout=5)
+                                 capture_output=True, timeout=5, creationflags=SUBPROCESS_FLAGS)
                     # 查找并关闭可能的编辑器进程
                     subprocess.run(['taskkill', '/f', '/im', 'notepad.exe'], 
-                                 capture_output=True, timeout=5)
+                                 capture_output=True, timeout=5, creationflags=SUBPROCESS_FLAGS)
                     subprocess.run(['taskkill', '/f', '/im', 'code.exe'], 
-                                 capture_output=True, timeout=5)
+                                 capture_output=True, timeout=5, creationflags=SUBPROCESS_FLAGS)
                     self.status_updated.emit("🔧 已尝试关闭相关进程")
                 except:
                     pass  # 忽略错误，这只是尝试性操作
