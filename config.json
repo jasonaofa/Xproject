@@ -2,7 +2,7 @@
   "svn_path": "G:\\Svn_repo\\MiniProject_Art_NewPrefab",
   "git_path": "G:\\minirepo\\AssetRuntime_Branch09\\assetruntime\\CommonResource",
   "window_geometry": {
-    "x": 0,
+    "x": -2560,
     "y": 34,
     "width": 2560,
     "height": 1346
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_sk.skeleton.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_sk.skeleton",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_body4.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Model\\body_body4.mesh",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_yellow.mat.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_yellow.mat",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_purple.mat.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_purple.mat",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_bull_gloss.mat.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/entity/110184\\Material\\body_bull_gloss.mat"
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\body_hair.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\zhenzhu1.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\body_jinshu.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_face4.mesh.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_face.mesh.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_daoju_xin.mesh.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\girl_zhenzhu.mat.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_face3_girl.mesh.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Model\\body_body_girl.mesh.meta",
+    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\entity\\140437\\Material\\daoju_fengzheng.mat.meta"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"

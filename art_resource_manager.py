@@ -72,6 +72,13 @@ class ResourceDependencyAnalyzer:
             "00000000000000002000000000000000": "UI/Default",
             "00000000000000003000000000000000": "Sprites/Default"
         }
+        
+        # 内置资源GUID（Unity内置资源）
+        self.builtin_guids = {
+            "0000000000000000e000000000000000",  # Unity内置材质
+            "0000000000000000f000000000000000",  # Unity内置纹理
+            "0000000000000000d000000000000000",  # Unity内置着色器
+        }
     
     def parse_meta_file(self, meta_path: str) -> str:
         """解析meta文件获取GUID"""
@@ -225,6 +232,153 @@ class ResourceDependencyAnalyzer:
                     dependencies.add(clean_guid)
         
         return dependencies
+    
+    def find_dependency_files(self, file_paths: List[str], search_directories: List[str] = None) -> Dict[str, Any]:
+        """
+        分析文件依赖并找到所有相关的文件（包括meta文件）
+        
+        Args:
+            file_paths: 要分析的文件路径列表
+            search_directories: 搜索依赖文件的目录列表（可选）
+            
+        Returns:
+            Dict[str, Any]: 包含分析结果的字典
+        """
+        result = {
+            'original_files': file_paths,
+            'dependency_files': [],  # 找到的依赖文件
+            'meta_files': [],        # 相关的meta文件
+            'guid_to_file_map': {},  # GUID到文件路径的映射
+            'file_to_guid_map': {},  # 文件路径到GUID的映射
+            'missing_dependencies': [],  # 缺失的依赖
+            'analysis_stats': {
+                'total_original': len(file_paths),
+                'total_dependencies': 0,
+                'total_meta_files': 0,
+                'total_missing': 0
+            }
+        }
+        
+        try:
+            # 1. 建立搜索目录
+            if not search_directories:
+                # 如果没有指定搜索目录，使用原始文件所在的目录
+                search_directories = list(set([os.path.dirname(f) for f in file_paths]))
+            
+            # 2. 扫描搜索目录中的所有meta文件，建立GUID映射
+            print(f"🔍 开始扫描 {len(search_directories)} 个目录...")
+            for search_dir in search_directories:
+                if os.path.exists(search_dir):
+                    self._scan_directory_for_guids(search_dir, result['guid_to_file_map'])
+            
+            print(f"✅ 扫描完成，找到 {len(result['guid_to_file_map'])} 个GUID映射")
+            
+            # 3. 分析每个原始文件的依赖
+            print(f"🔍 开始分析 {len(file_paths)} 个文件的依赖...")
+            for file_path in file_paths:
+                if os.path.exists(file_path):
+                    self._analyze_file_dependencies(file_path, result)
+            
+            # 4. 去重并统计
+            result['dependency_files'] = list(set(result['dependency_files']))
+            result['meta_files'] = list(set(result['meta_files']))
+            
+            result['analysis_stats']['total_dependencies'] = len(result['dependency_files'])
+            result['analysis_stats']['total_meta_files'] = len(result['meta_files'])
+            result['analysis_stats']['total_missing'] = len(result['missing_dependencies'])
+            
+            print(f"📊 分析完成:")
+            print(f"   原始文件: {result['analysis_stats']['total_original']}")
+            print(f"   依赖文件: {result['analysis_stats']['total_dependencies']}")
+            print(f"   Meta文件: {result['analysis_stats']['total_meta_files']}")
+            print(f"   缺失依赖: {result['analysis_stats']['total_missing']}")
+            
+        except Exception as e:
+            print(f"❌ 依赖分析失败: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return result
+    
+    def _scan_directory_for_guids(self, directory: str, guid_map: Dict[str, str]):
+        """扫描目录中的所有meta文件，建立GUID映射"""
+        try:
+            for root, dirs, files in os.walk(directory):
+                for file in files:
+                    if file.endswith('.meta'):
+                        meta_path = os.path.join(root, file)
+                        guid = self.parse_meta_file(meta_path)
+                        if guid:
+                            # 计算对应的资源文件路径
+                            resource_path = meta_path[:-5]  # 移除.meta后缀
+                            guid_map[guid] = resource_path
+        except Exception as e:
+            print(f"❌ 扫描目录失败 {directory}: {e}")
+    
+    def _analyze_file_dependencies(self, file_path: str, result: Dict[str, Any]):
+        """分析单个文件的依赖"""
+        try:
+            # 获取文件自身的GUID
+            file_guid = None
+            
+            # 处理原始文件本身的meta文件
+            if file_path.endswith('.meta'):
+                # 如果是meta文件，获取其GUID并添加对应的资源文件
+                file_guid = self.parse_meta_file(file_path)
+                resource_path = file_path[:-5]
+                if os.path.exists(resource_path):
+                    result['dependency_files'].append(resource_path)
+                    print(f"🔍 [DEBUG] 添加meta文件对应的资源: {os.path.basename(resource_path)}")
+            else:
+                # 如果是资源文件，添加对应的meta文件
+                meta_path = file_path + '.meta'
+                if os.path.exists(meta_path):
+                    file_guid = self.parse_meta_file(meta_path)
+                    # 确保原始文件的meta文件被添加到结果中
+                    result['meta_files'].append(meta_path)
+                    print(f"🔍 [DEBUG] 添加资源文件对应的meta: {os.path.basename(meta_path)}")
+            
+            # 记录文件到GUID的映射
+            if file_guid:
+                result['file_to_guid_map'][file_path] = file_guid
+            
+            # 分析文件中的GUID引用（只对非meta文件进行）
+            if not file_path.endswith('.meta'):
+                referenced_guids = self.parse_editor_asset(file_path)
+                
+                for ref_guid in referenced_guids:
+                    # 跳过内置资源和自身引用
+                    if (ref_guid in self.builtin_guids or 
+                        ref_guid in self.common_shader_guids or
+                        ref_guid == file_guid or
+                        ref_guid.startswith('00000000000000')):
+                        continue
+                    
+                    # 查找依赖文件
+                    if ref_guid in result['guid_to_file_map']:
+                        dep_file = result['guid_to_file_map'][ref_guid]
+                        if os.path.exists(dep_file):
+                            result['dependency_files'].append(dep_file)
+                            
+                            # 添加对应的meta文件
+                            dep_meta = dep_file + '.meta'
+                            if os.path.exists(dep_meta):
+                                result['meta_files'].append(dep_meta)
+                        else:
+                            result['missing_dependencies'].append({
+                                'guid': ref_guid,
+                                'referenced_by': file_path,
+                                'expected_path': dep_file
+                            })
+                    else:
+                        result['missing_dependencies'].append({
+                            'guid': ref_guid,
+                            'referenced_by': file_path,
+                            'expected_path': 'unknown'
+                        })
+                        
+        except Exception as e:
+            print(f"❌ 分析文件依赖失败 {file_path}: {e}")
     
     def analyze_resource_package(self, package_path: str) -> Dict[str, Any]:
         """分析资源包，返回完整的分析报告"""
@@ -5027,6 +5181,31 @@ class ArtResourceManager(QMainWindow):
         self.show_git_url_btn.clicked.connect(self.show_git_url)
         btn_layout.addWidget(self.show_git_url_btn)
         
+        # 增加依赖文件按钮
+        self.add_dependencies_btn = QPushButton("增加依赖文件")
+        self.add_dependencies_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        self.add_dependencies_btn.clicked.connect(self.add_dependency_files)
+        btn_layout.addWidget(self.add_dependencies_btn)
+        
         layout.addLayout(btn_layout)
         
 
@@ -6729,6 +6908,158 @@ class ArtResourceManager(QMainWindow):
             QMessageBox.critical(self, "诊断失败", f"诊断Git仓库时发生错误：\n{str(e)}")
         finally:
             self.progress_bar.setVisible(False)
+
+    def add_dependency_files(self):
+        """增加依赖文件功能"""
+        if not self.upload_files:
+            QMessageBox.warning(self, "警告", "请先选择要上传的文件！")
+            return
+        
+        if not self.svn_path_edit.text():
+            QMessageBox.warning(self, "警告", "请先设置SVN仓库路径！")
+            return
+        
+        try:
+            # 禁用按钮，防止重复点击
+            self.add_dependencies_btn.setEnabled(False)
+            self.add_dependencies_btn.setText("分析中...")
+            
+            # 显示进度条
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            
+            # 创建依赖分析器
+            analyzer = ResourceDependencyAnalyzer()
+            
+            # 设置搜索目录（SVN仓库路径）
+            search_directories = [self.svn_path_edit.text()]
+            
+            self.log_text.append("🔍 开始分析文件依赖...")
+            self.log_text.append(f"📁 搜索目录: {self.svn_path_edit.text()}")
+            self.log_text.append(f"📄 分析文件数: {len(self.upload_files)}")
+            
+            # 执行依赖分析
+            result = analyzer.find_dependency_files(self.upload_files, search_directories)
+            
+            # 隐藏进度条
+            self.progress_bar.setVisible(False)
+            
+            # 处理分析结果
+            self._process_dependency_analysis_result(result)
+            
+        except Exception as e:
+            self.progress_bar.setVisible(False)
+            QMessageBox.critical(self, "分析失败", f"分析文件依赖时发生错误：\n{str(e)}")
+            self.log_text.append(f"❌ 分析文件依赖失败：{str(e)}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # 恢复按钮状态
+            self.add_dependencies_btn.setEnabled(True)
+            self.add_dependencies_btn.setText("增加依赖文件")
+    
+    def _process_dependency_analysis_result(self, result: Dict[str, Any]):
+        """处理依赖分析结果"""
+        try:
+            stats = result['analysis_stats']
+            
+            # 显示分析统计
+            self.log_text.append("📊 依赖分析完成:")
+            self.log_text.append(f"   原始文件: {stats['total_original']}")
+            self.log_text.append(f"   找到依赖文件: {stats['total_dependencies']}")
+            self.log_text.append(f"   找到Meta文件: {stats['total_meta_files']}")
+            self.log_text.append(f"   缺失依赖: {stats['total_missing']}")
+            
+            # 收集所有要添加的文件
+            files_to_add = []
+            
+            # 添加依赖文件
+            for dep_file in result['dependency_files']:
+                if dep_file not in self.upload_files:
+                    files_to_add.append(dep_file)
+                    self.log_text.append(f"➕ 添加依赖文件: {os.path.basename(dep_file)}")
+            
+            # 添加meta文件
+            for meta_file in result['meta_files']:
+                if meta_file not in self.upload_files:
+                    files_to_add.append(meta_file)
+                    self.log_text.append(f"➕ 添加Meta文件: {os.path.basename(meta_file)}")
+            
+            # 统计原始文件本身的meta文件
+            original_meta_count = 0
+            original_meta_files = []
+            for file_path in result['original_files']:
+                if not file_path.endswith('.meta'):
+                    meta_path = file_path + '.meta'
+                    if meta_path in result['meta_files']:
+                        original_meta_count += 1
+                        original_meta_files.append(meta_path)
+                        if meta_path not in self.upload_files:
+                            self.log_text.append(f"📝 原始文件 {os.path.basename(file_path)} 的Meta文件将被添加")
+            
+            if original_meta_count > 0:
+                self.log_text.append(f"📝 其中包含 {original_meta_count} 个原始文件对应的Meta文件")
+                # 显示具体的原始文件meta文件
+                for meta_file in original_meta_files:
+                    self.log_text.append(f"   - {os.path.basename(meta_file)}")
+            
+            # 显示缺失的依赖
+            if result['missing_dependencies']:
+                self.log_text.append("⚠️ 缺失的依赖:")
+                for missing in result['missing_dependencies'][:10]:  # 只显示前10个
+                    self.log_text.append(f"   GUID: {missing['guid'][:8]}... 被文件: {os.path.basename(missing['referenced_by'])} 引用")
+                if len(result['missing_dependencies']) > 10:
+                    self.log_text.append(f"   ... 还有 {len(result['missing_dependencies']) - 10} 个缺失依赖")
+            
+            # 询问用户是否添加文件
+            if files_to_add:
+                reply = QMessageBox.question(
+                    self,
+                    "添加依赖文件",
+                    f"分析完成！\n\n"
+                    f"找到 {len(files_to_add)} 个新的依赖文件（包括meta文件）\n"
+                    f"当前上传列表: {len(self.upload_files)} 个文件\n"
+                    f"添加后总计: {len(self.upload_files) + len(files_to_add)} 个文件\n\n"
+                    f"是否将这些依赖文件添加到上传列表？",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes
+                )
+                
+                if reply == QMessageBox.Yes:
+                    # 添加文件到上传列表
+                    added_count = 0
+                    for file_path in files_to_add:
+                        if os.path.exists(file_path):
+                            # 添加到文件列表
+                            if file_path not in self.upload_files:
+                                self.upload_files.append(file_path)
+                                added_count += 1
+                            
+                            # 添加到UI列表
+                            self.file_list.add_file_item(file_path)
+                    
+                    self.log_text.append(f"✅ 成功添加 {added_count} 个依赖文件到上传列表")
+                    self.log_text.append(f"📋 当前上传列表总计: {len(self.upload_files)} 个文件")
+                    
+                    # 更新状态栏
+                    self.statusBar().showMessage(f"已添加 {added_count} 个依赖文件")
+                else:
+                    self.log_text.append("❌ 用户取消添加依赖文件")
+            else:
+                QMessageBox.information(
+                    self,
+                    "分析完成",
+                    f"分析完成！\n\n"
+                    f"没有找到新的依赖文件需要添加。\n"
+                    f"当前上传列表已经包含了所有必要的依赖。"
+                )
+                self.log_text.append("✅ 没有找到新的依赖文件需要添加")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "处理失败", f"处理依赖分析结果时发生错误：\n{str(e)}")
+            self.log_text.append(f"❌ 处理依赖分析结果失败：{str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def on_files_dropped(self, file_paths: List[str]):
         """处理拖拽文件事件"""
