@@ -1,13 +1,13 @@
 {
-  "svn_path": "G:\\Svn_repo\\MiniProject_Art_NewPrefab",
-  "git_path": "G:\\minirepo\\AssetRuntime_Branch09\\assetruntime\\CommonResource",
+  "svn_path": "C:\\6.1.10_prefab",
+  "git_path": "H:/0124v_02/assetruntimenew/CommonResource",
   "window_geometry": {
-    "x": 0,
-    "y": 34,
+    "x": 6,
+    "y": 51,
     "width": 2560,
-    "height": 1346
+    "height": 1361
   },
-  "last_selected_branch": "★ miniw/buzzRes/250730 (当前)",
+  "last_selected_branch": "★ miniw/release/v1.48.0 (当前)",
   "resource_types": {
     "prefab": true,
     "material": true,
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Material\\baozha_1005_yanwu_2.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Texture\\line_guangxian04_wc.png.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Material\\mach_melee_attack_1.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Texture\\Noise_wl_015.png.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Model\\machinery_cilun.mesh.meta",
-    "G:/Svn_repo/MiniProject_Art_NewPrefab/Assets/prefab/particles/mach_melee_receive.prefab.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Texture\\Glow_wl_46.png.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Texture\\Glow_wl_45.png.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Material\\melee_attack_guangyun2.mat.meta",
-    "G:\\Svn_repo\\MiniProject_Art_NewPrefab\\Assets\\prefab\\particles\\public\\Model\\1112_Cylinder004.mesh.meta"
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_sk.skeleton.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_sk.skeleton",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face2.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face2.mesh",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face.mesh",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_yujing.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_yujing.mesh",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_base.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_base.mesh"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"

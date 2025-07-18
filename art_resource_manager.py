@@ -393,6 +393,11 @@ class ResourceDependencyAnalyzer:
         
         analyzed_files.add(file_path)
         
+        # 标准化原始文件路径列表（用于比较）
+        normalized_original_files = set()
+        for orig_file in result['original_files']:
+            normalized_original_files.add(os.path.normpath(os.path.abspath(orig_file)))
+        
         try:
             # 获取文件自身的GUID
             file_guid = None
@@ -403,8 +408,13 @@ class ResourceDependencyAnalyzer:
                 file_guid = self.parse_meta_file(file_path)
                 resource_path = file_path[:-5]
                 if os.path.exists(resource_path):
-                    result['dependency_files'].append(resource_path)
-                    print(f"🔍 [DEBUG] 添加meta文件对应的资源: {os.path.basename(resource_path)}")
+                    # 检查资源文件是否已经在原始文件列表中
+                    normalized_resource_path = os.path.normpath(os.path.abspath(resource_path))
+                    if normalized_resource_path not in normalized_original_files:
+                        result['dependency_files'].append(resource_path)
+                        print(f"🔍 [DEBUG] 添加meta文件对应的资源: {os.path.basename(resource_path)}")
+                    else:
+                        print(f"🔍 [DEBUG] 跳过重复的原始文件: {os.path.basename(resource_path)}")
             else:
                 # 如果是资源文件，添加对应的meta文件
                 meta_path = file_path + '.meta'
@@ -443,19 +453,24 @@ class ResourceDependencyAnalyzer:
                         print(f"🔍 [DEBUG] 找到依赖文件: {os.path.basename(dep_file)}")
                         
                         if os.path.exists(dep_file):
-                            result['dependency_files'].append(dep_file)
-                            print(f"🔍 [DEBUG] 添加依赖文件: {os.path.basename(dep_file)}")
-                            
-                            # 添加对应的meta文件
-                            dep_meta = dep_file + '.meta'
-                            if os.path.exists(dep_meta):
-                                result['meta_files'].append(dep_meta)
-                                print(f"🔍 [DEBUG] 添加依赖meta文件: {os.path.basename(dep_meta)}")
-                            
-                            # 如果是材质文件，添加到递归分析列表
-                            if dep_file.lower().endswith('.mat'):
-                                recursive_deps.append(dep_file)
-                                print(f"🔍 [DEBUG] 添加到递归分析: {os.path.basename(dep_file)}")
+                            # 检查依赖文件是否已经在原始文件列表中
+                            normalized_dep_file = os.path.normpath(os.path.abspath(dep_file))
+                            if normalized_dep_file not in normalized_original_files:
+                                result['dependency_files'].append(dep_file)
+                                print(f"🔍 [DEBUG] 添加依赖文件: {os.path.basename(dep_file)}")
+                                
+                                # 添加对应的meta文件
+                                dep_meta = dep_file + '.meta'
+                                if os.path.exists(dep_meta):
+                                    result['meta_files'].append(dep_meta)
+                                    print(f"🔍 [DEBUG] 添加依赖meta文件: {os.path.basename(dep_meta)}")
+                                
+                                # 如果是材质文件，添加到递归分析列表
+                                if dep_file.lower().endswith('.mat'):
+                                    recursive_deps.append(dep_file)
+                                    print(f"🔍 [DEBUG] 添加到递归分析: {os.path.basename(dep_file)}")
+                            else:
+                                print(f"🔍 [DEBUG] 跳过重复的原始文件: {os.path.basename(dep_file)}")
                         else:
                             print(f"🔍 [DEBUG] 依赖文件不存在: {dep_file}")
                             result['missing_dependencies'].append({
@@ -3316,9 +3331,15 @@ class ResourceChecker(QThread):
             
             # 6. GUID引用检查
             self.status_updated.emit("检查GUID引用...")
-            self.progress_updated.emit(90)
+            self.progress_updated.emit(80)
             reference_issues = self._check_guid_references()
             all_issues.extend(reference_issues)
+            
+            # 7. 材质模板检查
+            self.status_updated.emit("检查材质模板...")
+            self.progress_updated.emit(90)
+            template_issues = self._check_material_templates()
+            all_issues.extend(template_issues)
             
             # 生成详细报告
             report = self._generate_detailed_report(all_issues, len(self.upload_files))
@@ -3328,7 +3349,7 @@ class ResourceChecker(QThread):
             
             # 区分阻塞性错误和警告/信息
             # meta_missing_git 和 guid_file_update 类型的问题是警告/信息，不阻塞推送操作
-            non_blocking_types = {'meta_missing_git', 'guid_file_update'}
+            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'no_template_found'}
             blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
             warning_issues = [issue for issue in all_issues if issue.get('type') in non_blocking_types]
             
@@ -4166,12 +4187,215 @@ class ResourceChecker(QThread):
         
         return issues
 
+    def _check_material_templates(self) -> List[Dict[str, str]]:
+        """检查材质模板使用情况"""
+        issues = []
+        
+        # 允许的材质模板列表
+        allowed_templates = {
+            # 角色和场景模板
+            'Character_NPR_Opaque.templatemat',
+            'Character_NPR_Masked.templatemat',
+            'Character_NPR_Tranclucent.templatemat',
+            'Character_AVATAR_Masked.templatemat',
+            'Character_AVATAR_Opaque.templatemat',
+            'Character_AVATAR_Tranclucent.templatemat',
+            'Character_PBR_Opaque.templatemat',
+            'Character_PBR_Translucent.templatemat',
+            'Scene_Prop_Opaque.templatemat',
+            'Scene_Prop_Tranclucent.templatemat',
+            'Scene_Prop_Masked.templatemat',
+            'Sight.templatemat',
+            
+            # 特效模板
+            'fx_basic_ADD.templatemat',
+            'fx_basic_fire.templatemat',
+            'fx_basic_TRANSLUCENT.templatemat',
+            'fx_dissolve_ADD.templatemat',
+            'fx_dissolve_fresnel_ADD.templatemat',
+            'fx_dissolve_fresnel_TRANSLUCENT.templatemat',
+            'fx_dissolve_fresneluvwarp_ADD.templatemat',
+            'fx_dissolve_fresneluvwarp_TRANSLUCENT.templatemat',
+            'fx_dissolve_TRANSLUCENT.templatemat',
+            'fx_dissolve_uvwarp_ADD.templatemat',
+            'fx_dissolve_uvwarp_Fire_ADD.templatemat',
+            'fx_dissolve_uvwarp_Fire_TRANSLUCENT.templatemat',
+            'fx_dissolve_uvwarp_TRANSLUCENT.templatemat',
+            'fx_dissolve_vertexesoffsetWithMask_ADD.templatemat',
+            'fx_dissolve_vertexesoffsetWithMask_TRANSLUCENT.templatemat',
+            'fx_fresnel_ADD.templatemat',
+            'fx_fresnel_TRANSLUCENT.templatemat',
+            'fx_uvwarp_ADD.templatemat',
+            'fx_uvwarp_TRANSLUCENT.templatemat',
+            'fx_vertexesoffset_ADD.templatemat',
+            'fx_vertexesoffset_TRANSLUCENT.templatemat',
+            'fx_vertexesoffsetWithMask_ADD.templatemat',
+            'fx_vertexesoffsetWithMask_TRANSLUCENT.templatemat',
+            'PolarDistortion.templatemat',
+            'standard_particle_additive.templatemat',
+            'standard_particle_translucent.templatemat'
+        }
+        
+        try:
+            self.status_updated.emit("🔍 开始材质模板检查...")
+            
+            # 筛选出需要检查的材质文件
+            material_files = []
+            for file_path in self.upload_files:
+                if not file_path.lower().endswith('.mat'):
+                    continue
+                
+                # 检查是否在entity目录下
+                normalized_path = os.path.normpath(file_path)
+                path_parts = normalized_path.split(os.sep)
+                
+                # 查找entity目录
+                entity_index = -1
+                for i, part in enumerate(path_parts):
+                    if part.lower() == 'entity':
+                        entity_index = i
+                        break
+                
+                if entity_index == -1:
+                    continue  # 不在entity目录下，跳过
+                
+                # 检查是否在排除的目录中
+                excluded_path = False
+                remaining_parts = path_parts[entity_index + 1:]
+                
+                # 检查是否在entity/Environment/Scenes目录下
+                if (len(remaining_parts) >= 2 and 
+                    remaining_parts[0].lower() == 'environment' and 
+                    remaining_parts[1].lower() == 'scenes'):
+                    excluded_path = True
+                
+                if not excluded_path:
+                    material_files.append(file_path)
+            
+            self.status_updated.emit(f"找到 {len(material_files)} 个需要检查的材质文件")
+            
+            # 检查每个材质文件的模板使用情况
+            for file_path in material_files:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 查找模板引用
+                    template_references = self._find_template_references(content)
+                    
+                    if not template_references:
+                        # 没有找到模板引用，这可能是问题
+                        issues.append({
+                            'file': file_path,
+                            'type': 'no_template_found',
+                            'message': '未找到材质模板引用'
+                        })
+                    else:
+                        # 检查使用的模板是否在允许列表中
+                        found_valid_template = False
+                        for template_name in template_references:
+                            # 跳过GUID引用，这些不是实际的模板名称
+                            if template_name.startswith('TEMPLATE_GUID:'):
+                                continue
+                            
+                            if template_name in allowed_templates:
+                                # 记录使用了正确的模板（信息性）
+                                self.status_updated.emit(f"✅ {os.path.basename(file_path)} 使用了正确模板: {template_name}")
+                                found_valid_template = True
+                            else:
+                                issues.append({
+                                    'file': file_path,
+                                    'type': 'invalid_template',
+                                    'message': f'使用了不允许的材质模板: {template_name}',
+                                    'template_name': template_name
+                                })
+                        
+                        # 如果只找到了GUID引用而没有找到实际的模板名称，视为没有模板
+                        if not found_valid_template and all(ref.startswith('TEMPLATE_GUID:') for ref in template_references):
+                            issues.append({
+                                'file': file_path,
+                                'type': 'no_template_found',
+                                'message': '未找到材质模板引用（仅找到GUID引用）'
+                            })
+                    
+                except Exception as e:
+                    issues.append({
+                        'file': file_path,
+                        'type': 'template_check_error',
+                        'message': f'材质模板检查失败: {str(e)}'
+                    })
+            
+            if issues:
+                blocking_issues = [issue for issue in issues if issue.get('type') != 'no_template_found']
+                if blocking_issues:
+                    self.status_updated.emit(f"材质模板检查完成，发现 {len(blocking_issues)} 个问题")
+                else:
+                    self.status_updated.emit(f"材质模板检查完成，发现 {len(issues)} 个警告")
+            else:
+                self.status_updated.emit("✅ 材质模板检查通过，所有材质都使用了正确的模板")
+                
+        except Exception as e:
+            issues.append({
+                'file': 'SYSTEM',
+                'type': 'template_check_system_error',
+                'message': f'材质模板检查系统错误: {str(e)}'
+            })
+        
+        return issues
+
+    def _find_template_references(self, content: str) -> List[str]:
+        """查找材质文件中的模板引用"""
+        template_references = []
+        
+        try:
+            # 查找templatemat引用
+            import re
+            
+            # 使用多种模式查找模板引用
+            template_patterns = [
+                # 直接的templatemat引用
+                r'templatemat:\s*([^\s\n]+\.templatemat)',
+                # template引用
+                r'template:\s*([^\s\n]+\.templatemat)',
+                # 任何.templatemat文件引用
+                r'([A-Za-z_][A-Za-z0-9_]*\.templatemat)',
+                # JSON格式的templatemat引用
+                r'"templatemat":\s*"([^"]+\.templatemat)"',
+                # 其他可能的格式
+                r'templatemat["\']?\s*[:=]\s*["\']?([^"\'\s\n]+\.templatemat)',
+            ]
+            
+            found_templates = set()
+            for pattern in template_patterns:
+                matches = re.findall(pattern, content, re.IGNORECASE)
+                for match in matches:
+                    template_name = match.strip().strip('"\'')
+                    if template_name and template_name.endswith('.templatemat'):
+                        found_templates.add(template_name)
+            
+            # 转换为列表
+            template_references = list(found_templates)
+            
+            # 如果还没找到，查找可能的GUID引用（作为备选方案）
+            if not template_references:
+                guid_pattern = r'guid:\s*([a-f0-9]{32})'
+                guid_matches = re.findall(guid_pattern, content, re.IGNORECASE)
+                
+                for guid in guid_matches:
+                    # 标记为GUID引用，以便后续处理
+                    template_references.append(f'TEMPLATE_GUID:{guid}')
+            
+        except Exception as e:
+            debug_print(f"查找模板引用失败: {str(e)}")
+        
+        return template_references
+
     def _generate_detailed_report(self, all_issues: List[Dict[str, str]], total_files: int) -> Dict[str, Any]:
         """生成详细报告"""
         blocking_issues = []  # 初始化阻塞性错误列表
         try:
             # 区分阻塞性错误和警告/信息
-            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'potentially_orphaned_file'}
+            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'potentially_orphaned_file', 'no_template_found'}
             blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
             
             # 按类型分组问题 - 只处理阻塞性错误
@@ -4243,7 +4467,13 @@ class ResourceChecker(QThread):
                     'image_check_error': '图片检查错误 - 检查过程中发生异常',
                     'image_size_check_error': '图片尺寸检查错误 - 检查过程中发生异常',
                     'guid_duplicate': 'GUID重复 - 多个文件使用了相同的GUID',
-                    'guid_consistency_error': 'GUID一致性检查错误 - 检查过程中发生异常'
+                    'guid_consistency_error': 'GUID一致性检查错误 - 检查过程中发生异常',
+                    
+                    # 材质模板检查错误类型
+                    'invalid_template': '无效材质模板 - 使用了不允许的材质模板',
+                    'no_template_found': '缺少材质模板 - 材质文件中未找到模板引用',
+                    'template_check_error': '材质模板检查错误 - 检查过程中发生异常',
+                    'template_check_system_error': '材质模板检查系统错误 - 检查系统发生严重错误'
                 }
                 
                 for issue_type, issues in issues_by_type.items():
@@ -4317,6 +4547,51 @@ class ResourceChecker(QThread):
                     report_lines.append("\n**【guid_parse_error】修复建议:**")
                     report_lines.append("  1. 检查相关文件的.meta文件是否格式正确")
                     report_lines.append("  2. 在编辑器中重新导入出错的文件")
+                
+                # 材质模板问题的修复建议
+                if 'invalid_template' in issues_by_type:
+                    report_lines.append("\n**【invalid_template】修复建议:**")
+                    report_lines.append("  1. 检查材质文件是否使用了正确的模板")
+                    report_lines.append("  2. 允许的材质模板包括：")
+                    report_lines.append("     【角色和场景模板】")
+                    report_lines.append("     - Character_NPR_Opaque.templatemat")
+                    report_lines.append("     - Character_NPR_Masked.templatemat")
+                    report_lines.append("     - Character_NPR_Tranclucent.templatemat")
+                    report_lines.append("     - Character_AVATAR_Masked.templatemat")
+                    report_lines.append("     - Character_AVATAR_Opaque.templatemat")
+                    report_lines.append("     - Character_AVATAR_Tranclucent.templatemat")
+                    report_lines.append("     - Character_PBR_Opaque.templatemat")
+                    report_lines.append("     - Character_PBR_Translucent.templatemat")
+                    report_lines.append("     - Scene_Prop_Opaque.templatemat")
+                    report_lines.append("     - Scene_Prop_Tranclucent.templatemat")
+                    report_lines.append("     - Scene_Prop_Masked.templatemat")
+                    report_lines.append("     - Sight.templatemat")
+                    report_lines.append("     【特效模板】")
+                    report_lines.append("     - fx_basic_ADD.templatemat")
+                    report_lines.append("     - fx_basic_fire.templatemat")
+                    report_lines.append("     - fx_basic_TRANSLUCENT.templatemat")
+                    report_lines.append("     - fx_dissolve_*.templatemat (多种溶解效果)")
+                    report_lines.append("     - fx_fresnel_*.templatemat (菲涅尔效果)")
+                    report_lines.append("     - fx_uvwarp_*.templatemat (UV变形效果)")
+                    report_lines.append("     - fx_vertexesoffset*.templatemat (顶点偏移效果)")
+                    report_lines.append("     - PolarDistortion.templatemat")
+                    report_lines.append("     - standard_particle_*.templatemat (粒子效果)")
+                    report_lines.append("  3. 在编辑器中重新创建材质并选择正确的模板")
+                    report_lines.append("  4. 确保材质文件在entity目录下（排除entity/Environment/Scenes目录）")
+                
+                if 'no_template_found' in issues_by_type:
+                    report_lines.append("\n**【no_template_found】修复建议:**")
+                    report_lines.append("  1. 检查材质文件是否正确设置了模板引用")
+                    report_lines.append("  2. 在编辑器中重新创建材质并选择合适的模板")
+                    report_lines.append("  3. 确保材质文件格式正确且包含templatemat字段")
+                    report_lines.append("  4. 如果是手动创建的材质，请参考标准材质文件格式")
+                
+                if 'template_check_error' in issues_by_type:
+                    report_lines.append("\n**【template_check_error】修复建议:**")
+                    report_lines.append("  1. 检查材质文件格式是否正确")
+                    report_lines.append("  2. 检查文件是否可读取")
+                    report_lines.append("  3. 确认文件路径和权限设置")
+                    report_lines.append("  4. 如果问题持续，尝试重新导入材质文件")
                     report_lines.append("  3. 删除损坏的.meta文件，让编辑器重新生成")
                     report_lines.append("  4. 确保文件编码为UTF-8格式")
                 
@@ -7168,17 +7443,28 @@ class ArtResourceManager(QMainWindow):
             # 收集所有要添加的文件
             files_to_add = []
             
+            # 标准化现有上传文件列表（用于重复检查）
+            normalized_upload_files = set()
+            for upload_file in self.upload_files:
+                normalized_upload_files.add(os.path.normpath(os.path.abspath(upload_file)))
+            
             # 添加依赖文件
             for dep_file in result['dependency_files']:
-                if dep_file not in self.upload_files:
+                normalized_dep_file = os.path.normpath(os.path.abspath(dep_file))
+                if normalized_dep_file not in normalized_upload_files:
                     files_to_add.append(dep_file)
                     self.log_text.append(f"➕ 添加依赖文件: {os.path.basename(dep_file)}")
+                else:
+                    self.log_text.append(f"🔍 跳过重复的依赖文件: {os.path.basename(dep_file)}")
             
             # 添加meta文件
             for meta_file in result['meta_files']:
-                if meta_file not in self.upload_files:
+                normalized_meta_file = os.path.normpath(os.path.abspath(meta_file))
+                if normalized_meta_file not in normalized_upload_files:
                     files_to_add.append(meta_file)
                     self.log_text.append(f"➕ 添加Meta文件: {os.path.basename(meta_file)}")
+                else:
+                    self.log_text.append(f"🔍 跳过重复的Meta文件: {os.path.basename(meta_file)}")
             
             # 统计原始文件本身的meta文件
             original_meta_count = 0
@@ -7225,13 +7511,18 @@ class ArtResourceManager(QMainWindow):
                     added_count = 0
                     for file_path in files_to_add:
                         if os.path.exists(file_path):
-                            # 添加到文件列表
-                            if file_path not in self.upload_files:
+                            # 使用标准化路径进行重复检查
+                            normalized_file_path = os.path.normpath(os.path.abspath(file_path))
+                            existing_normalized = [os.path.normpath(os.path.abspath(f)) for f in self.upload_files]
+                            
+                            if normalized_file_path not in existing_normalized:
                                 self.upload_files.append(file_path)
                                 added_count += 1
-                            
-                            # 添加到UI列表
-                            self.file_list.add_file_item(file_path)
+                                
+                                # 添加到UI列表
+                                self.file_list.add_file_item(file_path)
+                            else:
+                                self.log_text.append(f"⚠️ 最终检查：跳过重复文件 {os.path.basename(file_path)}")
                     
                     self.log_text.append(f"✅ 成功添加 {added_count} 个依赖文件到上传列表")
                     self.log_text.append(f"📋 当前上传列表总计: {len(self.upload_files)} 个文件")
