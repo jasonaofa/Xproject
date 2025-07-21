@@ -4391,14 +4391,40 @@ class ResourceChecker(QThread):
         return template_references
 
     def _generate_detailed_report(self, all_issues: List[Dict[str, str]], total_files: int) -> Dict[str, Any]:
-        """生成详细报告"""
+        """生成详细报告 - 美术友好版本"""
         blocking_issues = []  # 初始化阻塞性错误列表
         try:
             # 区分阻塞性错误和警告/信息
             non_blocking_types = {'meta_missing_git', 'guid_file_update', 'potentially_orphaned_file', 'no_template_found'}
             blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
             
-            # 按类型分组问题 - 只处理阻塞性错误
+            # 按严重程度分类
+            critical_issues = []    # 严重错误：阻止上传
+            warning_issues = []     # 警告：可以上传但需要注意
+            info_issues = []        # 信息：提示性信息
+            
+            # 定义严重程度
+            critical_types = {
+                'meta_missing_both', 'meta_missing_svn', 'guid_mismatch', 'guid_invalid_both',
+                'guid_duplicate_internal', 'guid_duplicate_git', 'guid_reference_missing',
+                'internal_dependency_missing', 'invalid_template'
+            }
+            
+            warning_types = {
+                'chinese_filename', 'image_width_not_power_of_2', 'image_height_not_power_of_2',
+                'image_too_large', 'guid_parse_error', 'template_check_error'
+            }
+            
+            for issue in blocking_issues:
+                issue_type = issue.get('type', 'unknown')
+                if issue_type in critical_types:
+                    critical_issues.append(issue)
+                elif issue_type in warning_types:
+                    warning_issues.append(issue)
+                else:
+                    info_issues.append(issue)
+            
+            # 按类型分组问题
             issues_by_type = {}
             for issue in blocking_issues:
                 issue_type = issue.get('type', 'unknown')
@@ -4406,279 +4432,445 @@ class ResourceChecker(QThread):
                     issues_by_type[issue_type] = []
                 issues_by_type[issue_type].append(issue)
             
-            # 生成格式化报告
+            # 生成美化报告
             report_lines = []
-            report_lines.append("=" * 80)
-            report_lines.append("**资源检查详细报告**")
-            report_lines.append("=" * 80)
-            report_lines.append(f"检查时间: {self._get_current_time()}")
-            report_lines.append(f"检查文件总数: {total_files}")
-            report_lines.append(f"发现阻塞性错误: {len(blocking_issues)} 个")
-            if len(all_issues) > len(blocking_issues):
-                report_lines.append(f"(已过滤 {len(all_issues) - len(blocking_issues)} 个警告/信息)")
+            
+            # 报告头部 - 更加美观
+            report_lines.append("╔" + "═" * 78 + "╗")
+            report_lines.append("║" + "🎨 美术资源检查报告".center(78) + "║")
+            report_lines.append("╚" + "═" * 78 + "╝")
+            report_lines.append("")
+            
+            # 基本信息
+            report_lines.append("📋 **检查概况**")
+            report_lines.append("┌" + "─" * 50 + "┐")
+            report_lines.append(f"│ 📅 检查时间: {self._get_current_time()}")
+            report_lines.append(f"│ 📁 检查文件数: {total_files} 个")
+            report_lines.append(f"│ 🔍 发现问题数: {len(blocking_issues)} 个")
+            report_lines.append("└" + "─" * 50 + "┘")
             report_lines.append("")
             
             if blocking_issues:
-                # 首先显示问题分类统计  
-                report_lines.append("**问题分类统计:**")
-                report_lines.append("-" * 40)
+                # 问题严重程度统计
+                report_lines.append("🚨 **问题严重程度统计**")
+                report_lines.append("┌" + "─" * 60 + "┐")
+                if critical_issues:
+                    report_lines.append(f"│ 🔴 **严重错误**: {len(critical_issues)} 个 (必须修复才能上传)")
+                if warning_issues:
+                    report_lines.append(f"│ 🟡 **警告**: {len(warning_issues)} 个 (建议修复)")
+                if info_issues:
+                    report_lines.append(f"│ 🔵 **信息**: {len(info_issues)} 个 (提示信息)")
+                report_lines.append("└" + "─" * 60 + "┘")
+                report_lines.append("")
                 
-                # 问题类型说明 - 只包含阻塞性错误类型
-                type_descriptions = {
-                    # 阻塞性Meta检查错误类型
-                    'meta_missing_both': 'SVN和Git中都缺少.meta文件 - 需要生成.meta文件',
-                    'meta_missing_svn': 'SVN中缺少.meta文件 - Git中存在，需要从Git复制',
-                    'meta_missing_svn_invalid_git': 'SVN中缺少.meta文件且Git中的.meta文件无效',
-                    'meta_missing_git_invalid_svn': 'Git中缺少.meta文件且SVN中的.meta文件无效',
-                    'guid_mismatch': 'GUID不一致 - SVN和Git中的.meta文件GUID不同',
-                    'guid_invalid_both': 'SVN和Git中的.meta文件都没有有效GUID',
-                    'guid_invalid_svn': 'SVN中的.meta文件无效GUID',
-                    'guid_invalid_git': 'Git中的.meta文件无效GUID',
-                    'svn_meta_no_guid': 'SVN中的.meta文件缺少有效GUID',
-                    'svn_meta_read_error': 'SVN中的.meta文件读取失败',
-                    'git_meta_read_error': 'Git中的.meta文件读取失败',
-                    'git_path_calc_error': '计算Git路径失败',
+                # 问题分类和友好解释
+                report_lines.append("💡 **问题类型解释**")
+                report_lines.append("═" * 70)
+                
+                # 美术友好的问题类型说明
+                type_explanations = {
+                    # 严重错误 - 用通俗语言解释
+                    'meta_missing_both': {
+                        'icon': '🔴',
+                        'title': '缺少配置文件',
+                        'description': '资源文件缺少必需的.meta配置文件',
+                        'impact': '无法在游戏引擎中正确识别和使用',
+                        'solution': '在编辑器中重新导入文件'
+                    },
+                    'meta_missing_svn': {
+                        'icon': '🔴',
+                        'title': '本地缺少配置文件',
+                        'description': '本地SVN目录缺少.meta文件，但Git中存在',
+                        'impact': '可能导致文件关联错误',
+                        'solution': '从Git复制对应的.meta文件'
+                    },
+                    'meta_missing_svn_invalid_git': {
+                        'icon': '🔴',
+                        'title': '本地缺少配置文件且Git配置无效',
+                        'description': '本地SVN目录缺少.meta文件，且Git中的.meta文件也有问题',
+                        'impact': '文件无法正确识别，需要重新生成配置',
+                        'solution': '删除Git中的.meta文件，在编辑器中重新导入'
+                    },
+                    'meta_missing_git_invalid_svn': {
+                        'icon': '🔴',
+                        'title': 'Git缺少配置文件且本地配置无效',
+                        'description': 'Git中缺少.meta文件，且本地SVN的.meta文件也有问题',
+                        'impact': '文件无法正确同步，需要重新生成配置',
+                        'solution': '删除本地.meta文件，在编辑器中重新导入'
+                    },
+                    'guid_mismatch': {
+                        'icon': '🔴',
+                        'title': '文件ID不匹配',
+                        'description': '同一文件在不同位置的唯一标识符不一致',
+                        'impact': '会导致引用错误，材质、预制体等失效',
+                        'solution': '使用正确的标识符，通常以Git为准'
+                    },
+                    'guid_invalid_both': {
+                        'icon': '🔴',
+                        'title': '文件ID格式错误',
+                        'description': 'SVN和Git中的.meta文件都没有有效的GUID',
+                        'impact': '文件无法被游戏引擎正确识别',
+                        'solution': '删除损坏的.meta文件，重新导入'
+                    },
+                    'guid_invalid_svn': {
+                        'icon': '🔴',
+                        'title': '本地文件ID格式错误',
+                        'description': '本地SVN中的.meta文件GUID格式不正确',
+                        'impact': '文件无法被游戏引擎正确识别',
+                        'solution': '删除本地.meta文件，从Git复制或重新导入'
+                    },
+                    'guid_invalid_git': {
+                        'icon': '🔴',
+                        'title': 'Git文件ID格式错误',
+                        'description': 'Git中的.meta文件GUID格式不正确',
+                        'impact': '文件无法被游戏引擎正确识别',
+                        'solution': '删除Git中的.meta文件，重新导入'
+                    },
+                    'svn_meta_no_guid': {
+                        'icon': '🔴',
+                        'title': '本地配置文件缺少ID',
+                        'description': '本地SVN的.meta文件中没有找到GUID字段',
+                        'impact': '文件无法被游戏引擎正确识别',
+                        'solution': '删除本地.meta文件，重新导入或从Git复制'
+                    },
+                    'svn_meta_read_error': {
+                        'icon': '🔴',
+                        'title': '本地配置文件读取失败',
+                        'description': '无法读取本地SVN中的.meta文件',
+                        'impact': '文件状态未知，可能影响同步',
+                        'solution': '检查文件权限，或删除重新生成'
+                    },
+                    'git_meta_read_error': {
+                        'icon': '🔴',
+                        'title': 'Git配置文件读取失败',
+                        'description': '无法读取Git中的.meta文件',
+                        'impact': '文件状态未知，可能影响同步',
+                        'solution': '检查Git仓库状态，或重新导入文件'
+                    },
+                    'git_path_calc_error': {
+                        'icon': '🔴',
+                        'title': 'Git路径计算失败',
+                        'description': '无法计算文件在Git中的对应路径',
+                        'impact': '无法进行路径映射和同步',
+                        'solution': '检查路径映射配置，或联系技术支持'
+                    },
+                    'guid_duplicate_internal': {
+                        'icon': '🔴',
+                        'title': '内部文件ID重复',
+                        'description': '上传文件包内部存在重复的GUID',
+                        'impact': '游戏引擎会混淆文件，导致引用错误',
+                        'solution': '检查是否有重复文件，保留其中一个'
+                    },
+                    'guid_duplicate_git': {
+                        'icon': '🔴',
+                        'title': '文件ID冲突',
+                        'description': '不同的文件使用了相同的唯一标识符',
+                        'impact': '游戏引擎会混淆文件，导致引用错误',
+                        'solution': '重新生成冲突文件的标识符'
+                    },
+                    'guid_reference_missing': {
+                        'icon': '🔴',
+                        'title': '缺少关联文件',
+                        'description': '文件引用了不存在的其他资源',
+                        'impact': '材质会显示为粉色，预制体可能缺失组件',
+                        'solution': '添加缺失的资源文件或移除无效引用'
+                    },
+                    'guid_reference_parse_error': {
+                        'icon': '🔴',
+                        'title': '引用解析失败',
+                        'description': '无法解析文件中的GUID引用',
+                        'impact': '无法检查依赖关系完整性',
+                        'solution': '检查文件格式是否正确，重新导入'
+                    },
+                    'guid_reference_check_error': {
+                        'icon': '🔴',
+                        'title': '引用检查异常',
+                        'description': 'GUID引用检查过程中发生异常',
+                        'impact': '无法确认依赖关系完整性',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'guid_reference_system_error': {
+                        'icon': '🔴',
+                        'title': '引用系统错误',
+                        'description': 'GUID引用检查系统发生严重错误',
+                        'impact': '无法进行依赖关系检查',
+                        'solution': '联系技术支持'
+                    },
+                    'internal_dependency_missing': {
+                        'icon': '🔴',
+                        'title': '依赖文件不完整',
+                        'description': '上传的文件包缺少必要的依赖文件',
+                        'impact': '资源无法正常显示或工作',
+                        'solution': '添加所有依赖的贴图、模型等文件'
+                    },
+                    'internal_dependency_check_error': {
+                        'icon': '🔴',
+                        'title': '内部依赖检查失败',
+                        'description': '内部依赖检查过程中发生异常',
+                        'impact': '无法确认文件包完整性',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'invalid_template': {
+                        'icon': '🔴',
+                        'title': '材质模板错误',
+                        'description': '使用了项目不允许的材质模板',
+                        'impact': '材质效果不符合项目标准',
+                        'solution': '使用项目规定的材质模板重新创建'
+                    },
+                    'template_check_system_error': {
+                        'icon': '🔴',
+                        'title': '材质模板检查系统错误',
+                        'description': '材质模板检查系统发生严重错误',
+                        'impact': '无法进行材质模板验证',
+                        'solution': '联系技术支持'
+                    },
                     
-                    # 阻塞性GUID引用检查错误类型
-                    'guid_reference_missing': 'GUID引用缺失 - 引用了不存在的资源GUID，需要添加对应文件',
-                    'guid_reference_parse_error': 'GUID引用解析错误 - 无法解析文件中的GUID引用',
-                    'guid_reference_check_error': 'GUID引用检查错误 - 检查过程中发生异常',
-                    'guid_reference_system_error': 'GUID引用系统错误 - 检查系统发生严重错误',
-                    'internal_dependency_missing': '内部依赖缺失 - 本次推送文件包内部依赖不完整',
-                    'internal_dependency_check_error': '内部依赖检查错误 - 检查过程中发生异常',
+                    # 基础检查错误
+                    'meta_missing': {
+                        'icon': '🔴',
+                        'title': '缺少Meta文件',
+                        'description': '资源文件没有对应的.meta文件',
+                        'impact': '无法在游戏引擎中正确识别',
+                        'solution': '在编辑器中重新导入文件'
+                    },
+                    'meta_empty': {
+                        'icon': '🔴',
+                        'title': 'Meta文件为空',
+                        'description': '.meta文件存在但内容为空',
+                        'impact': '无法获取文件信息',
+                        'solution': '删除空的.meta文件，重新导入'
+                    },
+                    'meta_no_guid': {
+                        'icon': '🔴',
+                        'title': 'Meta文件缺少GUID',
+                        'description': '.meta文件中没有找到guid字段',
+                        'impact': '文件无法被游戏引擎正确识别',
+                        'solution': '删除.meta文件，重新导入'
+                    },
+                    'meta_read_error': {
+                        'icon': '🔴',
+                        'title': 'Meta文件读取错误',
+                        'description': '无法读取.meta文件内容',
+                        'impact': '无法获取文件信息',
+                        'solution': '检查文件权限，或重新生成'
+                    },
+                    'meta_check_error': {
+                        'icon': '🔴',
+                        'title': 'Meta文件检查错误',
+                        'description': 'Meta文件检查过程中发生异常',
+                        'impact': '无法确认文件状态',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'guid_duplicate': {
+                        'icon': '🔴',
+                        'title': 'GUID重复',
+                        'description': '多个文件使用了相同的GUID',
+                        'impact': '游戏引擎会混淆文件',
+                        'solution': '重新生成重复文件的GUID'
+                    },
+                    'guid_consistency_error': {
+                        'icon': '🔴',
+                        'title': 'GUID一致性检查错误',
+                        'description': 'GUID一致性检查过程中发生异常',
+                        'impact': '无法确认GUID一致性',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'uniqueness_check_error': {
+                        'icon': '🔴',
+                        'title': 'GUID唯一性检查错误',
+                        'description': 'GUID唯一性检查过程中发生异常',
+                        'impact': '无法确认GUID唯一性',
+                        'solution': '重新检查，或联系技术支持'
+                    },
                     
-                    # 阻塞性GUID唯一性检查错误类型
-                    'guid_duplicate_internal': 'GUID内部重复 - 上传文件内部存在重复的GUID',
-                    'guid_duplicate_git': 'GUID真正冲突 - 不同文件使用了相同的GUID',
-                    'guid_parse_error': 'GUID解析错误 - 无法解析文件中的GUID',
-                    'uniqueness_check_error': 'GUID唯一性检查错误 - 检查过程中发生异常',
-                    
-                    # 阻塞性基础检查错误类型
-                    'meta_missing': 'Meta文件缺失 - 资源文件没有对应的.meta文件',
-                    'meta_empty': 'Meta文件为空 - .meta文件存在但内容为空',
-                    'meta_no_guid': 'Meta文件缺少GUID - .meta文件中没有找到guid字段',
-                    'meta_read_error': 'Meta文件读取错误 - 无法读取.meta文件内容',
-                    'meta_check_error': 'Meta文件检查错误 - 检查过程中发生异常',
-                    'chinese_filename': '文件名包含中文字符 - 不建议在编辑器资源文件名中使用中文',
-                    'chinese_check_error': '中文字符检查错误 - 检查过程中发生异常',
-                    'image_width_not_power_of_2': '图片宽度不是2的幂次 - 建议使用2^n尺寸以优化性能',
-                    'image_height_not_power_of_2': '图片高度不是2的幂次 - 建议使用2^n尺寸以优化性能',
-                    'image_too_large': '图片尺寸过大 - 超过2048像素可能影响性能',
-                    'image_check_error': '图片检查错误 - 检查过程中发生异常',
-                    'image_size_check_error': '图片尺寸检查错误 - 检查过程中发生异常',
-                    'guid_duplicate': 'GUID重复 - 多个文件使用了相同的GUID',
-                    'guid_consistency_error': 'GUID一致性检查错误 - 检查过程中发生异常',
-                    
-                    # 材质模板检查错误类型
-                    'invalid_template': '无效材质模板 - 使用了不允许的材质模板',
-                    'no_template_found': '缺少材质模板 - 材质文件中未找到模板引用',
-                    'template_check_error': '材质模板检查错误 - 检查过程中发生异常',
-                    'template_check_system_error': '材质模板检查系统错误 - 检查系统发生严重错误'
+                    # 警告 - 不阻止上传但建议修复
+                    'chinese_filename': {
+                        'icon': '🟡',
+                        'title': '文件名包含中文',
+                        'description': '资源文件名包含中文字符',
+                        'impact': '可能在某些系统上出现兼容性问题',
+                        'solution': '重命名为英文文件名'
+                    },
+                    'chinese_check_error': {
+                        'icon': '🟡',
+                        'title': '中文字符检查错误',
+                        'description': '中文字符检查过程中发生异常',
+                        'impact': '无法确认文件名规范性',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'image_width_not_power_of_2': {
+                        'icon': '🟡',
+                        'title': '贴图宽度不是2的幂',
+                        'description': '贴图宽度不是2的幂次方(如256, 512, 1024)',
+                        'impact': '可能影响渲染性能和内存占用',
+                        'solution': '调整为2的幂次方尺寸'
+                    },
+                    'image_height_not_power_of_2': {
+                        'icon': '🟡',
+                        'title': '贴图高度不是2的幂',
+                        'description': '贴图高度不是2的幂次方(如256, 512, 1024)',
+                        'impact': '可能影响渲染性能和内存占用',
+                        'solution': '调整为2的幂次方尺寸'
+                    },
+                    'image_too_large': {
+                        'icon': '🟡',
+                        'title': '贴图尺寸过大',
+                        'description': '贴图尺寸超过建议的最大值(通常是2048)',
+                        'impact': '会消耗大量内存，影响游戏性能',
+                        'solution': '压缩贴图或降低分辨率'
+                    },
+                    'image_check_error': {
+                        'icon': '🟡',
+                        'title': '图片检查错误',
+                        'description': '图片检查过程中发生异常',
+                        'impact': '无法确认图片规范性',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'image_size_check_error': {
+                        'icon': '🟡',
+                        'title': '图片尺寸检查错误',
+                        'description': '图片尺寸检查过程中发生异常',
+                        'impact': '无法确认图片尺寸规范',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'guid_parse_error': {
+                        'icon': '🟡',
+                        'title': '文件格式异常',
+                        'description': '文件格式存在问题，无法正确解析',
+                        'impact': '可能导致文件无法正常使用',
+                        'solution': '重新导入文件或检查文件是否损坏'
+                    },
+                    'template_check_error': {
+                        'icon': '🟡',
+                        'title': '材质检查异常',
+                        'description': '材质文件检查过程中出现异常',
+                        'impact': '无法确认材质是否符合规范',
+                        'solution': '检查材质文件是否完整或重新创建'
+                    },
+                    'analysis_error': {
+                        'icon': '🟡',
+                        'title': '文件分析错误',
+                        'description': '文件分析过程中发生异常',
+                        'impact': '无法完成文件分析',
+                        'solution': '重新检查，或联系技术支持'
+                    },
+                    'check_error': {
+                        'icon': '🟡',
+                        'title': '检查过程错误',
+                        'description': '检查过程中发生系统错误',
+                        'impact': '无法完成完整检查',
+                        'solution': '重新检查，或联系技术支持'
+                    }
                 }
                 
+                # 显示问题类型说明
                 for issue_type, issues in issues_by_type.items():
-                    description = type_descriptions.get(issue_type, f'未知问题类型: {issue_type}')
-                    report_lines.append(f"  • **{issue_type}**: {len(issues)} 个")
-                    report_lines.append(f"    说明: {description}")
+                    if issue_type in type_explanations:
+                        explanation = type_explanations[issue_type]
+                        report_lines.append(f"\n{explanation['icon']} **{explanation['title']}** ({len(issues)} 个)")
+                        report_lines.append(f"   📝 问题说明: {explanation['description']}")
+                        report_lines.append(f"   ⚠️  可能影响: {explanation['impact']}")
+                        report_lines.append(f"   🔧 解决方案: {explanation['solution']}")
+                    else:
+                        report_lines.append(f"\n🔵 **{issue_type}** ({len(issues)} 个)")
+                        report_lines.append(f"   📝 未知问题类型，请联系技术支持")
                 report_lines.append("")
                 
-                # 添加修复建议（只显示阻塞性错误的修复建议）
-                report_lines.append("**修复建议:**")
-                report_lines.append("=" * 60)
+                report_lines.append("🔧 **详细修复指南**")
+                report_lines.append("═" * 70)
                 
-                if 'meta_missing_both' in issues_by_type:
-                    report_lines.append("\n**【meta_missing_both】修复建议:**")
-                    report_lines.append("  1. 在编辑器中重新导入这些资源文件")
-                    report_lines.append("  2. 或者手动创建.meta文件并生成GUID")
+                # 按严重程度显示修复建议
+                if critical_issues:
+                    report_lines.append("\n🚨 **严重错误修复 (必须处理)**")
+                    report_lines.append("─" * 50)
+                    self._add_detailed_fix_guide(report_lines, critical_issues, issues_by_type, type_explanations)
                 
-                if 'meta_missing_svn' in issues_by_type:
-                    report_lines.append("\n**【meta_missing_svn】修复建议:**")
-                    report_lines.append("  1. 从Git仓库复制对应的.meta文件到SVN目录")
-                    report_lines.append("  2. 确保文件名和路径完全匹配")
+                if warning_issues:
+                    report_lines.append("\n⚠️  **警告修复 (建议处理)**")
+                    report_lines.append("─" * 50)
+                    self._add_detailed_fix_guide(report_lines, warning_issues, issues_by_type, type_explanations)
                 
-                if 'guid_mismatch' in issues_by_type:
-                    report_lines.append("\n**【guid_mismatch】修复建议:**")
-                    report_lines.append("  1. 确定哪个GUID是正确的（通常Git中的更权威）")
-                    report_lines.append("  2. 更新SVN中的.meta文件使其与Git保持一致")
-                    report_lines.append("  3. 或者在编辑器中重新生成.meta文件")
-                
-                if any(t in issues_by_type for t in ['chinese_filename']):
-                    report_lines.append("\n**【chinese_filename】修复建议:**")
-                    report_lines.append("  1. 重命名文件，使用英文名称")
-                    report_lines.append("  2. 更新引用该文件的其他资源")
-                
-                if any(t in issues_by_type for t in ['image_width_not_power_of_2', 'image_height_not_power_of_2']):
-                    report_lines.append("\n**【图片尺寸】修复建议:**")
-                    report_lines.append("  1. 使用图像编辑软件调整图片尺寸为2的幂次")
-                    report_lines.append("  2. 常用尺寸: 32, 64, 128, 256, 512, 1024, 2048")
-                    report_lines.append("  3. 在编辑器Import Settings中设置合适的压缩格式")
-                
-                if 'guid_reference_missing' in issues_by_type:
-                    report_lines.append("\n**【guid_reference_missing】修复建议:**")
-                    report_lines.append("  1. 找到缺失的资源文件并添加到推送列表中")
-                    report_lines.append("  2. 检查资源文件是否已存在于Git仓库中")
-                    report_lines.append("  3. 如果是编辑器内置资源，请检查GUID是否正确")
-                    report_lines.append("  4. 考虑是否需要重新生成资源的依赖关系")
-                
-                if 'internal_dependency_missing' in issues_by_type:
-                    report_lines.append("\n**【internal_dependency_missing】修复建议:**")
-                    report_lines.append("  1. 将缺失的依赖文件添加到推送列表中")
-                    report_lines.append("  2. 确保所有相关文件都一起推送")
-                    report_lines.append("  3. 检查文件路径是否正确")
-                
-                # GUID唯一性问题的修复建议
-                if 'guid_duplicate_internal' in issues_by_type:
-                    report_lines.append("\n**【guid_duplicate_internal】修复建议:**")
-                    report_lines.append("  1. 检查重复GUID的文件是否是同一个文件的不同副本")
-                    report_lines.append("  2. 如果是重复文件，保留一个并移除其他副本")
-                    report_lines.append("  3. 如果是不同文件但GUID相同，在编辑器中重新生成其中一个文件的.meta")
-                    report_lines.append("  4. 确保每个资源文件都有唯一的GUID")
-                
-                if 'guid_duplicate_git' in issues_by_type:
-                    report_lines.append("\n**【guid_duplicate_git】修复建议:**")
-                    report_lines.append("  ⚠️ 这是真正的GUID冲突，需要处理")
-                    report_lines.append("  1. 不同的文件不能使用相同的GUID")
-                    report_lines.append("  2. 在编辑器中删除冲突文件的.meta文件")
-                    report_lines.append("  3. 重新导入文件，让编辑器生成新的GUID")
-                    report_lines.append("  4. 或者检查是否误选了错误的文件进行上传")
-                    report_lines.append("  5. 确保每个资源文件都有唯一的GUID")
-                
-                if 'guid_parse_error' in issues_by_type:
-                    report_lines.append("\n**【guid_parse_error】修复建议:**")
-                    report_lines.append("  1. 检查相关文件的.meta文件是否格式正确")
-                    report_lines.append("  2. 在编辑器中重新导入出错的文件")
-                
-                # 材质模板问题的修复建议
-                if 'invalid_template' in issues_by_type:
-                    report_lines.append("\n**【invalid_template】修复建议:**")
-                    report_lines.append("  1. 检查材质文件是否使用了正确的模板")
-                    report_lines.append("  2. 允许的材质模板包括：")
-                    report_lines.append("     【角色和场景模板】")
-                    report_lines.append("     - Character_NPR_Opaque.templatemat")
-                    report_lines.append("     - Character_NPR_Masked.templatemat")
-                    report_lines.append("     - Character_NPR_Tranclucent.templatemat")
-                    report_lines.append("     - Character_AVATAR_Masked.templatemat")
-                    report_lines.append("     - Character_AVATAR_Opaque.templatemat")
-                    report_lines.append("     - Character_AVATAR_Tranclucent.templatemat")
-                    report_lines.append("     - Character_PBR_Opaque.templatemat")
-                    report_lines.append("     - Character_PBR_Translucent.templatemat")
-                    report_lines.append("     - Scene_Prop_Opaque.templatemat")
-                    report_lines.append("     - Scene_Prop_Tranclucent.templatemat")
-                    report_lines.append("     - Scene_Prop_Masked.templatemat")
-                    report_lines.append("     - Sight.templatemat")
-                    report_lines.append("     【特效模板】")
-                    report_lines.append("     - fx_basic_ADD.templatemat")
-                    report_lines.append("     - fx_basic_fire.templatemat")
-                    report_lines.append("     - fx_basic_TRANSLUCENT.templatemat")
-                    report_lines.append("     - fx_dissolve_*.templatemat (多种溶解效果)")
-                    report_lines.append("     - fx_fresnel_*.templatemat (菲涅尔效果)")
-                    report_lines.append("     - fx_uvwarp_*.templatemat (UV变形效果)")
-                    report_lines.append("     - fx_vertexesoffset*.templatemat (顶点偏移效果)")
-                    report_lines.append("     - PolarDistortion.templatemat")
-                    report_lines.append("     - standard_particle_*.templatemat (粒子效果)")
-                    report_lines.append("  3. 在编辑器中重新创建材质并选择正确的模板")
-                    report_lines.append("  4. 确保材质文件在entity目录下（排除entity/Environment/Scenes目录）")
-                
-                if 'no_template_found' in issues_by_type:
-                    report_lines.append("\n**【no_template_found】修复建议:**")
-                    report_lines.append("  1. 检查材质文件是否正确设置了模板引用")
-                    report_lines.append("  2. 在编辑器中重新创建材质并选择合适的模板")
-                    report_lines.append("  3. 确保材质文件格式正确且包含templatemat字段")
-                    report_lines.append("  4. 如果是手动创建的材质，请参考标准材质文件格式")
-                
-                if 'template_check_error' in issues_by_type:
-                    report_lines.append("\n**【template_check_error】修复建议:**")
-                    report_lines.append("  1. 检查材质文件格式是否正确")
-                    report_lines.append("  2. 检查文件是否可读取")
-                    report_lines.append("  3. 确认文件路径和权限设置")
-                    report_lines.append("  4. 如果问题持续，尝试重新导入材质文件")
-                    report_lines.append("  3. 删除损坏的.meta文件，让编辑器重新生成")
-                    report_lines.append("  4. 确保文件编码为UTF-8格式")
-                
-                report_lines.append("")
-                
-                report_lines.append("**详细问题列表:**")
-                report_lines.append("=" * 60)
+                # 问题文件详细列表
+                report_lines.append("\n📋 **问题文件清单**")
+                report_lines.append("═" * 70)
                 
                 for issue_type, issues in issues_by_type.items():
-                    report_lines.append(f"\n**【{issue_type}】({len(issues)} 个问题)**")
-                    report_lines.append("-" * 50)
+                    if not issues:
+                        continue
+                        
+                    explanation = type_explanations.get(issue_type, {'icon': '🔵', 'title': issue_type})
+                    report_lines.append(f"\n{explanation['icon']} **{explanation['title']}** ({len(issues)} 个文件)")
+                    report_lines.append("┌" + "─" * 68 + "┐")
                     
                     for i, issue in enumerate(issues, 1):
                         file_path = issue.get('file', '')
                         file_name = os.path.basename(file_path)
-                        message = issue.get('message', '')
                         
-                        report_lines.append(f"  **问题 {i}:**")
-                        report_lines.append(f"    文件名: {file_name}")
-                        report_lines.append(f"    完整路径: {file_path}")
-                        report_lines.append(f"    问题描述: {message}")
+                        report_lines.append(f"│ {i:2d}. 📁 {file_name}")
                         
-                        # 显示额外的路径信息（如果存在）
-                        if 'svn_path' in issue:
-                            report_lines.append(f"    SVN路径: {issue['svn_path']}")
-                        if 'git_path' in issue:
-                            report_lines.append(f"    Git路径: {issue['git_path']}")
-                        if 'svn_guid' in issue:
-                            report_lines.append(f"    SVN GUID: {issue['svn_guid']}")
-                        if 'git_guid' in issue:
-                            report_lines.append(f"    Git GUID: {issue['git_guid']}")
+                        # 显示关键信息
+                        if 'message' in issue:
+                            message = issue['message']
+                            if len(message) > 50:
+                                message = message[:47] + "..."
+                            report_lines.append(f"│     💬 {message}")
                         
-                        # 显示GUID引用问题的详细信息
-                        if 'missing_guid' in issue:
-                            report_lines.append(f"    缺失GUID: {issue['missing_guid']}")
-                        if 'missing_info' in issue:
-                            report_lines.append(f"    缺失类型: {issue['missing_info']}")
-                        if 'reference_context' in issue:
-                            report_lines.append(f"    引用上下文: {issue['reference_context']}")
-                        if 'missing_file' in issue:
-                            report_lines.append(f"    缺失文件: {issue['missing_file']}")
-                        if 'dependency_info' in issue:
-                            report_lines.append(f"    依赖关系: {issue['dependency_info']}")
-                        if 'orphan_info' in issue:
-                            report_lines.append(f"    孤立信息: {issue['orphan_info']}")
+                        # 显示GUID相关的详细信息
+                        if issue_type in ['guid_mismatch', 'guid_invalid_svn', 'guid_invalid_git', 'guid_invalid_both', 'svn_meta_no_guid']:
+                            self._add_guid_details(report_lines, issue, issue_type)
                         
-                        # 显示GUID唯一性问题的详细信息
-                        if 'guid' in issue:
-                            report_lines.append(f"    涉及GUID: {issue['guid']}")
-                        if 'files' in issue:
-                            file_names = [os.path.basename(f) for f in issue['files']]
-                            report_lines.append(f"    重复文件: {', '.join(file_names)}")
-                        if 'file_count' in issue:
-                            report_lines.append(f"    重复次数: {issue['file_count']}")
-                        if 'upload_files' in issue:
-                            file_names = [os.path.basename(f) for f in issue['upload_files']]
-                            report_lines.append(f"    冲突的上传文件: {', '.join(file_names)}")
+                        # 显示其他特定问题的关键信息
+                        elif 'missing_guid' in issue:
+                            report_lines.append(f"│     🔍 缺失ID: {issue['missing_guid'][:20]}...")
+                        elif 'missing_file' in issue:
+                            missing_file = os.path.basename(issue['missing_file'])
+                            report_lines.append(f"│     📂 缺失文件: {missing_file}")
+                        elif 'git_guid' in issue and 'svn_guid' in issue:
+                            report_lines.append(f"│     🔄 Git ID: {issue['git_guid'][:10]}...")
+                            report_lines.append(f"│     🔄 SVN ID: {issue['svn_guid'][:10]}...")
                         
-                        # 显示文件更新的详细信息
-                        if 'upload_path' in issue:
-                            report_lines.append(f"    上传文件路径: {issue['upload_path']}")
-                        if 'git_path' in issue:
-                            report_lines.append(f"    Git文件路径: {issue['git_path']}")
-                        if 'git_file_name' in issue:
-                            report_lines.append(f"    Git中的文件名: {issue['git_file_name']}")
-                        if 'severity' in issue:
-                            severity_desc = {'info': '信息', 'warning': '警告', 'error': '错误'}.get(issue['severity'], issue['severity'])
-                            report_lines.append(f"    问题级别: {severity_desc}")
-                        
-                        report_lines.append("")
+                        if i < len(issues):
+                            report_lines.append("│" + " " * 68 + "│")
+                    
+                    report_lines.append("└" + "─" * 68 + "┘")
             
-            else:
-                report_lines.append("🎉 所有检查项目都通过了！")
+                # 最后的建议
+                report_lines.append("\n🎯 **处理建议**")
+                report_lines.append("═" * 70)
+                report_lines.append("1. 🔴 **优先处理严重错误** - 这些问题会阻止资源正常工作")
+                report_lines.append("2. 🟡 **然后处理警告** - 这些问题可能影响性能或兼容性")
+                report_lines.append("3. 💡 **遇到问题时** - 可以咨询技术美术或程序员")
+                report_lines.append("4. 🔄 **修复后** - 重新检查确保问题已解决")
                 report_lines.append("")
-                report_lines.append("检查结果:")
-                report_lines.append("  ✅ 所有文件都有对应的.meta文件")
-                report_lines.append("  ✅ 所有.meta文件都包含有效的GUID")
-                report_lines.append("  ✅ SVN和Git中的GUID保持一致")
-                report_lines.append("  ✅ 没有发现重复的GUID")
-                report_lines.append("  ✅ 没有发现GUID冲突")
-                report_lines.append("  ✅ 文件名符合规范")
-                report_lines.append("  ✅ 图片尺寸符合要求")
+                report_lines.append("📞 **需要帮助？** 请联系技术支持或查看项目文档")
+                
+            else:
+                # 无问题时的庆祝界面
+                report_lines.append("🎉 **恭喜！所有检查都通过了！**")
+                report_lines.append("┌" + "─" * 60 + "┐")
+                report_lines.append("│                                                          │")
+                report_lines.append("│  🎨 所有美术资源都符合项目规范！                          │")
+                report_lines.append("│  ✅ 可以安全地上传到Git仓库                              │")
+                report_lines.append("│                                                          │")
+                report_lines.append("│  检查项目:                                               │")
+                report_lines.append("│  📁 文件配置完整                                         │")
+                report_lines.append("│  🔑 文件ID正确                                           │")
+                report_lines.append("│  🔗 引用关系完整                                         │")
+                report_lines.append("│  🎯 材质模板规范                                         │")
+                report_lines.append("│  📏 图片尺寸适当                                         │")
+                report_lines.append("│  🔤 文件名规范                                           │")
+                report_lines.append("│                                                          │")
+                report_lines.append("└" + "─" * 60 + "┘")
+                report_lines.append("")
+                report_lines.append("💪 **太棒了！可以放心上传了！**")
             
             # 返回报告数据
             return {
                 'total_files': total_files,
                 'total_issues': len(blocking_issues),
+                'critical_issues': len(critical_issues),
+                'warning_issues': len(warning_issues),
+                'info_issues': len(info_issues),
                 'issues_by_type': issues_by_type,
                 'report_text': '\n'.join(report_lines),
                 'has_errors': len(blocking_issues) > 0
@@ -4694,6 +4886,254 @@ class ResourceChecker(QThread):
                 'has_errors': True,
                 'generation_error': str(e)
             }
+    
+    def _add_guid_details(self, report_lines: List[str], issue: Dict, issue_type: str):
+        """添加GUID相关问题的详细信息"""
+        import re
+        import json
+        
+        # 获取相关的GUID信息 - 兼容多种可能的字段名称
+        # 获取相关的GUID信息 - 兼容多种可能的字段名称
+        mat_file_guid = issue.get('mat_file_guid', issue.get('material_guid', ''))
+        meta_file_guid = issue.get('meta_file_guid', issue.get('meta_guid', ''))
+        svn_guid = issue.get('svn_guid', issue.get('svn_meta_guid', ''))
+        git_guid = issue.get('git_guid', issue.get('git_meta_guid', ''))
+        svn_meta_guid = issue.get('svn_meta_guid', svn_guid)
+        git_meta_guid = issue.get('git_meta_guid', git_guid)
+        
+        # 首先尝试直接读取文件内容获取GUID
+        file_path = issue.get('file', '')
+        actual_guid_found = False
+        
+        if file_path:
+            try:
+                # 读取.mat文件的GUID
+                mat_guids = []
+                if file_path.endswith('.mat') and os.path.exists(file_path):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        try:
+                            data = json.loads(content)
+                            if 'm_GUID' in data:
+                                mat_guids.append(data['m_GUID'])
+                            if 'm_RootObjectIdentifier' in data and 'm_GUID' in data['m_RootObjectIdentifier']:
+                                mat_guids.append(data['m_RootObjectIdentifier']['m_GUID'])
+                        except:
+                            # 使用正则表达式作为备选
+                            import re
+                            guid_matches = re.findall(r'"m_GUID":\s*"([a-f0-9]{32})"', content, re.IGNORECASE)
+                            mat_guids.extend(guid_matches)
+                
+                # 读取.meta文件的GUID
+                meta_guid = ''
+                meta_path = file_path + '.meta'
+                if os.path.exists(meta_path):
+                    with open(meta_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        try:
+                            data = json.loads(content)
+                            if 'm_MetaHeader' in data and 'm_GUID' in data['m_MetaHeader']:
+                                meta_guid = data['m_MetaHeader']['m_GUID']
+                        except:
+                            # 使用正则表达式作为备选
+                            import re
+                            guid_match = re.search(r'"m_GUID":\s*"([a-f0-9]{32,33})"', content, re.IGNORECASE)
+                            if guid_match:
+                                meta_guid = guid_match.group(1)
+                
+                # 显示实际的GUID信息
+                if mat_guids or meta_guid:
+                    report_lines.append("│     📋 **GUID详细信息:**")
+                    
+                    if mat_guids:
+                        # 找到主要的GUID (通常是第一个32位的)
+                        main_mat_guid = next((guid for guid in mat_guids if len(guid) == 32), mat_guids[0] if mat_guids else '')
+                        if main_mat_guid:
+                            if meta_guid and len(meta_guid) == 32 and main_mat_guid == meta_guid:
+                                report_lines.append(f"│     📄 .mat文件GUID: {main_mat_guid} ✅")
+                            else:
+                                report_lines.append(f"│     📄 .mat文件GUID: {main_mat_guid} ❌")
+                    
+                    if meta_guid:
+                        if len(meta_guid) == 32:
+                            report_lines.append(f"│     📄 .meta文件GUID: {meta_guid} ✅")
+                        else:
+                            report_lines.append(f"│     📄 .meta文件GUID: {meta_guid} ❌ (长度错误: {len(meta_guid)}位)")
+                    
+                    # 显示对比结果
+                    if mat_guids and meta_guid:
+                        main_mat_guid = next((guid for guid in mat_guids if len(guid) == 32), mat_guids[0] if mat_guids else '')
+                        if main_mat_guid and meta_guid:
+                            if main_mat_guid == meta_guid:
+                                report_lines.append("│     ✅ **GUID匹配**")
+                            else:
+                                report_lines.append("│     ❌ **GUID不匹配**")
+                                if len(meta_guid) == 33 and meta_guid[:-1] == main_mat_guid:
+                                    report_lines.append("│     🔍 **问题分析:** .meta文件GUID末尾多了一个字符")
+                                    report_lines.append(f"│     🔧 **修复方案:** 删除.meta文件GUID末尾的 '{meta_guid[-1]}'")
+                                else:
+                                    report_lines.append("│     🔧 **修复方案:** 将.meta文件GUID替换为.mat文件GUID")
+                    
+                    actual_guid_found = True
+                    
+            except Exception as e:
+                report_lines.append("│     📋 **GUID详细信息:**")
+                report_lines.append(f"│     ❌ 读取文件失败: {str(e)}")
+        
+        # 如果没有找到实际的GUID信息，检查是否有其他GUID信息
+        if not actual_guid_found:
+            has_guid_info = any([mat_file_guid, meta_file_guid, svn_guid, git_guid, svn_meta_guid, git_meta_guid])
+            
+            if has_guid_info:
+                # 根据问题类型显示不同的GUID信息
+                if issue_type == 'guid_mismatch':
+                    report_lines.append("│     📋 **GUID详细信息:**")
+                    if svn_guid and git_guid:
+                        if svn_guid != git_guid:
+                            report_lines.append(f"│     🔄 SVN GUID: {svn_guid} ❌")
+                            report_lines.append(f"│     🔄 Git GUID: {git_guid} ✅")
+                        else:
+                            report_lines.append(f"│     🔄 SVN GUID: {svn_guid}")
+                            report_lines.append(f"│     🔄 Git GUID: {git_guid}")
+                    
+                    # 如果有.mat文件和.meta文件的GUID，也显示出来
+                    if mat_file_guid:
+                        report_lines.append(f"│     📄 .mat文件GUID: {mat_file_guid}")
+                    if meta_file_guid and meta_file_guid != mat_file_guid:
+                        report_lines.append(f"│     📄 .meta文件GUID: {meta_file_guid}")
+                
+                elif issue_type == 'guid_invalid_svn':
+                    report_lines.append("│     📋 **GUID详细信息:**")
+                    if svn_guid:
+                        report_lines.append(f"│     🔄 SVN GUID: {svn_guid} ❌ (格式错误)")
+                    if git_guid:
+                        report_lines.append(f"│     🔄 Git GUID: {git_guid} ✅")
+                    if svn_meta_guid and svn_meta_guid != svn_guid:
+                        report_lines.append(f"│     📄 SVN .meta GUID: {svn_meta_guid} ❌")
+                    if git_meta_guid and git_meta_guid != git_guid:
+                        report_lines.append(f"│     📄 Git .meta GUID: {git_meta_guid} ✅")
+                
+                elif issue_type == 'guid_invalid_git':
+                    report_lines.append("│     📋 **GUID详细信息:**")
+                    if svn_guid:
+                        report_lines.append(f"│     🔄 SVN GUID: {svn_guid} ✅")
+                    if git_guid:
+                        report_lines.append(f"│     🔄 Git GUID: {git_guid} ❌ (格式错误)")
+                    if svn_meta_guid and svn_meta_guid != svn_guid:
+                        report_lines.append(f"│     📄 SVN .meta GUID: {svn_meta_guid} ✅")
+                    if git_meta_guid and git_meta_guid != git_guid:
+                        report_lines.append(f"│     📄 Git .meta GUID: {git_meta_guid} ❌")
+                
+                elif issue_type == 'guid_invalid_both':
+                    report_lines.append("│     📋 **GUID详细信息:**")
+                    if svn_guid:
+                        report_lines.append(f"│     🔄 SVN GUID: {svn_guid} ❌ (格式错误)")
+                    if git_guid:
+                        report_lines.append(f"│     🔄 Git GUID: {git_guid} ❌ (格式错误)")
+                    if svn_meta_guid and svn_meta_guid != svn_guid:
+                        report_lines.append(f"│     📄 SVN .meta GUID: {svn_meta_guid} ❌")
+                    if git_meta_guid and git_meta_guid != git_guid:
+                        report_lines.append(f"│     📄 Git .meta GUID: {git_meta_guid} ❌")
+                
+                elif issue_type == 'svn_meta_no_guid':
+                    report_lines.append("│     📋 **GUID详细信息:**")
+                    if git_guid:
+                        report_lines.append(f"│     🔄 Git GUID: {git_guid} ✅")
+                    if git_meta_guid and git_meta_guid != git_guid:
+                        report_lines.append(f"│     📄 Git .meta GUID: {git_meta_guid} ✅")
+                    report_lines.append("│     📄 SVN .meta GUID: 缺失 ❌")
+            else:
+                # 显示调试信息
+                report_lines.append("│     📋 **GUID详细信息:**")
+                report_lines.append("│     🔍 **调试信息 - 所有字段:**")
+                for key, value in issue.items():
+                    if 'guid' in key.lower() or 'id' in key.lower():
+                        report_lines.append(f"│       {key}: {value}")
+                if not any('guid' in key.lower() or 'id' in key.lower() for key in issue.keys()):
+                    report_lines.append("│       (未找到GUID相关字段)")
+        
+        # 显示建议的解决方案
+        report_lines.append("│     💡 **建议:** 以Git中的GUID为准，更新本地文件")
+    
+    def _add_detailed_fix_guide(self, report_lines: List[str], issues: List[Dict], issues_by_type: Dict, type_explanations: Dict):
+        """添加详细的修复指南"""
+        issue_types_in_list = set(issue.get('type', 'unknown') for issue in issues)
+        
+        # 过滤掉不需要显示详细修复指南的问题类型
+        skip_detailed_guide = {
+            'svn_meta_no_guid', 'guid_invalid_svn', 'guid_invalid_git', 'guid_invalid_both',
+            'svn_meta_read_error', 'git_meta_read_error', 'git_path_calc_error',
+            'guid_reference_parse_error', 'guid_reference_check_error', 'guid_reference_system_error',
+            'internal_dependency_check_error', 'template_check_system_error',
+            'meta_check_error', 'guid_consistency_error', 'uniqueness_check_error',
+            'chinese_check_error', 'image_check_error', 'image_size_check_error',
+            'analysis_error', 'check_error'
+        }
+        
+        for issue_type in issue_types_in_list:
+            if issue_type not in issues_by_type or issue_type in skip_detailed_guide:
+                continue
+                
+            type_issues = issues_by_type[issue_type]
+            explanation = type_explanations.get(issue_type, {'icon': '🔵', 'title': issue_type})
+            
+            report_lines.append(f"\n{explanation['icon']} **{explanation['title']}** ({len(type_issues)} 个)")
+            
+            # 根据问题类型提供具体的操作步骤
+            if issue_type == 'meta_missing_both':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 打开游戏编辑器")
+                report_lines.append("   2. 在Project窗口中找到问题文件")
+                report_lines.append("   3. 右键点击文件 → Reimport")
+                report_lines.append("   4. 等待导入完成，.meta文件会自动生成")
+            
+            elif issue_type == 'guid_mismatch':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 确认Git中的版本是最新的")
+                report_lines.append("   2. 复制Git中的.meta文件覆盖本地版本")
+                report_lines.append("   3. 或者删除本地.meta文件，重新导入")
+            
+            elif issue_type == 'invalid_template':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 在编辑器中打开材质文件")
+                report_lines.append("   2. 在Inspector中更改Shader")
+                report_lines.append("   3. 选择项目允许的材质模板")
+                report_lines.append("   4. 重新设置材质参数")
+                report_lines.append("   📝 **允许的模板:** Character_NPR_Opaque, Scene_Prop_Opaque 等")
+            
+            elif issue_type == 'chinese_filename':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 在文件管理器中重命名文件")
+                report_lines.append("   2. 使用英文名称，可以用拼音")
+                report_lines.append("   3. 在编辑器中刷新(Ctrl+R)")
+                report_lines.append("   4. 检查引用是否正常")
+            
+            elif issue_type in ['image_width_not_power_of_2', 'image_height_not_power_of_2']:
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 使用图像编辑软件(如Photoshop)")
+                report_lines.append("   2. 调整图像尺寸为2的幂次方")
+                report_lines.append("   3. 推荐尺寸: 256, 512, 1024, 2048")
+                report_lines.append("   4. 重新导入到编辑器")
+            
+            elif issue_type == 'image_too_large':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 评估是否真的需要这么大的尺寸")
+                report_lines.append("   2. 如果不需要，缩小到合适尺寸")
+                report_lines.append("   3. 如果需要，在编辑器中设置压缩")
+                report_lines.append("   4. 调整Import Settings中的Max Size")
+            
+            elif issue_type == 'guid_reference_missing':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 检查是否缺少贴图、模型等文件")
+                report_lines.append("   2. 将缺失的文件添加到上传列表")
+                report_lines.append("   3. 或者在材质中移除无效引用")
+                report_lines.append("   4. 重新检查依赖关系")
+            
+            else:
+                report_lines.append("   📋 **操作建议:**")
+                report_lines.append("   1. 检查文件是否完整")
+                report_lines.append("   2. 尝试重新导入文件")
+                report_lines.append("   3. 如有疑问请联系技术支持")
     
     def _get_current_time(self) -> str:
         """获取当前时间字符串"""

@@ -1,0 +1,31 @@
+{
+  "svn_path": "C:\\6.1.10_prefab",
+  "git_path": "H:/0124v_02/assetruntimenew/CommonResource",
+  "window_geometry": {
+    "x": 409,
+    "y": 54,
+    "width": 2560,
+    "height": 1361
+  },
+  "last_selected_branch": "★ miniw/release/v1.48.0 (当前)",
+  "resource_types": {
+    "prefab": true,
+    "material": true,
+    "texture": true,
+    "animation": true,
+    "script": true
+  },
+  "recent_files": [
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_sk.skeleton.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_sk.skeleton",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face2.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face2.mesh",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_face.mesh",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_yujing.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_yujing.mesh",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_base.mesh.meta",
+    "C:/6.1.10_prefab/Assets/entity/140467\\Model\\body_body_base.mesh"
+  ],
+  "max_recent_files": 10
+}
