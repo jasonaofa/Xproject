@@ -19,7 +19,11 @@ def main():
         "--onefile",
         "--windowed", 
         "--name=美术资源上传工具",
-        "--icon=app_icon.ico",
+        "--icon=app_icon_bai.ico",  # 使用白色图标作为exe文件图标
+        "--add-data=config.json;.",
+        "--add-data=app_icon.ico;.",     # 红色图标
+        "--add-data=app_icon_lv.ico;.",  # 绿色图标  
+        "--add-data=app_icon_bai.ico;.", # 白色图标
         "art_resource_manager.py"
     ]
     

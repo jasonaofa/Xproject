@@ -44,6 +44,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('config.json', '.'),
+        ('app_icon.ico', '.'),      # 错误状态图标文件
+        ('app_icon_lv.ico', '.'),   # 正常运行状态图标文件  
+        ('app_icon_bai.ico', '.'),  # 默认状态图标文件
     ],
     hiddenimports=[
         'PyQt5.QtCore',
@@ -85,7 +88,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app_icon.ico',  # 指定图标文件
+    icon='app_icon_bai.ico',  # 指定图标文件
 )
 '''
     

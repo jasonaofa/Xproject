@@ -1,0 +1,46 @@
+{
+  "server_config": {
+    "update_server_url": "http://your-update-server.com/api",
+    "check_interval_hours": 24,
+    "auto_check_on_startup": true,
+    "backup_versions_to_keep": 5
+  },
+  "version_info": {
+    "current_version": "1.0.0",
+    "build_date": "2025-09-02",
+    "features": [
+      "远程资源引用检查",
+      "Avatar/MiniUniverse子目录支持", 
+      "材质模板验证",
+      "替换模式文件重命名支持",
+      "热更新功能"
+    ]
+  },
+  "update_example": {
+    "description": "这是一个更新服务器响应的示例格式",
+    "api_endpoint": "/check_update",
+    "response_format": {
+      "has_update": true,
+      "latest_version": "1.1.0",
+      "current_version": "1.0.0",
+      "description": "新版本更新内容:\n- 修复了替换模式的bug\n- 优化了热更新性能\n- 新增了自动备份功能",
+      "release_date": "2025-09-03",
+      "files": [
+        {
+          "path": "art_resource_manager.py",
+          "url": "http://your-server.com/files/art_resource_manager.py",
+          "hash": "sha256_hash_here",
+          "size": 1024000
+        },
+        {
+          "path": "hot_update_manager.py", 
+          "url": "http://your-server.com/files/hot_update_manager.py",
+          "hash": "sha256_hash_here",
+          "size": 50000
+        }
+      ],
+      "mandatory": false,
+      "min_supported_version": "0.9.0"
+    }
+  }
+}

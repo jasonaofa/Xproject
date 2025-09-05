@@ -5,7 +5,7 @@ a = Analysis(
     ['art_resource_manager.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('config.json', '.'), ('app_icon.ico', '.'), ('app_icon_lv.ico', '.'), ('app_icon_bai.ico', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['app_icon.ico'],
+    icon=['app_icon_bai.ico'],
 )

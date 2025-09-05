@@ -1,0 +1,18 @@
+{
+    "m_GUID": "140488material123456789abcdef123456",
+    "m_Name": "surface_material",
+    "m_Shader": {
+        "m_GUID": "shader123456789abcdef123456789abcdef"
+    },
+    "m_Properties": {
+        "_MainTex": {
+            "m_GUID": "140488texture123456789abcdef123456"
+        }
+    }
+}
+
+
+
+
+
+

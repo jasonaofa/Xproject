@@ -1394,70 +1394,70 @@ class GitSvnManager:
                         print(f"   ❌ 添加文件失败: {relative_path} - {result.stderr}")
                         break
             
-                        if result.returncode != 0:
-                print(f"   ❌ 批量添加失败: {result.stderr}")
-                
-                # 检查是否为CRLF问题，提供智能解决方案
-                if "LF would be replaced by CRLF" in result.stderr or "CRLF would be replaced by LF" in result.stderr:
-                print(f"   🔧 检测到CRLF问题，尝试自动修复...")
-                
-                # 尝试自动修复CRLF问题
-                auto_fix_result = self._auto_fix_crlf_issue(result.stderr)
-                if auto_fix_result[0]:  # 修复成功
-                    print(f"   ✅ CRLF问题已自动修复，重新尝试添加文件...")
+                if result.returncode != 0:
+                    print(f"   ❌ 批量添加失败: {result.stderr}")
                     
-                    # 重新尝试添加文件
-                    if len(relative_paths) > 10:
-                        retry_result = subprocess.run(['git', 'add'] + relative_paths, 
-                                              cwd=self.git_path, 
-                                              capture_output=True, 
-                                              text=True,
-                                              encoding='utf-8',
-                                              errors='ignore',
-                                              timeout=60)
+                    # 检查是否为CRLF问题，提供智能解决方案
+                    if "LF would be replaced by CRLF" in result.stderr or "CRLF would be replaced by LF" in result.stderr:
+                        print(f"   🔧 检测到CRLF问题，尝试自动修复...")
+                        
+                        # 尝试自动修复CRLF问题
+                        auto_fix_result = self._auto_fix_crlf_issue(result.stderr)
+                        if auto_fix_result[0]:  # 修复成功
+                            print(f"   ✅ CRLF问题已自动修复，重新尝试添加文件...")
+                            
+                            # 重新尝试添加文件
+                            if len(relative_paths) > 10:
+                                retry_result = subprocess.run(['git', 'add'] + relative_paths, 
+                                                      cwd=self.git_path, 
+                                                      capture_output=True, 
+                                                      text=True,
+                                                      encoding='utf-8',
+                                                      errors='ignore',
+                                                      timeout=60)
+                            else:
+                                retry_result = None
+                                for relative_path in relative_paths:
+                                    retry_result = subprocess.run(['git', 'add', relative_path], 
+                                                          cwd=self.git_path, 
+                                                          capture_output=True, 
+                                                          text=True,
+                                                          encoding='utf-8',
+                                                          errors='ignore',
+                                                          timeout=30)
+                                    if retry_result.returncode != 0:
+                                        break
+                            
+                            if retry_result and retry_result.returncode == 0:
+                                print(f"   ✅ 重新添加文件成功")
+                                result = retry_result  # 更新结果
+                            else:
+                                error_msg = f"CRLF问题修复成功，但重新添加文件失败: {retry_result.stderr if retry_result else '未知错误'}"
+                                return False, error_msg
+                        else:
+                            # 自动修复失败，提供手动指导
+                            error_msg = (
+                                "🚨 Git换行符冲突检测到！\n\n"
+                                f"🔧 自动修复尝试失败: {auto_fix_result[1]}\n\n"
+                                "💡 这是Windows/Unix换行符差异导致的，需要手动解决以避免影响团队协作。\n\n"
+                                "🛠️ 推荐解决方案（请选择一种）：\n\n"
+                                "【方案1 - 临时解决】\n"
+                                "在目标Git仓库中执行：\n"
+                                "git config core.safecrlf false\n"
+                                "然后重新推送\n\n"
+                                "【方案2 - 使用工具】\n"
+                                "运行独立修复工具：\n"
+                                f"python fix_git_crlf.py \"{self.git_path}\"\n\n"
+                                "【方案3 - 手动处理】\n"
+                                "使用'重置更新仓库'功能重新初始化\n\n"
+                                "⚠️ 注意：为保证团队协作，建议与团队讨论后再修改Git配置\n\n"
+                                f"详细错误: {result.stderr}"
+                            )
+                            return False, error_msg
                     else:
-                        retry_result = None
-                        for relative_path in relative_paths:
-                            retry_result = subprocess.run(['git', 'add', relative_path], 
-                                                  cwd=self.git_path, 
-                                                  capture_output=True, 
-                                                  text=True,
-                                                  encoding='utf-8',
-                                                  errors='ignore',
-                                                  timeout=30)
-                            if retry_result.returncode != 0:
-                                break
-                    
-                    if retry_result and retry_result.returncode == 0:
-                        print(f"   ✅ 重新添加文件成功")
-                        result = retry_result  # 更新结果
-                    else:
-                        error_msg = f"CRLF问题修复成功，但重新添加文件失败: {retry_result.stderr if retry_result else '未知错误'}"
-                        return False, error_msg
+                        return False, f"添加文件到Git失败: {result.stderr}"
                 else:
-                    # 自动修复失败，提供手动指导
-                    error_msg = (
-                        "🚨 Git换行符冲突检测到！\n\n"
-                        f"🔧 自动修复尝试失败: {auto_fix_result[1]}\n\n"
-                        "💡 这是Windows/Unix换行符差异导致的，需要手动解决以避免影响团队协作。\n\n"
-                        "🛠️ 推荐解决方案（请选择一种）：\n\n"
-                        "【方案1 - 临时解决】\n"
-                        "在目标Git仓库中执行：\n"
-                        "git config core.safecrlf false\n"
-                        "然后重新推送\n\n"
-                        "【方案2 - 使用工具】\n"
-                        "运行独立修复工具：\n"
-                        f"python fix_git_crlf.py \"{self.git_path}\"\n\n"
-                        "【方案3 - 手动处理】\n"
-                        "使用'重置更新仓库'功能重新初始化\n\n"
-                        "⚠️ 注意：为保证团队协作，建议与团队讨论后再修改Git配置\n\n"
-                        f"详细错误: {result.stderr}"
-                    )
-                    return False, error_msg
-                else:
-                    return False, f"添加文件到Git失败: {result.stderr}"
-            else:
-                print(f"   ✅ 文件添加成功")
+                    print(f"   ✅ 文件添加成功")
             
             # 4.2. 检查Git状态（简化）
             print(f"   检查Git状态...")

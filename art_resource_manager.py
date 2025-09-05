@@ -11,6 +11,7 @@ import shutil
 import time
 import platform
 from pathlib import Path
+from datetime import datetime
 from typing import List, Dict, Set, Tuple, Any
 
 # 添加Windows特定的subprocess标志
@@ -18,6 +19,14 @@ if platform.system() == 'Windows':
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
 else:
     SUBPROCESS_FLAGS = 0
+
+# 导入热更新管理器
+try:
+    from hot_update_manager import HotUpdateManager
+    HOT_UPDATE_AVAILABLE = True
+except ImportError:
+    HOT_UPDATE_AVAILABLE = False
+    print("⚠️ 热更新功能不可用：缺少hot_update_manager模块")
 
 # 添加错误处理和调试信息
 def debug_print(msg):
@@ -31,7 +40,8 @@ try:
                                  QProgressBar, QSplitter, QGroupBox, QGridLayout,
                                  QListWidget, QListWidgetItem, QTabWidget, QDialog, QCompleter,
                                  QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout,
-                                 QInputDialog, QSpinBox, QAbstractItemView, QRadioButton)
+                                 QInputDialog, QSpinBox, QAbstractItemView, QRadioButton,
+                                 QAction, QProgressDialog)
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QStringListModel
     from PyQt5.QtGui import QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent
     debug_print("PyQt5导入成功")
@@ -84,23 +94,60 @@ class ResourceDependencyAnalyzer:
         """解析meta文件获取GUID"""
         try:
             with open(meta_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
+                content = f.read().strip()
+                
+                if not content:
+                    print(f"⚠️ meta文件为空: {meta_path}")
+                    return None
                 
                 # 支持YAML格式 - guid: xxxxx
                 yaml_match = re.search(r'guid:\s*([a-f0-9]{32})', content, re.IGNORECASE)
                 if yaml_match:
-                    return yaml_match.group(1).lower()
+                    guid = yaml_match.group(1).lower()
+                    print(f"✅ 找到YAML格式GUID: {guid} in {meta_path}")
+                    return guid
                 
                 # 支持JSON格式 - "m_GUID": "xxxxx" (字符串形式)
                 json_match = re.search(r'"m_GUID":\s*"([a-f0-9]{32})"', content, re.IGNORECASE)
                 if json_match:
-                    return json_match.group(1).lower()
+                    guid = json_match.group(1).lower()
+                    print(f"✅ 找到JSON字符串格式GUID: {guid} in {meta_path}")
+                    return guid
                 
-                # 忽略对象形式的GUID (如 "m_GUID": { "data[0]": ... })
-                # 这种格式我们选择忽略，不进行处理
+                # 支持新的Unity JSON对象格式 - "m_GUID": { "data[0]": xxx, "data[1]": xxx, ... }
+                try:
+                    import json
+                    data = json.loads(content)
+                    if ('m_MetaHeader' in data and 'm_GUID' in data['m_MetaHeader'] and 
+                        isinstance(data['m_MetaHeader']['m_GUID'], dict)):
+                        guid_obj = data['m_MetaHeader']['m_GUID']
+                        if all(f'data[{i}]' in guid_obj for i in range(4)):
+                            # 将4个32位整数转换为32位十六进制字符串
+                            data0 = int(guid_obj['data[0]']) & 0xFFFFFFFF
+                            data1 = int(guid_obj['data[1]']) & 0xFFFFFFFF  
+                            data2 = int(guid_obj['data[2]']) & 0xFFFFFFFF
+                            data3 = int(guid_obj['data[3]']) & 0xFFFFFFFF
+                            
+                            guid = f"{data0:08x}{data1:08x}{data2:08x}{data3:08x}"
+                            print(f"✅ 找到JSON对象格式GUID: {guid} in {meta_path}")
+                            return guid.lower()
+                    elif ('m_MetaHeader' in data and 'm_GUID' in data['m_MetaHeader'] and 
+                          isinstance(data['m_MetaHeader']['m_GUID'], str)):
+                        # 也支持JSON中的字符串GUID
+                        guid = data['m_MetaHeader']['m_GUID'].lower()
+                        if len(guid) == 32 and re.match(r'^[a-f0-9]{32}$', guid):
+                            print(f"✅ 找到JSON MetaHeader字符串GUID: {guid} in {meta_path}")
+                            return guid
+                except Exception as json_e:
+                    print(f"⚠️ JSON解析失败: {meta_path}, 错误: {json_e}")
+                
+                # 如果都没找到，打印文件内容的前200个字符用于调试
+                preview = content[:200].replace('\n', '\\n').replace('\r', '\\r')
+                print(f"❌ 未找到GUID格式匹配: {meta_path}")
+                print(f"   文件内容预览: {preview}...")
                 
         except Exception as e:
-            print(f"解析meta文件失败: {meta_path}, 错误: {e}")
+            print(f"❌ 解析meta文件失败: {meta_path}, 错误: {e}")
         return None
     
     def parse_meta_file_debug(self, meta_path: str, show_content: bool = False) -> str:
@@ -126,8 +173,29 @@ class ResourceDependencyAnalyzer:
                 json_match = re.search(r'"m_GUID":\s*"([a-f0-9]{32})"', content, re.IGNORECASE)
                 if json_match:
                     guid = json_match.group(1).lower()
-                    print(f"✅ [DEBUG] JSON格式匹配到GUID: {guid}")
+                    print(f"✅ [DEBUG] JSON字符串格式匹配到GUID: {guid}")
                     return guid
+                
+                # 支持新的Unity JSON对象格式 - "m_GUID": { "data[0]": xxx, "data[1]": xxx, ... }
+                try:
+                    import json
+                    data = json.loads(content)
+                    if ('m_MetaHeader' in data and 'm_GUID' in data['m_MetaHeader'] and 
+                        isinstance(data['m_MetaHeader']['m_GUID'], dict)):
+                        guid_obj = data['m_MetaHeader']['m_GUID']
+                        if all(f'data[{i}]' in guid_obj for i in range(4)):
+                            # 将4个32位整数转换为32位十六进制字符串
+                            data0 = int(guid_obj['data[0]']) & 0xFFFFFFFF
+                            data1 = int(guid_obj['data[1]']) & 0xFFFFFFFF  
+                            data2 = int(guid_obj['data[2]']) & 0xFFFFFFFF
+                            data3 = int(guid_obj['data[3]']) & 0xFFFFFFFF
+                            
+                            guid = f"{data0:08x}{data1:08x}{data2:08x}{data3:08x}"
+                            print(f"✅ [DEBUG] JSON对象格式匹配到GUID: {guid}")
+                            print(f"   原始数据: [{guid_obj['data[0]']}, {guid_obj['data[1]']}, {guid_obj['data[2]']}, {guid_obj['data[3]']}]")
+                            return guid.lower()
+                except Exception as e:
+                    print(f"🔍 [DEBUG] JSON对象格式解析失败: {e}")
                 
                 # 尝试找到任何包含"guid"的行
                 lines_with_guid = [line.strip() for line in content.split('\n') if 'guid' in line.lower()]
@@ -185,6 +253,8 @@ class ResourceDependencyAnalyzer:
                 r'"m_GUID":\s*"([a-f0-9]{32})"',  # 标准m_GUID格式
                 r'"guid":\s*"([a-f0-9]{32})"',    # 标准guid格式
                 r'"GUID":\s*"([a-f0-9]{32})"',    # 大写GUID格式
+                r'"m_SourcePrefabGUID":\s*"([a-f0-9]{32})"',  # prefab中的SourcePrefabGUID引用
+                r'"SourcePrefabGUID":\s*"([a-f0-9]{32})"',    # SourcePrefabGUID引用
                 r'"texture":\s*{[^}]*"guid":\s*"([a-f0-9]{32})"',  # 贴图引用
                 r'"texture":\s*{[^}]*"m_GUID":\s*"([a-f0-9]{32})"', # 贴图m_GUID引用
                 r'"m_Texture":\s*{[^}]*"guid":\s*"([a-f0-9]{32})"', # m_Texture引用
@@ -377,7 +447,18 @@ class ResourceDependencyAnalyzer:
                         if guid:
                             # 计算对应的资源文件路径
                             resource_path = meta_path[:-5]  # 移除.meta后缀
-                            guid_map[guid] = resource_path
+                            
+                            # 🚨 关键修复：只有资源文件真实存在时，才认为GUID有效
+                            if os.path.exists(resource_path):
+                                guid_map[guid] = resource_path
+                            else:
+                                print(f"⚠️ [GUID] 发现孤儿meta文件: {meta_path}")
+                                print(f"   对应资源文件不存在: {resource_path}")
+                                print(f"   跳过GUID: {guid}")
+                                # 🚨 增强调试：记录被跳过的孤儿GUID
+                                if not hasattr(self, '_orphan_guids'):
+                                    self._orphan_guids = set()
+                                self._orphan_guids.add(guid)
         except Exception as e:
             print(f"❌ 扫描目录失败 {directory}: {e}")
     
@@ -480,6 +561,10 @@ class ResourceDependencyAnalyzer:
                             })
                     else:
                         print(f"🔍 [DEBUG] 在GUID映射中未找到: {ref_guid}")
+                        
+                        # 🚨 新增：检查是否为系统默认材质的GUID引用
+                        # 这里我们可以添加一些已知的系统材质GUID，或者通过其他方式识别
+                        # 暂时先记录为缺失，后续在检查阶段会被系统材质检查逻辑过滤
                         result['missing_dependencies'].append({
                             'guid': ref_guid,
                             'referenced_by': file_path,
@@ -540,11 +625,17 @@ class ResourceDependencyAnalyzer:
                 guid = self.parse_meta_file(meta_file)
                 if guid:
                     asset_file = meta_file[:-5]  # 移除.meta后缀
-                    report['guid_map'][guid] = {
-                        'asset_file': asset_file,
-                        'meta_file': meta_file,
-                        'exists': os.path.exists(asset_file)
-                    }
+                    # 🚨 关键修复：只有资源文件真实存在时，才认为GUID有效
+                    if os.path.exists(asset_file):
+                        report['guid_map'][guid] = {
+                            'asset_file': asset_file,
+                            'meta_file': meta_file,
+                            'exists': True
+                        }
+                    else:
+                        print(f"⚠️ [GUID] 发现孤儿meta文件: {meta_file}")
+                        print(f"   对应资源文件不存在: {asset_file}")
+                        print(f"   跳过GUID: {guid}")
             
             # 4. 分析依赖关系
             for asset_file in report['files']['asset_files']:
@@ -753,27 +844,43 @@ class ResourceDependencyAnalyzer:
                             self.status_updated.emit(f"     目录深度: {depth}")
                         
                         try:
-                            guid = self.analyzer.parse_meta_file(meta_path)
+                            guid = self.parse_meta_file(meta_path)
                             if guid:
-                                git_guids.add(guid)
-                                scan_stats['meta_files_parsed_success'] += 1
-                                scan_stats['guids_extracted'] += 1
-                                
-                                # 记录成功解析的样本
-                                if len(scan_stats['sample_success_files']) < 5:
-                                    scan_stats['sample_success_files'].append({
+                                # 🚨 关键修复：检查对应的资源文件是否存在
+                                resource_path = meta_path[:-5]  # 移除.meta后缀
+                                if os.path.exists(resource_path):
+                                    git_guids.add(guid)
+                                    scan_stats['meta_files_parsed_success'] += 1
+                                    scan_stats['guids_extracted'] += 1
+                                    
+                                    # 记录成功解析的样本
+                                    if len(scan_stats['sample_success_files']) < 5:
+                                        scan_stats['sample_success_files'].append({
+                                            'file': os.path.relpath(meta_path, self.git_manager.git_path),
+                                            'guid': guid
+                                        })
+                                    
+                                    # 记录特定GUID
+                                    if guid == 'a52adbec141594d439747c542824c830':
+                                        self.status_updated.emit(f"  ✅ 找到目标GUID: {guid}")
+                                        self.status_updated.emit(f"     文件路径: {meta_path}")
+                                    
+                                    # 记录样本GUID
+                                    if len(scan_stats['sample_guids']) < 10:
+                                        scan_stats['sample_guids'].append(guid)
+                                else:
+                                    # 记录孤儿meta文件
+                                    scan_stats['meta_files_parsed_failed'] += 1
+                                    scan_stats['failed_files'].append({
                                         'file': os.path.relpath(meta_path, self.git_manager.git_path),
-                                        'guid': guid
+                                        'reason': 'orphan_meta_file',
+                                        'resource_path': os.path.relpath(resource_path, self.git_manager.git_path)
                                     })
-                                
-                                # 记录特定GUID
-                                if guid == 'a52adbec141594d439747c542824c830':
-                                    self.status_updated.emit(f"  ✅ 找到目标GUID: {guid}")
-                                    self.status_updated.emit(f"     文件路径: {meta_path}")
-                                
-                                # 记录样本GUID
-                                if len(scan_stats['sample_guids']) < 10:
-                                    scan_stats['sample_guids'].append(guid)
+                                    # 调试输出孤儿文件
+                                    if len(scan_stats['failed_files']) <= 5:  # 只显示前5个
+                                        self.status_updated.emit(f"⚠️ [GUID] 发现孤儿meta文件: {os.path.relpath(meta_path, self.git_manager.git_path)}")
+                                        self.status_updated.emit(f"   对应资源文件不存在: {os.path.relpath(resource_path, self.git_manager.git_path)}")
+                                        self.status_updated.emit(f"   跳过GUID: {guid}")
                             else:
                                 scan_stats['meta_files_parsed_failed'] += 1
                                 scan_stats['failed_files'].append({
@@ -1075,9 +1182,22 @@ class GitGuidCacheManager:
                 check=True
             , creationflags=SUBPROCESS_FLAGS)
             
-            files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
+            all_git_files = [f.strip() for f in result.stdout.split('\n') if f.strip()]
+            
+            # 过滤掉不存在的文件
+            files = []
+            skipped_count = 0
+            for file_path in all_git_files:
+                full_path = os.path.join(self.git_path, file_path)
+                if os.path.exists(full_path):
+                    files.append(file_path)
+                else:
+                    skipped_count += 1
+            
             if progress_callback:
-                progress_callback(f"🔍 [DEBUG] Git命令找到 {len(files)} 个meta文件")
+                progress_callback(f"🔍 [DEBUG] Git索引中找到 {len(all_git_files)} 个meta文件，实际存在 {len(files)} 个")
+                if skipped_count > 0:
+                    progress_callback(f"🔍 [DEBUG] 跳过 {skipped_count} 个Git索引中但文件系统中不存在的meta文件")
             
             # 显示前5个文件样本
             if files:
@@ -1109,8 +1229,19 @@ class GitGuidCacheManager:
                             meta_samples = [f for f in all_files if f.endswith('.meta')][:5]
                             for i, file in enumerate(meta_samples):
                                 progress_callback(f"   {i+1}. {file}")
-                        # 返回所有meta文件
-                        return [f for f in all_files if f.endswith('.meta')]
+                        # 过滤并返回存在的meta文件
+                        meta_files = [f for f in all_files if f.endswith('.meta')]
+                        existing_meta_files = []
+                        for file_path in meta_files:
+                            full_path = os.path.join(self.git_path, file_path)
+                            if os.path.exists(full_path):
+                                existing_meta_files.append(file_path)
+                        
+                        if progress_callback and len(existing_meta_files) != len(meta_files):
+                            skipped = len(meta_files) - len(existing_meta_files)
+                            progress_callback(f"🔍 [DEBUG] 从备用扫描中跳过 {skipped} 个不存在的meta文件")
+                        
+                        return existing_meta_files
             
             return files
             
@@ -1210,12 +1341,25 @@ class GitGuidCacheManager:
                     rel_resource_path = rel_resource_path.replace('\\', '/')
                     rel_meta_path = rel_meta_path.replace('\\', '/')
                     
-                    guid_mapping[guid] = {
-                        'meta_path': meta_path,
-                        'relative_meta_path': rel_meta_path,
-                        'relative_resource_path': rel_resource_path,
-                        'resource_name': os.path.basename(rel_resource_path)
-                    }
+                    # 🚨 关键修复：检查对应的资源文件是否存在
+                    resource_path = os.path.join(self.git_path, rel_resource_path)
+                    if os.path.exists(resource_path):
+                        guid_mapping[guid] = {
+                            'meta_path': meta_path,
+                            'relative_meta_path': rel_meta_path,
+                            'relative_resource_path': rel_resource_path,
+                            'resource_name': os.path.basename(rel_resource_path)
+                        }
+                    else:
+                        if progress_callback and parse_success <= 10:  # 只显示前10个孤儿文件
+                            progress_callback(f"⚠️ [GUID] 发现孤儿meta文件: {rel_meta_path}")
+                            progress_callback(f"   对应资源文件不存在: {rel_resource_path}")
+                            progress_callback(f"   跳过GUID: {guid}")
+                        # 🚨 增强调试：记录被跳过的孤儿GUID
+                        if not hasattr(self, '_orphan_guids_cache'):
+                            self._orphan_guids_cache = set()
+                        self._orphan_guids_cache.add(guid)
+                        # 不添加到guid_mapping中
                 else:
                     parse_failed += 1
                     if len(parse_failed_samples) < 5:  # 记录前5个解析失败的文件
@@ -1247,14 +1391,14 @@ class GitGuidCacheManager:
             progress_callback(f"   🚫 文件不存在: {file_not_found}")
             progress_callback(f"   🔑 提取GUID数: {len(guid_mapping)}")
             
-            # 显示文件不存在的样本
-            if not_found_samples:
-                progress_callback(f"🚫 [DEBUG] 文件不存在样本:")
-                for i, sample in enumerate(not_found_samples):
-                    full_path = os.path.join(self.git_path, sample)
-                    progress_callback(f"   {i+1}. {sample}")
-                    progress_callback(f"      完整路径: {full_path}")
-                    progress_callback(f"      父目录存在: {os.path.exists(os.path.dirname(full_path))}")
+            # 显示文件不存在的样本 - 已禁用此检测
+            # if not_found_samples:
+            #     progress_callback(f"🚫 [DEBUG] 文件不存在样本:")
+            #     for i, sample in enumerate(not_found_samples):
+            #         full_path = os.path.join(self.git_path, sample)
+            #         progress_callback(f"   {i+1}. {sample}")
+            #         progress_callback(f"      完整路径: {full_path}")
+            #         progress_callback(f"      父目录存在: {os.path.exists(os.path.dirname(full_path))}")
             
             # 显示解析失败的样本
             if parse_failed_samples:
@@ -1481,21 +1625,30 @@ class GitSvnManager:
     def _load_default_mapping_rules(self) -> dict:
         """加载内置路径映射规则"""
         return {
-            "assets_to_minigame": {
-                "name": "Assets根目录映射（排除Git路径）",
-                "description": "将Assets目录映射到Assets/Resources/minigame，但排除已经是Git格式的路径",
+            # 🎯 精确路径映射规则 - 按优先级排序（数字越小优先级越高）
+            "remotes_entity_mapping": {
+                "name": "远程实体资源映射",
+                "description": "将Assets/remotes/entity路径精确映射到Resources/minigame/remotes/entity",
                 "enabled": True,
-                "source_pattern": r"^Assets[\\/](?!Resources[\\/]minigame[\\/])",
-                "target_pattern": "Assets\\Resources\\minigame\\",
-                "priority": 1
+                "source_pattern": r"^Assets[\\\/]remotes[\\\/]entity($|[\\\/])",
+                "target_pattern": "Assets\\Resources\\minigame\\remotes\\entity\\",
+                "priority": 1  # 🔥 最高优先级，确保remotes/entity路径优先匹配
             },
             "entity_to_minigame": {
                 "name": "实体资源映射",
-                "description": "将entity目录映射到Resources/minigame/entity",
+                "description": "将Assets/entity路径映射到Resources/minigame/entity（排除remotes子目录）",
                 "enabled": True,
-                "source_pattern": r"^Assets[\\\/]entity($|[\\\/])",
+                "source_pattern": r"^Assets[\\\/]entity[\\\/]",
                 "target_pattern": "Assets\\Resources\\minigame\\entity\\",
-                "priority": 2
+                "priority": 2  # 🔥 第二优先级，处理非remotes的entity路径
+            },
+            "assets_to_minigame": {
+                "name": "Assets根目录映射（通用规则）",
+                "description": "将其他Assets目录映射到Assets/Resources/minigame，但排除已处理的路径",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\/](?!Resources[\\/]minigame[\\/])(?!remotes[\\/]entity[\\/])(?!entity[\\/])",
+                "target_pattern": "Assets\\Resources\\minigame\\",
+                "priority": 999  # 🔥 最低优先级，作为兜底规则
             },
             "ui_mapping": {
                 "name": "UI资源映射", 
@@ -1571,13 +1724,17 @@ class GitSvnManager:
             return assets_path
             
         print(f"🔄 [MAPPING] ========== 路径映射处理 ==========")
-        print(f"   原始路径: {assets_path}")
+        print(f"   📥 原始路径: {assets_path}")
         
-        # 按优先级排序规则
+        # 按优先级排序规则（数字越小优先级越高）
         sorted_rules = sorted(
             [(rule_id, rule) for rule_id, rule in self.path_mapping_rules.items() if rule.get('enabled', True)],
             key=lambda x: x[1].get('priority', 999)
         )
+        
+        print(f"   🎯 规则检查顺序（按优先级）:")
+        for i, (rule_id, rule) in enumerate(sorted_rules):
+            print(f"      {i+1}. {rule['name']} (优先级: {rule.get('priority', 999)})")
         
         for rule_id, rule in sorted_rules:
             try:
@@ -1585,12 +1742,16 @@ class GitSvnManager:
                 source_pattern = rule['source_pattern']
                 target_pattern = rule['target_pattern']
                 
-                if re.match(source_pattern, assets_path):
+                print(f"   🔍 测试规则: {rule['name']}")
+                print(f"      📋 描述: {rule['description']}")
+                print(f"      🎨 模式: {source_pattern}")
+                
+                # 🚨 关键修复：使用IGNORECASE标志进行匹配
+                if re.match(source_pattern, assets_path, re.IGNORECASE):
                     # 应用映射规则 - 使用更精确的替换
-                    # 先匹配到entity部分，然后替换为目标路径 + 剩余路径
-                    match = re.match(source_pattern, assets_path)
+                    match = re.match(source_pattern, assets_path, re.IGNORECASE)
                     if match:
-                        # 获取匹配的部分长度
+                        # 获取匹配的部分
                         matched_part = match.group(0)
                         remaining_path = assets_path[len(matched_part):].lstrip('\\/')
                         
@@ -1598,19 +1759,24 @@ class GitSvnManager:
                         if remaining_path:
                             mapped_path = target_pattern + remaining_path
                         else:
-                            mapped_path = target_pattern.rstrip('\\')
+                            mapped_path = target_pattern.rstrip('\\/')
+                        
+                        print(f"      ✅ 匹配成功!")
+                        print(f"      🔍 匹配部分: '{matched_part}'")
+                        print(f"      📂 剩余路径: '{remaining_path}'")
+                        print(f"      🎯 目标模式: '{target_pattern}'")
+                        print(f"   📤 最终映射结果: {mapped_path}")
+                        print(f"   ==========================================")
+                        
+                        return mapped_path
                     else:
                         # 兜底：使用简单替换
-                        mapped_path = re.sub(source_pattern, target_pattern, assets_path)
-                    
-                    print(f"   ✅ 匹配规则: {rule['name']}")
-                    print(f"   📝 规则描述: {rule['description']}")
-                    print(f"   🔍 匹配模式: {source_pattern}")
-                    print(f"   🎯 替换模式: {target_pattern}")
-                    print(f"   🔄 映射结果: {mapped_path}")
-                    print(f"   ==========================================")
-                    
-                    return mapped_path
+                        mapped_path = re.sub(source_pattern, target_pattern, assets_path, flags=re.IGNORECASE)
+                        print(f"      ✅ 使用简单替换: {mapped_path}")
+                        print(f"   ==========================================")
+                        return mapped_path
+                else:
+                    print(f"      ❌ 不匹配")
                     
             except Exception as e:
                 print(f"   ❌ 规则 {rule_id} 处理失败: {e}")
@@ -2532,50 +2698,61 @@ class GitSvnManager:
             print(f"   ✅ 最终target_base_path: {target_base_path}")
             print(f"   📝 说明: 直接使用git_path，避免路径重复")
             
-            # 2.5. 处理文件夹替换模式（在复制文件之前删除需要替换的文件夹）
+            # 2.5. 🔧 安全的文件夹替换模式处理
             if folder_upload_modes:
-                print(f"🗑️ [DEBUG] 开始处理文件夹替换模式...")
+                print(f"🔄 [REPLACE] 开始处理文件夹替换模式...")
                 replace_folders = [info for info in folder_upload_modes.values() if info.get('mode') == 'replace']
                 
                 if replace_folders:
                     print(f"   发现 {len(replace_folders)} 个需要替换的文件夹")
                     
-                    for folder_info in replace_folders:
-                        target_folder_path = folder_info.get('target_path')
-                        folder_name = folder_info.get('folder_name')
+                    # 🚨 关键安全改进：只删除与当前提交文件直接相关的目标文件夹
+                    safe_deletions = self._calculate_safe_deletion_targets(replace_folders, source_files)
+                    
+                    if safe_deletions:
+                        print(f"   🎯 经过安全验证，确定需要删除的文件夹:")
+                        for deletion_info in safe_deletions:
+                            print(f"      📁 {deletion_info['folder_name']}")
+                            print(f"      🎯 路径: {deletion_info['target_path']}")
+                            print(f"      🔍 原因: {deletion_info['reason']}")
                         
-                        if target_folder_path and os.path.exists(target_folder_path):
-                            print(f"   🗑️ 删除现有文件夹: {folder_name}")
-                            print(f"      路径: {target_folder_path}")
-                            
-                            try:
-                                # 使用 git rm 删除文件夹
-                                relative_path = os.path.relpath(target_folder_path, self.git_path)
-                                delete_result = subprocess.run(['git', 'rm', '-r', relative_path], 
-                                                              cwd=self.git_path, 
-                                                              capture_output=True, 
-                                                              text=True,
-                                                              encoding='utf-8',
-                                                              errors='ignore',
-                                                              timeout=30, creationflags=SUBPROCESS_FLAGS)
-                                
-                                if delete_result.returncode == 0:
-                                    print(f"      ✅ Git删除成功: {folder_name}")
-                                else:
-                                    print(f"      ⚠️ Git删除失败，尝试直接删除文件夹: {delete_result.stderr}")
-                                    # 如果git rm失败，直接删除文件夹
-                                    import shutil
-                                    shutil.rmtree(target_folder_path, ignore_errors=True)
-                                    print(f"      ✅ 直接删除成功: {folder_name}")
-                                    
-                            except Exception as e:
-                                print(f"      ❌ 删除文件夹失败: {folder_name} - {str(e)}")
-                                # 继续处理，不中断整个推送流程
-                        else:
-                            print(f"   ℹ️ 文件夹不存在，无需删除: {folder_name}")
-                            print(f"      目标路径: {target_folder_path}")
+                        # 🚨 最终安全确认：显示即将删除的详细信息
+                        print(f"   🚨 即将执行替换操作，删除以下文件夹:")
+                        for deletion_info in safe_deletions:
+                            print(f"      📁 {deletion_info['folder_name']}")
+                            print(f"      📍 路径: {deletion_info['target_path']}")
+                            print(f"      📊 文件数: {deletion_info.get('file_count', '未知')}")
+                            print(f"      📝 原因: {deletion_info['reason']}")
+                            print(f"      " + "="*50)
+                        
+                        # 执行安全删除
+                        deletion_results = self._execute_safe_deletions(safe_deletions)
+                        
+                        # 🚨 增强用户反馈：详细的替换操作说明
+                        successful_replacements = []
+                        failed_replacements = []
+                        
+                        for result in deletion_results:
+                            if result['success']:
+                                successful_replacements.append(result)
+                                print(f"      ✅ 替换成功: {result['folder_name']}")
+                                print(f"         📁 删除了目标路径: {result.get('deleted_path', 'N/A')}")
+                                print(f"         📄 清理了 {result.get('deleted_files_count', 0)} 个旧文件")
+                            else:
+                                failed_replacements.append(result)
+                                print(f"      ❌ 替换失败: {result['folder_name']} - {result['error']}")
+                        
+                        # 总结替换操作
+                        if successful_replacements:
+                            print(f"   🎉 替换模式执行完成：成功替换 {len(successful_replacements)} 个文件夹")
+                            print(f"   💡 接下来将上传新文件到已清理的目标位置")
+                        
+                        if failed_replacements:
+                            print(f"   ⚠️ 注意：{len(failed_replacements)} 个文件夹替换失败，可能影响上传结果")
+                    else:
+                        print(f"   ✅ 安全验证：没有需要删除的文件夹（避免误删）")
                 else:
-                    print(f"   ℹ️ 没有需要替换的文件夹")
+                    print(f"   ℹ️ 没有标记为替换模式的文件夹")
             else:
                 print(f"🔍 [DEBUG] 未提供文件夹上传模式信息，跳过文件夹删除步骤")
             
@@ -2638,11 +2815,44 @@ class GitSvnManager:
                     
                     print(f"   ================================================")
                     
-                    os.makedirs(target_dir, exist_ok=True)
+                    # 创建目录（支持长路径）
+                    def get_long_path_name_for_dir(path):
+                        """获取支持长路径的目录路径名"""
+                        if os.name == 'nt' and not path.startswith('\\\\?\\'):
+                            abs_path = os.path.abspath(path)
+                            if len(abs_path) > 260:
+                                return '\\\\?\\' + abs_path
+                        return path
                     
-                    # 复制文件
+                    long_target_dir = get_long_path_name_for_dir(target_dir)
+                    if len(target_dir) > 250:
+                        print(f"   ⚠️ 检测到长目录路径 ({len(target_dir)} 字符)")
+                        print(f"   应用长路径支持: {long_target_dir}")
+                    
+                    os.makedirs(long_target_dir, exist_ok=True)
+                    
+                    # 复制文件（支持长路径）
                     import shutil
-                    shutil.copy2(source_file, target_file_path)
+                    
+                    # Windows长路径支持：使用UNC路径前缀
+                    def get_long_path_name(path):
+                        """获取支持长路径的路径名"""
+                        if os.name == 'nt' and not path.startswith('\\\\?\\'):
+                            # 转换为绝对路径并添加UNC前缀
+                            abs_path = os.path.abspath(path)
+                            if len(abs_path) > 260:  # 只在路径过长时使用UNC前缀
+                                return '\\\\?\\' + abs_path
+                        return path
+                    
+                    # 检查路径长度并应用长路径支持
+                    long_source_path = get_long_path_name(source_file)
+                    long_target_path = get_long_path_name(target_file_path)
+                    
+                    if len(target_file_path) > 250:  # 预警长度
+                        print(f"   ⚠️ 检测到长路径 ({len(target_file_path)} 字符)")
+                        print(f"   应用长路径支持: {long_target_path}")
+                    
+                    shutil.copy2(long_source_path, long_target_path)
                     copied_files.append(target_file_path)
                     print(f"   ✅ 复制成功: {os.path.basename(source_file)}")
                     
@@ -2661,6 +2871,9 @@ class GitSvnManager:
             print(f"📝 [DEBUG] 开始Git操作...")
             git_start_time = time.time()
             
+            # 4.0. 配置Git长路径支持（预防性措施）
+            self._configure_git_long_path_support()
+            
             # 4.1. 批量添加文件到Git（使用相对路径）
             print(f"   批量添加 {len(copied_files)} 个文件到Git...")
             relative_paths = []
@@ -2668,30 +2881,8 @@ class GitSvnManager:
                 relative_path = os.path.relpath(file_path, self.git_path)
                 relative_paths.append(relative_path)
             
-            # 使用标准git add，遇到CRLF问题时提供明确指导
-            if len(relative_paths) > 10:  # 文件较多时使用批量操作
-                print(f"   使用批量添加模式...")
-                result = subprocess.run(['git', 'add'] + relative_paths, 
-                                      cwd=self.git_path, 
-                                      capture_output=True, 
-                                      text=True,
-                                      encoding='utf-8',
-                                      errors='ignore',
-                                      timeout=60, creationflags=SUBPROCESS_FLAGS)
-            else:
-                print(f"   使用逐个添加模式...")
-                # 逐个添加文件
-                for relative_path in relative_paths:
-                    result = subprocess.run(['git', 'add', relative_path], 
-                                          cwd=self.git_path, 
-                                          capture_output=True, 
-                                          text=True,
-                                          encoding='utf-8',
-                                          errors='ignore',
-                                          timeout=30, creationflags=SUBPROCESS_FLAGS)
-                    if result.returncode != 0:
-                        print(f"   ❌ 添加文件失败: {relative_path} - {result.stderr}")
-                        break
+            # 🚨 关键修复：智能批处理，避免命令行参数过长
+            result = self._smart_git_add_files(relative_paths)
             
             if result.returncode != 0:
                 print(f"   ❌ 批量添加失败: {result.stderr}")
@@ -2705,27 +2896,9 @@ class GitSvnManager:
                     if auto_fix_result[0]:  # 修复成功
                         print(f"   ✅ CRLF问题已自动修复，重新尝试添加文件...")
                         
-                        # 重新尝试添加文件
-                        if len(relative_paths) > 10:
-                            retry_result = subprocess.run(['git', 'add'] + relative_paths, 
-                                                  cwd=self.git_path, 
-                                                  capture_output=True, 
-                                                  text=True,
-                                                  encoding='utf-8',
-                                                  errors='ignore',
-                                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
-                        else:
-                            retry_result = None
-                            for relative_path in relative_paths:
-                                retry_result = subprocess.run(['git', 'add', relative_path], 
-                                                      cwd=self.git_path, 
-                                                      capture_output=True, 
-                                                      text=True,
-                                                      encoding='utf-8',
-                                                      errors='ignore',
-                                                      timeout=30, creationflags=SUBPROCESS_FLAGS)
-                                if retry_result.returncode != 0:
-                                    break
+                        # 🚨 重新尝试添加文件 - 使用智能批处理
+                        print(f"   🔄 CRLF修复后重新尝试添加文件...")
+                        retry_result = self._smart_git_add_files(relative_paths)
                         
                         if retry_result and retry_result.returncode == 0:
                             print(f"   ✅ 重新添加文件成功")
@@ -2857,7 +3030,294 @@ class GitSvnManager:
         except subprocess.TimeoutExpired as e:
             return False, f"推送操作超时: {str(e)}"
         except Exception as e:
-            return False, f"推送过程中发生异常: {str(e)}"
+            # 🚨 专门处理Windows长路径问题
+            error_msg = str(e)
+            if "WinError 206" in error_msg or "文件名或扩展名太长" in error_msg:
+                return False, self._handle_long_path_error(error_msg, source_files)
+            else:
+                return False, f"推送过程中发生异常: {error_msg}"
+    
+    def _handle_long_path_error(self, error_msg: str, source_files: List[str]) -> str:
+        """处理Windows长路径错误"""
+        try:
+            print(f"🚨 [LONG_PATH] 检测到Windows长路径问题")
+            print(f"   错误信息: {error_msg}")
+            
+            # 分析哪些文件可能导致路径过长
+            long_path_files = []
+            for file_path in source_files:
+                # 计算目标路径长度
+                target_path = self._calculate_target_path(file_path, self.git_path)
+                if target_path and len(target_path) > 260:  # Windows路径限制
+                    long_path_files.append({
+                        'source': file_path,
+                        'target': target_path,
+                        'length': len(target_path)
+                    })
+            
+            if long_path_files:
+                print(f"   发现 {len(long_path_files)} 个长路径文件:")
+                for file_info in long_path_files[:5]:  # 只显示前5个
+                    print(f"     • {os.path.basename(file_info['source'])} -> {file_info['length']} 字符")
+            
+            # 生成用户友好的错误消息和解决方案
+            error_message = (
+                "🚨 Windows路径长度限制问题\n\n"
+                "❌ 错误原因:\n"
+                f"• Windows系统默认路径长度限制为260个字符\n"
+                f"• 检测到 {len(long_path_files)} 个文件的目标路径超过此限制\n\n"
+                "🛠️ 解决方案 (请选择一种):\n\n"
+                "【方案1 - 启用Windows长路径支持】\n"
+                "1. 以管理员身份运行PowerShell\n"
+                "2. 执行命令: New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -Name 'LongPathsEnabled' -Value 1 -PropertyType DWORD -Force\n"
+                "3. 重启计算机\n"
+                "4. 重新尝试推送\n\n"
+                "【方案2 - 使用较短的Git仓库路径】\n"
+                "• 将Git仓库移动到较短的路径 (如 C:\\git\\repo)\n"
+                "• 重新配置Git路径并重试\n\n"
+                "【方案3 - 重新组织文件结构】\n"
+                "• 简化目标目录层级\n"
+                "• 使用较短的文件名\n\n"
+                "💡 推荐使用方案1，这是Windows 10/11的官方长路径支持功能"
+            )
+            
+            return error_message
+            
+        except Exception as handle_e:
+            return f"处理长路径错误时发生异常: {handle_e}\n\n原始错误: {error_msg}"
+    
+    def _configure_git_long_path_support(self):
+        """配置Git长路径支持（Windows专用）"""
+        try:
+            # 只在Windows系统上执行
+            if os.name != 'nt':
+                return
+            
+            # 检查是否已经配置过，避免重复设置
+            if hasattr(self, '_git_longpath_configured') and self._git_longpath_configured:
+                return
+            
+            print(f"   🔧 配置Git长路径支持...")
+            
+            # 检查当前的longpaths设置
+            result = subprocess.run(['git', 'config', '--get', 'core.longpaths'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
+            
+            current_setting = result.stdout.strip().lower() if result.returncode == 0 else ""
+            
+            if current_setting == "true":
+                print(f"   ✅ Git长路径支持已启用")
+                self._git_longpath_configured = True
+                return
+            
+            # 尝试启用长路径支持
+            print(f"   📝 启用Git长路径支持...")
+            result = subprocess.run(['git', 'config', 'core.longpaths', 'true'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  timeout=10, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode == 0:
+                print(f"   ✅ Git长路径支持已启用")
+                self._git_longpath_configured = True
+                
+                # 同时检查Windows系统级长路径支持
+                self._check_windows_long_path_support()
+            else:
+                print(f"   ⚠️ 启用Git长路径支持失败: {result.stderr}")
+                
+        except Exception as e:
+            print(f"   ⚠️ 配置Git长路径支持时出错: {e}")
+    
+    def _check_windows_long_path_support(self):
+        """检查Windows系统级长路径支持状态"""
+        try:
+            import winreg
+            
+            # 检查注册表中的长路径支持设置
+            try:
+                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
+                                   r"SYSTEM\CurrentControlSet\Control\FileSystem")
+                value, _ = winreg.QueryValueEx(key, "LongPathsEnabled")
+                winreg.CloseKey(key)
+                
+                if value == 1:
+                    print(f"   ✅ Windows系统长路径支持已启用")
+                else:
+                    print(f"   ⚠️ Windows系统长路径支持未启用")
+                    print(f"   💡 建议以管理员身份运行PowerShell并执行:")
+                    print(f"      New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -Name 'LongPathsEnabled' -Value 1 -PropertyType DWORD -Force")
+                    
+            except FileNotFoundError:
+                print(f"   ⚠️ Windows系统长路径支持未配置")
+                print(f"   💡 建议启用Windows长路径支持以避免路径长度限制")
+                
+        except ImportError:
+            print(f"   ⚠️ 无法检查Windows长路径支持状态（winreg模块不可用）")
+        except Exception as e:
+            print(f"   ⚠️ 检查Windows长路径支持时出错: {e}")
+    
+    def _smart_git_add_files(self, relative_paths: List[str]):
+        """智能Git文件添加，避免命令行参数过长问题"""
+        try:
+            print(f"   🔧 智能添加 {len(relative_paths)} 个文件...")
+            
+            # 🚨 增强功能1：智能模式选择
+            if len(relative_paths) <= 5:
+                # 少量文件，直接添加
+                print(f"   📝 使用直接添加模式（{len(relative_paths)}个文件）...")
+                return self._direct_git_add(relative_paths)
+            elif len(relative_paths) <= 50:
+                # 中等数量文件，使用优化批处理
+                print(f"   📦 使用批处理模式（{len(relative_paths)}个文件）...")
+                return self._batch_git_add(relative_paths)
+            else:
+                # 大量文件，使用智能分批
+                print(f"   🧠 使用智能分批模式（{len(relative_paths)}个文件）...")
+                return self._intelligent_batch_git_add(relative_paths)
+            
+        except Exception as e:
+            print(f"   ❌ 智能添加文件时出错: {e}")
+            # 回退到逐个添加模式
+            return self._fallback_individual_git_add(relative_paths)
+    
+    def _direct_git_add(self, relative_paths: List[str]):
+        """直接添加模式（适用于少量文件）"""
+        return subprocess.run(['git', 'add'] + relative_paths, 
+                            cwd=self.git_path, 
+                            capture_output=True, 
+                            text=True,
+                            encoding='utf-8',
+                            errors='ignore',
+                            timeout=60, creationflags=SUBPROCESS_FLAGS)
+    
+    def _batch_git_add(self, relative_paths: List[str]):
+        """批处理模式（原有逻辑的增强版）"""
+        # 🚨 恢复原有功能：根据文件数量选择策略
+        if len(relative_paths) > 10:
+            print(f"   📦 使用批量添加模式...")
+            return subprocess.run(['git', 'add'] + relative_paths, 
+                                cwd=self.git_path, 
+                                capture_output=True, 
+                                text=True,
+                                encoding='utf-8',
+                                errors='ignore',
+                                timeout=60, creationflags=SUBPROCESS_FLAGS)
+        else:
+            print(f"   📝 使用逐个添加模式...")
+            # 🚨 恢复原有功能：逐个添加并检查每个文件的结果
+            last_result = None
+            for relative_path in relative_paths:
+                result = subprocess.run(['git', 'add', relative_path], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=30, creationflags=SUBPROCESS_FLAGS)
+                if result.returncode != 0:
+                    print(f"   ❌ 添加文件失败: {relative_path} - {result.stderr}")
+                    return result  # 🚨 重要：立即返回失败结果
+                last_result = result
+            
+            return last_result if last_result else self._create_success_result()
+    
+    def _intelligent_batch_git_add(self, relative_paths: List[str]):
+        """智能分批模式（处理大量文件，避免命令行过长）"""
+        # 计算命令行长度限制（Windows约为8191字符）
+        max_cmd_length = 7000  # 保守估计，留出安全边界
+        
+        # 估算命令行长度
+        base_cmd = "git add "
+        current_length = len(base_cmd)
+        current_batch = []
+        batch_count = 0
+        
+        for path in relative_paths:
+            # 估算添加这个文件后的命令长度（包括空格和引号）
+            path_length = len(f'"{path}" ')
+            
+            if current_length + path_length > max_cmd_length and current_batch:
+                # 当前批次已满，执行添加
+                batch_count += 1
+                print(f"   📦 执行批次 {batch_count}: {len(current_batch)} 个文件")
+                result = subprocess.run(['git', 'add'] + current_batch, 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=60, creationflags=SUBPROCESS_FLAGS)
+                
+                if result.returncode != 0:
+                    print(f"   ❌ 批次 {batch_count} 添加失败: {result.stderr}")
+                    return result
+                else:
+                    print(f"   ✅ 批次 {batch_count} 添加成功")
+                
+                # 重置批次
+                current_batch = [path]
+                current_length = len(base_cmd) + path_length
+            else:
+                # 添加到当前批次
+                current_batch.append(path)
+                current_length += path_length
+        
+        # 处理最后一个批次
+        if current_batch:
+            batch_count += 1
+            print(f"   📦 执行最终批次 {batch_count}: {len(current_batch)} 个文件")
+            result = subprocess.run(['git', 'add'] + current_batch, 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode == 0:
+                print(f"   ✅ 最终批次 {batch_count} 添加成功")
+            
+            return result
+        
+        # 如果没有文件，返回成功
+        return self._create_success_result()
+    
+    def _create_success_result(self):
+        """创建成功结果对象"""
+        class MockResult:
+            returncode = 0
+            stderr = ""
+            stdout = "Files added successfully"
+        
+        return MockResult()
+    
+    def _fallback_individual_git_add(self, relative_paths: List[str]):
+        """回退方案：逐个添加文件（增强版，包含原有的详细错误处理）"""
+        print(f"   🔄 回退到逐个添加模式...")
+        
+        for i, relative_path in enumerate(relative_paths):
+            print(f"   📄 添加文件 {i+1}/{len(relative_paths)}: {os.path.basename(relative_path)}")
+            result = subprocess.run(['git', 'add', relative_path], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=30, creationflags=SUBPROCESS_FLAGS)
+            if result.returncode != 0:
+                print(f"   ❌ 添加文件失败: {relative_path} - {result.stderr}")
+                return result  # 🚨 重要：保持原有行为，立即返回失败结果
+            else:
+                print(f"   ✅ 成功添加: {os.path.basename(relative_path)}")
+        
+        # 所有文件都成功添加
+        print(f"   🎉 所有 {len(relative_paths)} 个文件添加成功")
+        return self._create_success_result()
     
     def _configure_git_line_endings(self):
         """配置Git换行符处理，解决CRLF问题（保守方式）"""
@@ -3190,12 +3650,379 @@ class GitSvnManager:
         print(f"   当前SVN路径配置: {self.svn_path}")
         print(f"   当前Git路径配置: {self.git_path}")
         
+        # 🔥 新增：直接测试路径映射规则
+        print(f"\n🔍 [TEST] 直接测试路径映射规则:")
+        
+        # 测试几个关键路径
+        test_paths = [
+            "Assets\\entity\\100060\\test.prefab",
+            "Assets\\remotes\\entity\\100060\\test.prefab", 
+            "Assets\\Resources\\minigame\\entity\\100060\\test.prefab",
+            "Assets\\Resources\\minigame\\remotes\\entity\\100060\\test.prefab"
+        ]
+        
+        if test_file_path not in test_paths:
+            test_paths.insert(0, test_file_path)
+        
+        for path in test_paths:
+            print(f"\n   📝 测试路径: {path}")
+            mapped = self.apply_path_mapping(path)
+            print(f"   📤 映射结果: {mapped}")
+            print(f"   {'✅ 正确' if self._is_mapping_correct(path, mapped) else '❌ 可能有问题'}")
+        
+        # 原有的完整路径计算测试
+        print(f"\n🎯 [TEST] 完整路径计算测试:")
         target_path = self._calculate_target_path(test_file_path, self.git_path)
         
-        print(f"   🎯 映射结果: {target_path}")
+        print(f"   🎯 最终目标路径: {target_path}")
         print(f"   ==========================================")
         
         return target_path
+    
+    def _is_mapping_correct(self, original_path: str, mapped_path: str) -> bool:
+        """验证路径映射是否正确"""
+        # 检查entity路径映射
+        if "\\entity\\" in original_path and not "\\remotes\\entity\\" in original_path:
+            return "\\Resources\\minigame\\entity\\" in mapped_path and "\\remotes\\entity\\" not in mapped_path
+        
+        # 检查remotes/entity路径映射  
+        if "\\remotes\\entity\\" in original_path:
+            return "\\Resources\\minigame\\remotes\\entity\\" in mapped_path
+            
+        return True  # 其他路径暂不验证
+    
+    def _calculate_safe_deletion_targets(self, replace_folders: List[dict], source_files: List[str]) -> List[dict]:
+        """
+        🛡️ 安全计算需要删除的目标文件夹
+        
+        关键安全原则：
+        1. 只删除与当前提交文件直接相关的目标文件夹
+        2. 通过路径映射验证删除目标的正确性
+        3. 避免删除无关的文件夹
+        
+        Args:
+            replace_folders: 标记为替换模式的文件夹信息
+            source_files: 当前要提交的源文件列表
+            
+        Returns:
+            List[dict]: 经过安全验证的删除目标列表
+        """
+        print(f"🛡️ [SAFE_DELETE] ========== 安全删除目标计算 ==========")
+        
+        safe_deletions = []
+        
+        # 1. 计算所有源文件的目标路径，建立映射关系
+        source_target_mapping = {}
+        target_folders = set()
+        
+        for source_file in source_files:
+            try:
+                # 计算此源文件的目标路径
+                target_path = self._calculate_target_path(source_file, self.git_path)
+                if target_path:
+                    source_target_mapping[source_file] = target_path
+                    
+                    # 提取目标文件夹路径
+                    target_dir = os.path.dirname(target_path)
+                    target_folders.add(target_dir)
+                    
+                    print(f"   📝 映射: {os.path.basename(source_file)} -> {target_dir}")
+                    
+            except Exception as e:
+                print(f"   ⚠️ 无法计算目标路径: {source_file} - {e}")
+        
+        print(f"   📊 当前提交涉及 {len(target_folders)} 个目标文件夹")
+        
+        # 2. 对每个替换文件夹进行安全验证
+        for folder_info in replace_folders:
+            folder_name = folder_info.get('folder_name', '未知')
+            target_folder_path = folder_info.get('target_path', '')
+            
+            print(f"\n   🔍 验证替换文件夹: {folder_name}")
+            print(f"      声明的目标路径: {target_folder_path}")
+            
+            if not target_folder_path or not os.path.exists(target_folder_path):
+                print(f"      ❌ 跳过：目标路径不存在")
+                continue
+            
+            # 🚨 增强的安全检查：更精确的替换模式验证
+            is_safe_to_delete = False
+            related_files = []
+            deletion_reason = ""
+            
+            # 检查是否有源文件会映射到这个目标文件夹或其子文件夹
+            normalized_target = os.path.normpath(target_folder_path).replace('\\', '/').lower()
+            
+            # 方法1：检查直接文件夹映射关系
+            for source_file, target_path in source_target_mapping.items():
+                target_dir = os.path.normpath(os.path.dirname(target_path)).replace('\\', '/').lower()
+                
+                # 🚨 改进：更精确的路径匹配逻辑
+                if self._is_target_folder_match(normalized_target, target_dir):
+                    is_safe_to_delete = True
+                    related_files.append(os.path.basename(source_file))
+                    print(f"      ✅ 关联文件: {os.path.basename(source_file)} -> {target_dir}")
+            
+            # 方法2：🚨 严格的用户替换确认（增加多重安全验证）
+            if not is_safe_to_delete:
+                # 🛡️ 安全检查1：必须有明确的文件夹名称匹配
+                if not folder_name or folder_name == '未知':
+                    print(f"      ❌ 安全阻止：文件夹名称未知，拒绝删除")
+                else:
+                    # 🛡️ 安全检查2：检查目标路径是否确实存在文件
+                    if os.path.exists(target_folder_path) and os.listdir(target_folder_path):
+                        existing_files = [f for f in os.listdir(target_folder_path) if os.path.isfile(os.path.join(target_folder_path, f))]
+                        if existing_files:
+                            # 🛡️ 安全检查3：验证文件夹名称是否出现在目标路径中
+                            if folder_name.lower() in target_folder_path.lower():
+                                # 🛡️ 安全检查4：检查是否是合理的替换操作
+                                if self._is_reasonable_replacement(folder_name, target_folder_path, existing_files):
+                                    print(f"      🔍 安全验证通过：目标文件夹存在 {len(existing_files)} 个文件，且路径匹配")
+                                    is_safe_to_delete = True
+                                    deletion_reason = f"用户明确选择替换模式，目标文件夹有 {len(existing_files)} 个文件（经过安全验证）"
+                                    related_files = [f"目标文件夹中的 {len(existing_files)} 个文件"]
+                                else:
+                                    print(f"      ❌ 安全阻止：替换操作不合理，拒绝删除")
+                            else:
+                                print(f"      ❌ 安全阻止：文件夹名称与目标路径不匹配，拒绝删除")
+                                print(f"         文件夹名称: {folder_name}")
+                                print(f"         目标路径: {target_folder_path}")
+                    else:
+                        print(f"      ℹ️ 目标文件夹为空或不存在，无需删除")
+            
+            if is_safe_to_delete:
+                # 额外的路径合理性检查
+                if self._is_deletion_path_reasonable(target_folder_path, folder_name):
+                    final_reason = deletion_reason if deletion_reason else f"与当前提交的 {len(related_files)} 个文件相关"
+                    safe_deletions.append({
+                        'folder_name': folder_name,
+                        'target_path': target_folder_path,
+                        'related_files': related_files,
+                        'reason': final_reason
+                    })
+                    print(f"      ✅ 安全验证通过：将删除 {folder_name}")
+                    print(f"      📝 删除原因: {final_reason}")
+                else:
+                    print(f"      ❌ 路径合理性检查失败，跳过删除")
+            else:
+                print(f"      ❌ 安全验证失败：目标文件夹为空或与当前提交无关，跳过删除")
+        
+        print(f"\n   📊 安全验证结果：{len(safe_deletions)}/{len(replace_folders)} 个文件夹通过验证")
+        print(f"   ==========================================")
+        
+        return safe_deletions
+    
+    def _is_target_folder_match(self, normalized_target: str, target_dir: str) -> bool:
+        """检查目标文件夹是否匹配"""
+        # 精确匹配
+        if target_dir == normalized_target:
+            return True
+        
+        # 检查是否是子文件夹（目标文件在要删除的文件夹内）
+        if target_dir.startswith(normalized_target + '/'):
+            return True
+        
+        # 检查是否是父文件夹（要删除的是目标文件的子文件夹）
+        if normalized_target.startswith(target_dir + '/'):
+            return True
+        
+        return False
+    
+    def _is_reasonable_replacement(self, folder_name: str, target_folder_path: str, existing_files: list) -> bool:
+        """
+        🛡️ 验证替换操作是否合理
+        
+        Args:
+            folder_name: 源文件夹名称
+            target_folder_path: 目标文件夹路径
+            existing_files: 目标文件夹中的现有文件列表
+            
+        Returns:
+            bool: True表示替换操作合理，False表示不合理
+        """
+        try:
+            # 🚨 安全检查1：文件夹名称不能为空或过于通用
+            if not folder_name or len(folder_name.strip()) < 2:
+                print(f"      ❌ 不合理：文件夹名称过短或为空")
+                return False
+            
+            # 🚨 安全检查2：禁止删除过于通用的文件夹名称
+            dangerous_names = ['assets', 'resources', 'common', 'shared', 'data', 'files', 'temp', 'tmp']
+            if folder_name.lower() in dangerous_names:
+                print(f"      ❌ 不合理：文件夹名称过于通用，可能误删重要文件")
+                return False
+            
+            # 🚨 安全检查3：检查文件数量是否合理（避免删除大量文件）
+            if len(existing_files) > 100:  # 超过100个文件需要额外确认
+                print(f"      ⚠️ 警告：目标文件夹包含 {len(existing_files)} 个文件，数量较多")
+                # 可以在这里添加更严格的检查
+                return False
+            
+            # 🚨 安全检查4：检查路径深度是否合理
+            path_parts = target_folder_path.replace('\\', '/').split('/')
+            if len(path_parts) < 4:  # 路径太短可能是根目录
+                print(f"      ❌ 不合理：目标路径层级太浅 ({len(path_parts)} 层)，可能是重要目录")
+                return False
+            
+            # 🚨 安全检查5：检查是否包含重要的项目结构
+            important_indicators = ['assets', 'resources', 'entity', 'prefab', 'material', 'texture']
+            has_important_indicator = any(indicator in target_folder_path.lower() for indicator in important_indicators)
+            
+            if not has_important_indicator:
+                print(f"      ❌ 不合理：目标路径不包含项目结构标识符，可能不是正确的替换目标")
+                return False
+            
+            print(f"      ✅ 替换操作合理性验证通过")
+            return True
+            
+        except Exception as e:
+            print(f"      ❌ 替换合理性检查异常: {e}")
+            return False
+    
+    def _is_deletion_path_reasonable(self, target_path: str, folder_name: str) -> bool:
+        """验证删除路径是否合理，避免删除重要系统文件夹"""
+        
+        # 转换为标准化路径
+        normalized_path = os.path.normpath(target_path).replace('/', '\\').lower()
+        
+        # 🚨 严格的安全检查：禁止删除的路径模式
+        forbidden_patterns = [
+            # 系统关键路径
+            'c:\\windows', 'c:\\program files', 'c:\\users', 'c:\\system32',
+            # Git仓库根目录和配置
+            '\\.git\\', '\\.git$', '\\.gitignore', '\\.gitattributes',
+            # 过于宽泛的根目录（但允许具体的子目录）
+            '\\assets$', '\\resources$', '\\commonresource$',
+            # 根驱动器
+            '^[a-z]:$', '^[a-z]:\\$',
+            # 项目根目录
+            '\\assets\\$', '\\resources\\$',
+            # 重要的开发工具目录
+            'node_modules', '.vscode', '.idea', '__pycache__'
+        ]
+        
+        for pattern in forbidden_patterns:
+            if pattern.endswith('$'):
+                # 精确匹配
+                if normalized_path.lower().endswith(pattern[:-1]):
+                    print(f"      ⚠️ 禁止删除：路径过于宽泛 ({pattern})")
+                    return False
+            else:
+                # 包含匹配
+                if pattern in normalized_path:
+                    print(f"      ⚠️ 禁止删除：包含敏感路径 ({pattern})")
+                    return False
+        
+        # ✅ 必须包含合理的子路径结构
+        required_patterns = ['assets', 'resources', 'minigame']
+        pattern_count = sum(1 for pattern in required_patterns if pattern in normalized_path)
+        
+        if pattern_count < 2:
+            print(f"      ⚠️ 路径结构不合理：缺少必要的子路径结构")
+            return False
+        
+        # ✅ 路径长度检查（避免删除过短的路径）
+        path_parts = [part for part in normalized_path.split('\\') if part]
+        if len(path_parts) < 4:  # 至少应该有4层目录结构
+            print(f"      ⚠️ 路径过短：{len(path_parts)} 层，最少需要4层")
+            return False
+        
+        print(f"      ✅ 路径合理性检查通过")
+        return True
+    
+    def _execute_safe_deletions(self, safe_deletions: List[dict]) -> List[dict]:
+        """
+        🔧 执行安全删除操作
+        
+        Args:
+            safe_deletions: 经过安全验证的删除目标列表
+            
+        Returns:
+            List[dict]: 删除操作结果
+        """
+        print(f"🗑️ [SAFE_DELETE] ========== 执行安全删除 ==========")
+        
+        results = []
+        
+        for deletion_info in safe_deletions:
+            folder_name = deletion_info['folder_name']
+            target_path = deletion_info['target_path']
+            related_files = deletion_info['related_files']
+            
+            print(f"   🗑️ 处理替换文件夹: {folder_name}")
+            print(f"      目标路径: {target_path}")
+            print(f"      替换原因: {deletion_info.get('reason', '未知')}")
+            
+            result = {
+                'folder_name': folder_name,
+                'success': False,
+                'error': None,
+                'deleted_path': target_path,
+                'deleted_files_count': 0
+            }
+            
+            try:
+                if not os.path.exists(target_path):
+                    result['success'] = True
+                    result['error'] = '文件夹不存在，无需删除'
+                    print(f"      ℹ️ 文件夹不存在，无需删除")
+                    results.append(result)
+                    continue
+                
+                # 🔍 统计要删除的文件数量
+                files_to_delete = []
+                for root, dirs, files in os.walk(target_path):
+                    files_to_delete.extend([os.path.join(root, f) for f in files])
+                
+                result['deleted_files_count'] = len(files_to_delete)
+                print(f"      📊 发现 {len(files_to_delete)} 个文件待删除")
+                
+                # 🔧 先尝试使用Git删除（更安全，会被Git跟踪）
+                relative_path = os.path.relpath(target_path, self.git_path).replace('\\', '/')
+                print(f"      🔧 使用Git删除: {relative_path}")
+                
+                delete_result = subprocess.run(
+                    ['git', 'rm', '-r', relative_path], 
+                    cwd=self.git_path, 
+                    capture_output=True, 
+                    text=True,
+                    encoding='utf-8',
+                    errors='ignore',
+                    timeout=60,  # 增加超时时间，处理大文件夹
+                    creationflags=SUBPROCESS_FLAGS
+                )
+                
+                if delete_result.returncode == 0:
+                    result['success'] = True
+                    result['error'] = None
+                    print(f"      ✅ Git删除成功，清理了 {result['deleted_files_count']} 个文件")
+                else:
+                    # Git删除失败，尝试直接删除（仅作为后备方案）
+                    print(f"      ⚠️ Git删除失败，尝试直接删除: {delete_result.stderr}")
+                    
+                    import shutil
+                    shutil.rmtree(target_path, ignore_errors=True)
+                    
+                    if not os.path.exists(target_path):
+                        result['success'] = True
+                        result['error'] = None
+                        print(f"      ✅ 直接删除成功，清理了 {result['deleted_files_count']} 个文件")
+                        print(f"      ⚠️ 注意：文件已从磁盘删除，但未通过Git跟踪")
+                    else:
+                        result['success'] = False
+                        result['error'] = '删除失败，文件夹仍然存在'
+                        print(f"      ❌ 删除失败，文件夹仍然存在")
+                        
+                results.append(result)
+                
+            except Exception as e:
+                result['success'] = False
+                result['error'] = f"删除操作异常: {str(e)}"
+                print(f"      ❌ 删除操作异常: {str(e)}")
+                results.append(result)
+        
+        print(f"🗑️ [SAFE_DELETE] ========== 删除操作完成 ==========")
+        return results
 
 
 class BranchSwitchThread(QThread):
@@ -3337,9 +4164,21 @@ class ResourceChecker(QThread):
             
             # 7. 材质模板检查
             self.status_updated.emit("检查材质模板...")
-            self.progress_updated.emit(90)
+            self.progress_updated.emit(85)
             template_issues = self._check_material_templates()
             all_issues.extend(template_issues)
+            
+            # 8. Avatar文件夹all.filelist检查
+            self.status_updated.emit("检查Avatar文件夹all.filelist...")
+            self.progress_updated.emit(90)
+            avatar_filelist_issues = self._check_avatar_filelist()
+            all_issues.extend(avatar_filelist_issues)
+            
+            # 9. Weapon文件夹all.filelist检查
+            self.status_updated.emit("检查Weapon文件夹all.filelist...")
+            self.progress_updated.emit(95)
+            weapon_filelist_issues = self._check_weapon_filelist()
+            all_issues.extend(weapon_filelist_issues)
             
             # 生成详细报告
             report = self._generate_detailed_report(all_issues, len(self.upload_files))
@@ -3585,34 +4424,58 @@ class ResourceChecker(QThread):
         return issues
 
     def _check_image_sizes(self) -> List[Dict[str, str]]:
-        """检查图片尺寸"""
+        """检查图片尺寸 - 支持Environment/Scenes特殊规则和DefaultToonMat.templatemat材质引用的贴图"""
         issues = []
+        
+        # 🆕 首先找到所有使用DefaultToonMat.templatemat的材质文件引用的贴图
+        defaulttoon_referenced_images = self._find_defaulttoon_referenced_images()
         
         for file_path in self.upload_files:
             try:
                 _, ext = os.path.splitext(file_path.lower())
                 if ext in self.image_types:
+                    # 🆕 检查是否在Environment/Scenes路径下（跳过2的幂次检查）
+                    is_environment_scenes = self._is_environment_scenes_path(file_path)
+                    
+                    # 🆕 检查是否被DefaultToonMat.templatemat材质引用
+                    is_defaulttoon_referenced = file_path in defaulttoon_referenced_images
+                    
+                    # 如果满足任一条件，跳过2的次幂检查
+                    skip_power_of_2_check = is_environment_scenes or is_defaulttoon_referenced
+                    
+                    if skip_power_of_2_check:
+                        if is_environment_scenes:
+                            print(f"🔍 [DEBUG] 检测到Environment/Scenes贴图文件: {os.path.basename(file_path)}")
+                            print(f"   完整路径: {file_path}")
+                            print(f"   ✅ 跳过2的幂次检查（Environment/Scenes特殊规则）")
+                        if is_defaulttoon_referenced:
+                            print(f"🔍 [DEBUG] 检测到DefaultToonMat材质引用的贴图: {os.path.basename(file_path)}")
+                            print(f"   完整路径: {file_path}")
+                            print(f"   ✅ 跳过2的幂次检查（DefaultToonMat.templatemat特殊规则）")
+                    
                     try:
                         from PIL import Image
                         with Image.open(file_path) as img:
                             width, height = img.size
                             
-                            # 检查是否为2的幂次
-                            if not (width & (width - 1) == 0 and width != 0):
-                                issues.append({
-                                    'file': file_path,
-                                    'type': 'image_width_not_power_of_2',
-                                    'message': f'图片宽度({width})不是2的幂次'
-                                })
+                            # 🆕 只有不满足特殊规则的贴图才检查2的幂次
+                            if not skip_power_of_2_check:
+                                # 检查是否为2的幂次
+                                if not (width & (width - 1) == 0 and width != 0):
+                                    issues.append({
+                                        'file': file_path,
+                                        'type': 'image_width_not_power_of_2',
+                                        'message': f'图片宽度({width})不是2的幂次'
+                                    })
+                                
+                                if not (height & (height - 1) == 0 and height != 0):
+                                    issues.append({
+                                        'file': file_path,
+                                        'type': 'image_height_not_power_of_2',
+                                        'message': f'图片高度({height})不是2的幂次'
+                                    })
                             
-                            if not (height & (height - 1) == 0 and height != 0):
-                                issues.append({
-                                    'file': file_path,
-                                    'type': 'image_height_not_power_of_2',
-                                    'message': f'图片高度({height})不是2的幂次'
-                                })
-                            
-                            # 检查尺寸是否过大
+                            # 检查尺寸是否过大（这个检查对所有图片都适用）
                             if width > 2048 or height > 2048:
                                 issues.append({
                                     'file': file_path,
@@ -3677,15 +4540,17 @@ class ResourceChecker(QThread):
             
             # 检查是否有替换模式的文件夹
             has_replace_mode = False
+            replace_folders = []
             if hasattr(self, 'folder_upload_modes') and self.folder_upload_modes:
                 for folder_info in self.folder_upload_modes.values():
                     if folder_info.get('mode') == 'replace':
                         has_replace_mode = True
-                        break
+                        replace_folders.append(folder_info.get('folder_name', '未知文件夹'))
             
             if has_replace_mode:
-                self.status_updated.emit("⚠️ 检测到替换模式，跳过与Git仓库的GUID冲突检查")
-                self.status_updated.emit("   原因：替换模式会删除Git中的旧文件，不存在GUID冲突问题")
+                self.status_updated.emit(f"🔄 检测到替换模式文件夹: {', '.join(replace_folders)}")
+                self.status_updated.emit("🔄 替换模式：仍需检查所有GUID冲突")
+                self.status_updated.emit("   即使替换模式，也要遍历检查所有Git文件的GUID冲突")
             
             # 第一步：预处理，建立文件映射关系
             self.status_updated.emit("分析文件结构...")
@@ -3725,7 +4590,7 @@ class ResourceChecker(QThread):
                         else:
                             guid_to_meta[guid] = meta_file
                         
-                        self.status_updated.emit(f"找到GUID: {guid[:8]}... ({os.path.basename(meta_file)})")
+                        self.status_updated.emit(f"找到GUID: {guid} ({os.path.basename(meta_file)})")
                     else:
                         # GUID解析失败，但这会在meta文件检查中处理
                         pass
@@ -3746,7 +4611,7 @@ class ResourceChecker(QThread):
             if guid_duplicates:
                 self.status_updated.emit(f"发现 {len(guid_duplicates)} 个重复GUID")
                 for guid, meta_files_list in guid_duplicates.items():
-                    self.status_updated.emit(f"⚠️ GUID重复: {guid[:8]}... (涉及{len(meta_files_list)}个文件)")
+                    self.status_updated.emit(f"⚠️ GUID重复: {guid} (涉及{len(meta_files_list)}个文件)")
                     
                     # 为每个重复的GUID创建问题记录
                     # 使用第一个meta文件作为主要问题记录
@@ -3765,74 +4630,99 @@ class ResourceChecker(QThread):
                         'guid': guid,
                         'files': meta_files_list,
                         'file_count': len(meta_files_list),
-                        'message': f'GUID重复 ({guid[:8]}...): 在{len(meta_files_list)}个上传文件中重复出现: {", ".join(duplicate_resources)}'
+                        'message': f'GUID重复 ({guid}): 在{len(meta_files_list)}个上传文件中重复出现: {", ".join(duplicate_resources)}'
                     })
             else:
                 self.status_updated.emit("✅ 未发现内部GUID重复")
             
-            # 第四步：检查与Git仓库的冲突（仅在非替换模式下）
-            if not has_replace_mode:
-                self.status_updated.emit("扫描Git仓库中的GUID...")
-                git_guids = self._get_git_repository_guids()
-                self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
-                
-                git_conflicts = []
-                file_updates = []
-                debug_count = 0  # 限制调试输出
-            else:
-                # 替换模式下，跳过Git冲突检查
-                git_guids = {}
-                git_conflicts = []
-                file_updates = []
-                self.status_updated.emit("✅ 替换模式：跳过Git仓库GUID冲突检查")
+            # 第四步：检查与Git仓库的冲突（智能替换模式处理）
+            self.status_updated.emit("扫描Git仓库中的GUID...")
+            git_guids = self._get_git_repository_guids()
+            self.status_updated.emit(f"Git仓库扫描完成，共找到 {len(git_guids)} 个GUID")
             
-            # 只在非替换模式下进行Git冲突检查
-            if not has_replace_mode:
-                for guid, meta_file in guid_to_meta.items():
-                    if guid in git_guids:
-                        resource_file = meta_file[:-5] if meta_file.endswith('.meta') else meta_file
-                        git_file_info = git_guids[guid]
+            git_conflicts = []
+            file_updates = []
+            debug_count = 0  # 限制调试输出
+            
+            if has_replace_mode:
+                self.status_updated.emit("🔄 替换模式：仍需检查所有GUID冲突")
+                self.status_updated.emit("   即使是替换模式，也要遍历检查所有Git文件的GUID冲突")
+            
+            # 进行Git冲突检查（替换模式下需要智能处理）
+            for guid, meta_file in guid_to_meta.items():
+                if guid in git_guids:
+                    resource_file = meta_file[:-5] if meta_file.endswith('.meta') else meta_file
+                    git_file_info = git_guids[guid]
+                    
+                    # 计算上传文件的相对路径（相对于SVN根目录）
+                    upload_relative_path = self._get_upload_file_relative_path(resource_file)
+                    git_relative_path = git_file_info['relative_resource_path']
+                    
+                    # 调试信息（只输出前3个）
+                    if debug_count < 3:
+                        self.status_updated.emit(f"🔍 路径比较调试:")
+                        self.status_updated.emit(f"   文件: {os.path.basename(resource_file)}")
+                        self.status_updated.emit(f"   上传路径: '{upload_relative_path}'")
+                        self.status_updated.emit(f"   Git路径: '{git_relative_path}'")
                         
-                        # 计算上传文件的相对路径（相对于SVN根目录）
-                        upload_relative_path = self._get_upload_file_relative_path(resource_file)
-                        git_relative_path = git_file_info['relative_resource_path']
+                        # 显示路径映射结果
+                        if hasattr(self.git_manager, 'apply_path_mapping'):
+                            mapped_path = self.git_manager.apply_path_mapping(upload_relative_path)
+                            self.status_updated.emit(f"   映射后路径: '{mapped_path}'")
                         
-                        # 调试信息（只输出前3个）
-                        if debug_count < 3:
-                            self.status_updated.emit(f"🔍 路径比较调试:")
-                            self.status_updated.emit(f"   文件: {os.path.basename(resource_file)}")
-                            self.status_updated.emit(f"   上传路径: '{upload_relative_path}'")
-                            self.status_updated.emit(f"   Git路径: '{git_relative_path}'")
-                            
-                            # 显示路径映射结果
-                            if hasattr(self.git_manager, 'apply_path_mapping'):
-                                mapped_path = self.git_manager.apply_path_mapping(upload_relative_path)
-                                self.status_updated.emit(f"   映射后路径: '{mapped_path}'")
-                            
-                            debug_count += 1
+                        debug_count += 1
+                    
+                    # 🚨 关键修复：替换模式下仍需检查所有GUID冲突
+                    # 用户需求：即使替换模式也要遍历检查所有GUID，警告报错
+                    will_be_deleted = False
+                    if has_replace_mode:
+                        # 检查Git中的文件是否会被替换模式删除（仅用于判断类型）
+                        will_be_deleted = self._will_be_deleted_by_replace_mode(
+                            git_relative_path, replace_folders
+                        )
+                        if will_be_deleted:
+                            self.status_updated.emit(f"🔄 替换模式：文件 {git_relative_path} 将被删除，但仍检查GUID冲突")
+                    
+                    # 无论替换模式与否，都进行GUID冲突检查
+                    # 路径比较 - 使用映射
+                    if self._compare_file_paths(upload_relative_path, git_relative_path):
+                        # 同一文件的更新（或替换模式下的同路径文件）
+                        update_type = "文件更新"
+                        if has_replace_mode and will_be_deleted:
+                            update_type = "替换模式更新"
                         
-                        # 路径比较 - 使用映射
-                        if self._compare_file_paths(upload_relative_path, git_relative_path):
-                            # 同一文件的更新
-                            file_updates.append({
-                                'guid': guid,
-                                'meta_file': meta_file,
-                                'resource_file': resource_file,
-                                'upload_path': upload_relative_path,
-                                'git_path': git_relative_path
-                            })
-                            self.status_updated.emit(f"📝 文件更新: {guid[:8]}... ({os.path.basename(resource_file)})")
-                        else:
-                            # 真正的GUID冲突 - 不同文件使用相同GUID
-                            git_conflicts.append({
-                                'guid': guid,
-                                'meta_file': meta_file,
-                                'resource_file': resource_file,
-                                'upload_path': upload_relative_path,
-                                'git_path': git_relative_path,
-                                'git_file_name': git_file_info['resource_name']
-                            })
-                            self.status_updated.emit(f"⚠️ GUID冲突: {guid[:8]}... (上传:{os.path.basename(resource_file)} vs Git:{git_file_info['resource_name']})")
+                        file_updates.append({
+                            'guid': guid,
+                            'meta_file': meta_file,
+                            'resource_file': resource_file,
+                            'upload_path': upload_relative_path,
+                            'git_path': git_relative_path,
+                            'update_type': update_type
+                        })
+                        self.status_updated.emit(f"📝 {update_type}: {guid} ({os.path.basename(resource_file)})")
+                    else:
+                        # 真正的GUID冲突 - 不同文件使用相同GUID
+                        svn_filename = os.path.basename(resource_file)
+                        git_filename = git_file_info['resource_name']
+                        
+                        # 🎯 重点：无论替换模式与否，都要报告GUID冲突
+                        conflict_type = "GUID冲突"
+                        if has_replace_mode and will_be_deleted:
+                            conflict_type = "GUID冲突(目标将被替换)"
+                        elif has_replace_mode:
+                            conflict_type = "GUID冲突(不同目录)"
+                        
+                        git_conflicts.append({
+                            'guid': guid,
+                            'meta_file': meta_file,
+                            'resource_file': resource_file,
+                            'upload_path': upload_relative_path,
+                            'git_path': git_relative_path,
+                            'git_file_name': git_file_info['resource_name'],
+                            'conflict_type': conflict_type,
+                            'will_be_deleted': will_be_deleted
+                        })
+                        self.status_updated.emit(f"⚠️ {conflict_type}: {guid} SVN:{svn_filename} Git:{git_filename} (路径:{git_relative_path})")
             
             # 记录文件更新（信息级别，不是错误）
             for update in file_updates:
@@ -3843,11 +4733,14 @@ class ResourceChecker(QThread):
                     'upload_path': update['upload_path'],
                     'git_path': update['git_path'],
                     'severity': 'info',
-                    'message': f'文件更新 ({update["guid"][:8]}...): {os.path.basename(update["resource_file"])} 将覆盖Git中的现有版本'
+                    'message': f'文件更新 ({update["guid"]}): {os.path.basename(update["resource_file"])} 将覆盖Git中的现有版本'
                 })
             
             # 记录真正的GUID冲突（警告级别）
             for conflict in git_conflicts:
+                svn_name = os.path.basename(conflict['resource_file'])
+                git_name = conflict['git_file_name']
+                    
                 issues.append({
                     'file': conflict['resource_file'],
                     'type': 'guid_duplicate_git',
@@ -3856,26 +4749,27 @@ class ResourceChecker(QThread):
                     'git_path': conflict['git_path'],
                     'git_file_name': conflict['git_file_name'],
                     'severity': 'warning',
-                    'message': f'GUID冲突 ({conflict["guid"][:8]}...): 上传文件 {os.path.basename(conflict["resource_file"])} 与Git中不同文件 {conflict["git_file_name"]} 使用了相同的GUID'
+                    'message': f'GUID冲突 ({conflict["guid"]}): 文件名不同但GUID相同\n  SVN：{svn_name}\n  Git：{git_name}\n  建议：请统一文件名'
                 })
             
             # 第五步：生成检查摘要
             total_unique_guids = len(guid_to_meta)
             internal_duplicate_count = len(guid_duplicates)
-            git_conflict_count = len(git_conflicts)
+            
+            # 计算GUID冲突数量和文件更新数量
+            actual_git_conflict_count = len(git_conflicts)
             file_update_count = len(file_updates)
             
             self.status_updated.emit("📊 GUID唯一性检查完成:")
             self.status_updated.emit(f"   📄 上传文件GUID数量: {total_unique_guids}")
             self.status_updated.emit(f"   🔄 内部重复: {internal_duplicate_count}")
             
+            self.status_updated.emit(f"   📝 文件更新: {file_update_count}")
+            self.status_updated.emit(f"   ⚡ GUID冲突: {actual_git_conflict_count}")
+            self.status_updated.emit(f"   🎯 Git仓库GUID数量: {len(git_guids)}")
+            
             if has_replace_mode:
-                self.status_updated.emit(f"   🔄 替换模式: 跳过Git冲突检查")
-                self.status_updated.emit(f"   📝 文件更新: {file_update_count}")
-            else:
-                self.status_updated.emit(f"   📝 文件更新: {file_update_count}")
-                self.status_updated.emit(f"   ⚡ GUID冲突: {git_conflict_count}")
-                self.status_updated.emit(f"   🎯 Git仓库GUID数量: {len(git_guids)}")
+                self.status_updated.emit(f"   🔄 替换模式: 仍检查了所有GUID冲突（包括不同目录）")
             
             if issues:
                 self.status_updated.emit(f"❌ GUID唯一性检查发现 {len(issues)} 个问题")
@@ -3903,7 +4797,40 @@ class ResourceChecker(QThread):
             print(f"异常详情: {tb_str}")
         
         return issues
-
+    
+    def _will_be_deleted_by_replace_mode(self, git_relative_path: str, replace_folders: List[str]) -> bool:
+        """
+        判断Git中的文件是否会被替换模式删除
+        
+        Args:
+            git_relative_path: Git中文件的相对路径
+            replace_folders: 替换模式的文件夹列表
+            
+        Returns:
+            bool: True表示会被删除，False表示不会被删除
+        """
+        try:
+            # 标准化Git路径
+            git_path_normalized = git_relative_path.replace('\\', '/').strip('/')
+            
+            # 获取当前提交的源文件映射信息
+            if hasattr(self, 'folder_upload_modes') and self.folder_upload_modes:
+                for folder_info in self.folder_upload_modes.values():
+                    if folder_info.get('mode') == 'replace':
+                        # 获取替换模式的目标路径
+                        target_path = folder_info.get('target_path', '').replace('\\', '/').strip('/')
+                        
+                        # 检查Git文件是否在会被删除的目标路径下
+                        if target_path and git_path_normalized.startswith(target_path):
+                            self.status_updated.emit(f"🔍 替换模式分析: Git文件 '{git_path_normalized}' 在删除路径 '{target_path}' 下")
+                            return True
+            
+            return False
+            
+        except Exception as e:
+            self.status_updated.emit(f"⚠️ 替换模式检查异常: {e}")
+            return False
+    
     def _get_upload_file_relative_path(self, file_path: str) -> str:
         """获取上传文件相对于SVN根目录的路径"""
         try:
@@ -3945,7 +4872,16 @@ class ResourceChecker(QThread):
             return result
     
     def _compare_file_paths(self, upload_path: str, git_path: str) -> bool:
-        """比较上传文件路径与Git文件路径是否匹配（使用路径映射）"""
+        """比较上传文件路径与Git文件路径是否匹配（使用路径映射）
+        
+        返回True表示是同一个文件的更新，返回False表示是GUID冲突
+        
+        主要职责：
+        1. 标准化路径格式
+        2. 应用路径映射规则
+        3. 区分"文件更新"和"GUID冲突"
+        4. 处理同目录不同文件名的情况（关键修复）
+        """
         try:
             # 标准化路径 - 统一使用正斜杠
             upload_normalized = upload_path.replace('\\', '/').strip('/')
@@ -3956,18 +4892,52 @@ class ResourceChecker(QThread):
                 return True
             
             # 使用路径映射进行比较
+            mapped_upload_normalized = upload_normalized
             if hasattr(self.git_manager, 'apply_path_mapping'):
                 # 将上传路径应用映射规则
                 mapped_upload_path = self.git_manager.apply_path_mapping(upload_normalized)
                 mapped_upload_normalized = mapped_upload_path.replace('\\', '/').strip('/')
                 
-                # 比较映射后的路径
+                # 比较映射后的完整路径
                 if mapped_upload_normalized.lower() == git_normalized.lower():
                     return True
             
+            # 关键修复：检查是否只是文件名不同
+            # 分离目录和文件名
+            upload_dir = '/'.join(mapped_upload_normalized.split('/')[:-1])
+            upload_filename = mapped_upload_normalized.split('/')[-1]
+            git_dir = '/'.join(git_normalized.split('/')[:-1])  
+            git_filename = git_normalized.split('/')[-1]
+            
+            if upload_dir.lower() == git_dir.lower() and upload_filename.lower() != git_filename.lower():
+                # 同目录不同文件名的情况
+                # 检查是否在替换模式下
+                has_replace_mode = False
+                if hasattr(self, 'folder_upload_modes') and self.folder_upload_modes:
+                    for folder_info in self.folder_upload_modes.values():
+                        if folder_info.get('mode') == 'replace':
+                            has_replace_mode = True
+                            break
+                
+                if has_replace_mode:
+                    # 🆕 替换模式下：同GUID不同文件名视为文件重命名，允许替换
+                    self.status_updated.emit(f"🔄 替换模式文件重命名检测:")
+                    self.status_updated.emit(f"  上传路径: '{upload_normalized}' -> '{mapped_upload_normalized}'")
+                    self.status_updated.emit(f"  Git路径: '{git_normalized}'")
+                    self.status_updated.emit(f"  结果: 同目录'{upload_dir}'下文件重命名 '{git_filename}' -> '{upload_filename}' (替换模式允许)")
+                    return True  # 在替换模式下视为同一文件的更新
+                else:
+                    # 非替换模式：同目录不同文件名仍然是GUID冲突
+                    self.status_updated.emit(f"🔍 GUID冲突检测:")
+                    self.status_updated.emit(f"  上传路径: '{upload_normalized}' -> '{mapped_upload_normalized}'")
+                    self.status_updated.emit(f"  Git路径: '{git_normalized}'")
+                    self.status_updated.emit(f"  结果: 同目录'{upload_dir}'下不同文件名 '{upload_filename}' vs '{git_filename}' -> GUID冲突")
+                    return False
+            
             return False
         except Exception as e:
-            # 异常情况下返回False，表示不匹配
+            # 异常情况下返回False，表示不匹配（GUID冲突）
+            self.status_updated.emit(f"⚠️ 路径比较异常，视为GUID冲突: {e}")
             return False
 
     def _check_guid_references(self) -> List[Dict[str, str]]:
@@ -3976,6 +4946,18 @@ class ResourceChecker(QThread):
         
         try:
             self.status_updated.emit("🔍 开始GUID引用检查...")
+            
+            # 检查是否有替换模式的文件夹
+            has_replace_mode = False
+            if hasattr(self, 'folder_upload_modes') and self.folder_upload_modes:
+                for folder_info in self.folder_upload_modes.values():
+                    if folder_info.get('mode') == 'replace':
+                        has_replace_mode = True
+                        break
+            
+            if has_replace_mode:
+                self.status_updated.emit("🔄 替换模式：仍需检查GUID引用完整性")
+                self.status_updated.emit("   即使替换模式，也要检查所有GUID引用问题（包括不同目录冲突）")
             
             # 验证必要的属性和方法
             if not hasattr(self, 'analyzer'):
@@ -4001,7 +4983,7 @@ class ResourceChecker(QThread):
                     guid = self.analyzer.parse_meta_file(file_path)
                     if guid:
                         local_guids[guid] = file_path
-                        self.status_updated.emit(f"找到本地GUID: {guid[:8]}... ({os.path.basename(file_path)})")
+                        self.status_updated.emit(f"找到本地GUID: {guid} ({os.path.basename(file_path)})")
                 else:
                     # 检查对应的meta文件
                     meta_path = file_path + '.meta'
@@ -4009,7 +4991,7 @@ class ResourceChecker(QThread):
                         guid = self.analyzer.parse_meta_file(meta_path)
                         if guid:
                             local_guids[guid] = meta_path
-                            self.status_updated.emit(f"找到本地GUID: {guid[:8]}... ({os.path.basename(meta_path)})")
+                            self.status_updated.emit(f"找到本地GUID: {guid} ({os.path.basename(meta_path)})")
             
             self.status_updated.emit(f"本次推送包含 {len(local_guids)} 个GUID")
             
@@ -4029,30 +5011,147 @@ class ResourceChecker(QThread):
                         referenced_guids = self.analyzer.parse_editor_asset(file_path)
                         
                         if referenced_guids:
-                            self.status_updated.emit(f"文件 {os.path.basename(file_path)} 引用了 {len(referenced_guids)} 个GUID")
+                            self.status_updated.emit(f"🔍 文件 {os.path.basename(file_path)} 引用了 {len(referenced_guids)} 个GUID")
+                            # 🚨 增强调试：显示所有引用的GUID
+                            for guid in list(referenced_guids)[:5]:  # 只显示前5个
+                                self.status_updated.emit(f"   📎 引用GUID: {guid}")
                             
                             for ref_guid in referenced_guids:
+                                # 🚨 增强调试：显示GUID检查详情
+                                in_local = ref_guid in local_guids
+                                in_git = ref_guid in git_guids
+                                self.status_updated.emit(f"   🔍 检查GUID {ref_guid[:8]}...: 本地={in_local}, Git={in_git}")
+                                
                                 # 检查引用的GUID是否存在
                                 if ref_guid not in local_guids and ref_guid not in git_guids:
-                                    # 分析缺失的GUID
-                                    analysis = self._analyze_missing_guid(ref_guid, file_path)
+                                    # 🚨 新增：检查是否为本地缺失文件的GUID
+                                    local_missing_info = self._check_local_missing_file(ref_guid, file_path)
                                     
-                                    issues.append({
-                                        'type': 'guid_reference_missing',
-                                        'file': file_path,
-                                        'description': f'引用的GUID {ref_guid} 不存在',
-                                        'guid': ref_guid,
-                                        'analysis': analysis
-                                    })
+                                    if local_missing_info:
+                                        # 这是本地缺失文件
+                                        referencing_file_name = os.path.basename(file_path)
+                                        expected_file_name = os.path.basename(local_missing_info['expected_path'])
+                                        
+                                        issues.append({
+                                            'type': 'local_file_missing',
+                                            'file': file_path,
+                                            'description': f'【本地文件缺失】\n' +
+                                                         f'问题文件: {referencing_file_name}\n' +
+                                                         f'引用GUID: {ref_guid}\n' +
+                                                         f'缺失文件: {expected_file_name}\n' +
+                                                         f'缺失类型: {local_missing_info["missing_type"]}\n' +
+                                                         f'解决方案: {local_missing_info["solution"]}',
+                                            'guid': ref_guid,
+                                            'expected_file_path': local_missing_info['expected_path'],
+                                            'missing_type': local_missing_info['missing_type'],
+                                            'solution': local_missing_info['solution'],
+                                            'message': f'{referencing_file_name} 引用了缺失的本地文件 {expected_file_name} (GUID: {ref_guid[:8]}...)'
+                                        })
+                                        self.status_updated.emit(f"🚨 本地文件缺失: {ref_guid}")
+                                        self.status_updated.emit(f"   预期文件路径: {local_missing_info['expected_path']}")
+                                        self.status_updated.emit(f"   缺失类型: {local_missing_info['missing_type']}")
+                                        continue
                                     
-                                    self.status_updated.emit(f"⚠️ 缺失GUID引用: {ref_guid[:8]}... 在文件 {os.path.basename(file_path)}")
+                                    # 🚨 检查是否为Git仓库中的孤儿meta文件GUID
+                                    orphan_meta_path = self._find_orphan_meta_by_guid(ref_guid)
+                                    
+                                    if orphan_meta_path:
+                                        # 这是Git仓库中的孤儿meta文件引用
+                                        resource_path = orphan_meta_path[:-5]  # 移除.meta后缀
+                                        referencing_file_name = os.path.basename(file_path)
+                                        orphan_meta_name = os.path.basename(orphan_meta_path)
+                                        missing_resource_name = os.path.basename(resource_path)
+                                        
+                                        issues.append({
+                                            'type': 'orphan_meta_reference',
+                                            'file': file_path,
+                                            'description': f'【Git仓库孤儿meta引用】\n' +
+                                                         f'问题文件: {referencing_file_name}\n' +
+                                                         f'引用GUID: {ref_guid}\n' +
+                                                         f'孤儿meta文件: {orphan_meta_name}\n' +
+                                                         f'缺失资源文件: {missing_resource_name}\n' +
+                                                         f'原因: Git仓库中存在meta文件但对应的资源文件被删除\n' +
+                                                         f'解决方案: 恢复Git仓库中被删除的资源文件或移除孤儿meta文件',
+                                            'guid': ref_guid,
+                                            'orphan_meta_path': orphan_meta_path,
+                                            'missing_resource_path': resource_path,
+                                            'solution': '需要恢复Git仓库中被删除的资源文件或移除对应的meta文件',
+                                            'message': f'{referencing_file_name} 引用了Git仓库中的孤儿meta文件 {orphan_meta_name}'
+                                        })
+                                        self.status_updated.emit(f"🚨 Git孤儿meta引用: {ref_guid} -> {os.path.basename(orphan_meta_path)}")
+                                        self.status_updated.emit(f"   Git中缺失资源文件: {os.path.basename(resource_path)}")
+                                    else:
+                                        # 分析缺失的GUID
+                                        analysis = self._analyze_missing_guid(ref_guid, file_path)
+                                        
+                                        # 获取引用文件的GUID（如果存在）
+                                        referring_file_guid = ''
+                                        referring_file_guid_status = '未找到'
+                                        meta_path = file_path + '.meta'
+                                        
+                                        if os.path.exists(meta_path):
+                                            try:
+                                                referring_file_guid = self.analyzer.parse_meta_file(meta_path) or ''
+                                                if referring_file_guid:
+                                                    referring_file_guid_status = f'找到GUID: {referring_file_guid}'
+                                                    self.status_updated.emit(f"🔍 引用文件GUID: {os.path.basename(file_path)} -> {referring_file_guid}")
+                                                else:
+                                                    referring_file_guid_status = 'meta文件存在但无法解析GUID'
+                                                    self.status_updated.emit(f"⚠️ 无法解析GUID: {os.path.basename(meta_path)}")
+                                            except Exception as e:
+                                                referring_file_guid_status = f'解析失败: {str(e)}'
+                                                self.status_updated.emit(f"❌ 解析meta文件失败: {os.path.basename(meta_path)} - {e}")
+                                        else:
+                                            referring_file_guid_status = f'meta文件不存在: {os.path.basename(meta_path)}'
+                                            self.status_updated.emit(f"❌ meta文件不存在: {os.path.basename(meta_path)}")
+                                        
+                                        issues.append({
+                                            'type': 'guid_reference_missing',
+                                            'file': file_path,
+                                            'description': f'引用的GUID {ref_guid} 不存在',
+                                            'guid': ref_guid,
+                                            'referring_file_guid': referring_file_guid,
+                                            'referring_file_guid_status': referring_file_guid_status,
+                                            'analysis': analysis
+                                        })
+                                        
+                                        self.status_updated.emit(f"⚠️ 缺失GUID引用: {ref_guid} 在文件 {os.path.basename(file_path)}")
                                 else:
                                     # 找到引用，记录来源
                                     if ref_guid in local_guids:
                                         source = f"本地文件: {os.path.basename(local_guids[ref_guid])}"
                                     else:
                                         source = "Git仓库"
-                                    self.status_updated.emit(f"✅ GUID引用正常: {ref_guid[:8]}... -> {source}")
+                                        
+                                        # 🚨 新增：检查是否引用了远程资源（Assets\remotes\entity）
+                                        remote_reference_check = self._check_remote_resource_reference(ref_guid, file_path, git_guids_dict)
+                                        if remote_reference_check:
+                                            # 发现引用了远程资源，添加错误
+                                            referencing_file_name = os.path.basename(file_path)
+                                            remote_file_info = remote_reference_check
+                                            
+                                            issues.append({
+                                                'type': 'remote_resource_reference',
+                                                'file': file_path,
+                                                'description': f'【禁止引用远程资源】\n' +
+                                                             f'问题文件: {referencing_file_name}\n' +
+                                                             f'引用GUID: {ref_guid}\n' +
+                                                             f'远程资源: {remote_file_info["resource_name"]}\n' +
+                                                             f'远程路径: {remote_file_info["remote_path"]}\n' +
+                                                             f'规则说明: 本地资源不允许引用Assets\\remotes\\entity目录下的文件\n' +
+                                                             f'解决方案: 将远程资源复制到本地目录，或移除对远程资源的引用',
+                                                'guid': ref_guid,
+                                                'remote_resource_path': remote_file_info['remote_path'],
+                                                'remote_resource_name': remote_file_info['resource_name'],
+                                                'solution': '将远程资源复制到本地目录，或移除对远程资源的引用',
+                                                'message': f'{referencing_file_name} 引用了禁止的远程资源 {remote_file_info["resource_name"]} (GUID: {ref_guid[:8]}...)'
+                                            })
+                                            self.status_updated.emit(f"🚨 禁止引用远程资源: {ref_guid}")
+                                            self.status_updated.emit(f"   问题文件: {referencing_file_name}")
+                                            self.status_updated.emit(f"   远程资源: {remote_file_info['remote_path']}")
+                                            continue
+                                    
+                                    self.status_updated.emit(f"✅ GUID引用正常: {ref_guid} -> {source}")
                         else:
                             self.status_updated.emit(f"文件 {os.path.basename(file_path)} 没有GUID引用")
                             
@@ -4064,6 +5163,11 @@ class ResourceChecker(QThread):
                             'file': file_path,
                             'description': error_msg
                         })
+            
+            # 🚨 新增：检查Debug_Path文件完整性
+            self.status_updated.emit("检查Debug_Path文件完整性...")
+            debug_path_issues = self._check_debug_path_files()
+            issues.extend(debug_path_issues)
             
             # 检查内部依赖完整性
             self.status_updated.emit("检查内部依赖完整性...")
@@ -4096,6 +5200,1097 @@ class ResourceChecker(QThread):
             print(f"异常详情: {tb_str}")
         
         return issues
+    
+    def _find_orphan_meta_by_guid(self, target_guid: str) -> str:
+        """查找指定GUID对应的孤儿meta文件路径
+        
+        Args:
+            target_guid: 要查找的GUID
+            
+        Returns:
+            str: 孤儿meta文件的路径，如果找不到则返回空字符串
+        """
+        if not self.git_manager.git_path or not os.path.exists(self.git_manager.git_path):
+            return ""
+        
+        try:
+            # 扫描Git仓库中的所有.meta文件
+            for root, dirs, files in os.walk(self.git_manager.git_path):
+                for file in files:
+                    if file.endswith('.meta'):
+                        meta_path = os.path.join(root, file)
+                        
+                        try:
+                            # 解析meta文件的GUID
+                            guid = self.analyzer.parse_meta_file(meta_path)
+                            if guid and guid.lower() == target_guid.lower():
+                                # 检查对应的资源文件是否存在
+                                resource_path = meta_path[:-5]  # 移除.meta后缀
+                                if not os.path.exists(resource_path):
+                                    # 找到孤儿meta文件
+                                    return meta_path
+                        except Exception:
+                            # 忽略解析错误，继续查找
+                            continue
+        except Exception:
+            # 忽略扫描错误
+            pass
+        
+        return ""
+    
+    def _check_local_missing_file(self, target_guid: str, referencing_file: str) -> dict:
+        """检查GUID是否对应本地缺失的文件
+        
+        Args:
+            target_guid: 要检查的GUID
+            referencing_file: 引用该GUID的文件路径
+            
+        Returns:
+            dict: 如果是本地缺失文件，返回详细信息；否则返回None
+        """
+        try:
+            # 获取引用文件所在的目录
+            ref_file_dir = os.path.dirname(referencing_file)
+            
+            # 在本地上传文件列表中查找可能的文件路径
+            # 1. 检查同目录下是否有对应的文件应该存在
+            for upload_file in self.upload_files:
+                upload_dir = os.path.dirname(upload_file)
+                
+                # 如果在相同或相关目录中
+                if self._is_related_directory(ref_file_dir, upload_dir):
+                    # 检查是否有对应的meta文件但缺少资源文件
+                    if upload_file.endswith('.meta'):
+                        # 这是一个meta文件，检查其GUID
+                        try:
+                            meta_guid = self.analyzer.parse_meta_file(upload_file)
+                            if meta_guid and meta_guid.lower() == target_guid.lower():
+                                # 找到了对应的meta文件，但检查资源文件是否存在
+                                resource_file = upload_file[:-5]  # 移除.meta后缀
+                                if not os.path.exists(resource_file):
+                                    return {
+                                        'expected_path': resource_file,
+                                        'missing_type': '资源文件缺失（meta文件存在）',
+                                        'solution': f'需要创建或恢复文件: {os.path.basename(resource_file)}'
+                                    }
+                        except Exception:
+                            continue
+                    else:
+                        # 这是一个资源文件，检查其meta文件
+                        meta_file = upload_file + '.meta'
+                        if os.path.exists(meta_file):
+                            try:
+                                meta_guid = self.analyzer.parse_meta_file(meta_file)
+                                if meta_guid and meta_guid.lower() == target_guid.lower():
+                                    # 找到了对应的文件对，但GUID没有被正确收集
+                                    # 这种情况不应该发生，可能是其他问题
+                                    return None
+                            except Exception:
+                                continue
+            
+            # 2. 检查是否有预期的文件路径模式
+            # 根据prefab中的Debug_Path信息推断文件位置
+            if referencing_file.endswith('.prefab'):
+                try:
+                    with open(referencing_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 查找Debug_Path信息
+                    import re
+                    debug_path_pattern = rf'"Debug_Path":\s*"[^"]*{re.escape(target_guid)}[^"]*"'
+                    debug_match = re.search(debug_path_pattern, content)
+                    
+                    if not debug_match:
+                        # 尝试更宽泛的搜索
+                        debug_path_matches = re.findall(r'"Debug_Path":\s*"([^"]+)"', content)
+                        for debug_path in debug_path_matches:
+                            # 检查这个路径是否可能对应目标GUID
+                            if self._could_be_related_file(debug_path, target_guid, referencing_file):
+                                expected_local_path = self._convert_debug_path_to_local(debug_path, referencing_file)
+                                if expected_local_path:
+                                    return {
+                                        'expected_path': expected_local_path,
+                                        'missing_type': '根据Debug_Path推断的缺失文件',
+                                        'solution': f'需要创建文件: {os.path.basename(expected_local_path)} 及其.meta文件'
+                                    }
+                except Exception:
+                    pass
+            
+            # 3. 基于文件名模式推断
+            ref_filename = os.path.basename(referencing_file)
+            if ref_filename.endswith('.prefab'):
+                # 对于prefab文件，常见的依赖文件在同目录或Material子目录
+                possible_paths = [
+                    os.path.join(ref_file_dir, 'body_skin.mat'),
+                    os.path.join(ref_file_dir, 'Material', 'body_skin.mat'),
+                    os.path.join(ref_file_dir, '..', 'Material', 'body_skin.mat'),
+                ]
+                
+                for possible_path in possible_paths:
+                    if not os.path.exists(possible_path) and not os.path.exists(possible_path + '.meta'):
+                        return {
+                            'expected_path': possible_path,
+                            'missing_type': '基于常见模式推断的缺失文件',
+                            'solution': f'需要创建文件: {os.path.basename(possible_path)} 及其.meta文件'
+                        }
+        
+        except Exception as e:
+            self.status_updated.emit(f"⚠️ 检查本地缺失文件时出错: {e}")
+        
+        return None
+    
+    def _is_related_directory(self, dir1: str, dir2: str) -> bool:
+        """检查两个目录是否相关（相同或父子关系）"""
+        try:
+            dir1_norm = os.path.normpath(dir1).lower()
+            dir2_norm = os.path.normpath(dir2).lower()
+            
+            # 相同目录
+            if dir1_norm == dir2_norm:
+                return True
+            
+            # 父子关系
+            if dir1_norm.startswith(dir2_norm) or dir2_norm.startswith(dir1_norm):
+                return True
+                
+            # 兄弟目录（共同父目录）
+            parent1 = os.path.dirname(dir1_norm)
+            parent2 = os.path.dirname(dir2_norm)
+            if parent1 == parent2:
+                return True
+                
+        except Exception:
+            pass
+        
+        return False
+    
+    def _check_remote_resource_reference(self, target_guid: str, referencing_file: str, git_guids_dict: dict) -> dict:
+        """检查GUID是否引用了远程资源（Assets\\remotes\\entity目录下的文件）
+        
+        Args:
+            target_guid: 要检查的GUID
+            referencing_file: 引用该GUID的文件路径
+            git_guids_dict: Git仓库中的GUID映射字典
+            
+        Returns:
+            dict: 如果引用了远程资源，返回详细信息；否则返回None
+        """
+        try:
+            # 检查GUID是否在Git仓库中
+            if target_guid not in git_guids_dict:
+                return None
+                
+            guid_info = git_guids_dict[target_guid]
+            
+            # 获取资源文件的相对路径
+            relative_resource_path = guid_info.get('relative_resource_path', '')
+            
+            # 标准化路径用于检查
+            normalized_path = relative_resource_path.replace('\\', '/').lower()
+            
+            # 检查是否在 Assets/remotes/entity 目录下
+            if 'assets/remotes/entity' in normalized_path:
+                # 这是一个远程资源引用
+                resource_name = guid_info.get('resource_name', os.path.basename(relative_resource_path))
+                
+                # 检查引用文件是否也在remotes目录下
+                referencing_file_normalized = referencing_file.replace('\\', '/').lower()
+                
+                # 如果引用文件本身就在remotes目录下，则允许引用
+                if 'assets/remotes/entity' in referencing_file_normalized or '/remotes/entity' in referencing_file_normalized:
+                    return None
+                
+                # 本地资源引用远程资源，返回错误信息
+                return {
+                    'remote_path': relative_resource_path,
+                    'resource_name': resource_name,
+                    'guid': target_guid
+                }
+                
+        except Exception as e:
+            # 如果检查过程中出现异常，记录但不阻止流程
+            self.status_updated.emit(f"⚠️ 检查远程资源引用时出错: {e}")
+        
+        return None
+    
+    def _could_be_related_file(self, debug_path: str, target_guid: str, referencing_file: str) -> bool:
+        """检查Debug_Path是否可能对应目标GUID"""
+        # 简单的启发式检查
+        debug_filename = os.path.basename(debug_path).lower()
+        ref_filename = os.path.basename(referencing_file).lower()
+        
+        # 如果Debug_Path包含常见的材质文件名
+        if 'body_skin' in debug_filename or 'material' in debug_path.lower():
+            return True
+            
+        return False
+    
+    def _convert_debug_path_to_local(self, debug_path: str, referencing_file: str) -> str:
+        """将Debug_Path转换为本地预期路径"""
+        try:
+            # 提取文件名
+            filename = os.path.basename(debug_path)
+            ref_dir = os.path.dirname(referencing_file)
+            
+            # 尝试几种可能的本地路径
+            possible_paths = [
+                os.path.join(ref_dir, filename),
+                os.path.join(ref_dir, 'Material', filename),
+                os.path.join(ref_dir, '..', 'Material', filename),
+            ]
+            
+            # 返回第一个合理的路径
+            for path in possible_paths:
+                return os.path.normpath(path)
+                
+        except Exception:
+            pass
+        
+        return ""
+    
+    def _check_debug_path_files(self) -> List[Dict[str, str]]:
+        """检查prefab文件中Debug_Path记录的文件是否存在"""
+        issues = []
+        
+        try:
+            self.status_updated.emit("🔍 开始检查Debug_Path文件完整性...")
+            
+            # 遍历所有上传的prefab文件
+            for file_path in self.upload_files:
+                if not file_path.lower().endswith('.prefab'):
+                    continue
+                
+                try:
+                    self.status_updated.emit(f"🔍 检查prefab文件: {os.path.basename(file_path)}")
+                    
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 提取所有Debug_Path记录
+                    import re
+                    debug_path_matches = re.findall(r'"Debug_Path":\s*"([^"]+)"', content)
+                    
+                    self.status_updated.emit(f"   找到 {len(debug_path_matches)} 个Debug_Path记录")
+                    
+                    for debug_path in debug_path_matches:
+                        self.status_updated.emit(f"   🔍 检查Debug_Path: {debug_path}")
+                        
+                        # 🚨 新增：检查是否为系统默认材质
+                        if self._is_system_default_material(debug_path):
+                            self.status_updated.emit(f"   ✅ 系统默认材质，跳过检查: {os.path.basename(debug_path)}")
+                            continue
+                        
+                        # 提取文件名
+                        debug_filename = os.path.basename(debug_path)
+                        
+                        # 转换为本地预期路径
+                        local_expected_paths = self._get_local_expected_paths(debug_path, file_path)
+                        
+                        # 检查文件是否存在
+                        file_found = False
+                        found_path = ""
+                        
+                        for expected_path in local_expected_paths:
+                            # 🚨 修复：将正斜杠路径转换为系统路径格式进行文件存在性检查
+                            system_path = expected_path.replace('/', os.sep)
+                            if os.path.exists(system_path):
+                                file_found = True
+                                found_path = expected_path  # 保持显示格式一致
+                                self.status_updated.emit(f"   ✅ 找到文件: {expected_path}")
+                                break
+                        
+                        if not file_found:
+                            # 🚨 新增：如果本地路径都找不到，尝试全局SVN搜索
+                            self.status_updated.emit(f"   🔍 本地路径未找到，开始全局SVN搜索: {debug_filename}")
+                            global_search_result = self._search_file_in_svn_by_name_and_guid(debug_filename, debug_path, file_path)
+                            
+                            if global_search_result:
+                                file_found = True
+                                found_path = global_search_result['path']
+                                self.status_updated.emit(f"   ✅ 全局搜索找到文件: {found_path}")
+                                self.status_updated.emit(f"      GUID匹配: {global_search_result['guid']}")
+                            else:
+                                # 检查是否有对应的meta文件但资源文件缺失
+                                meta_found = False
+                                meta_path = ""
+                                
+                                for expected_path in local_expected_paths:
+                                    meta_file = expected_path + '.meta'
+                                    # 🚨 修复：将正斜杠路径转换为系统路径格式进行文件存在性检查
+                                    system_meta_file = meta_file.replace('/', os.sep)
+                                    if os.path.exists(system_meta_file):
+                                        meta_found = True
+                                        meta_path = meta_file  # 保持显示格式一致
+                                        break
+                                
+                                if meta_found:
+                                    # 有meta文件但资源文件缺失
+                                    prefab_name = os.path.basename(file_path)
+                                    resource_name = os.path.basename(expected_path)
+                                    meta_name = os.path.basename(meta_path)
+                                    
+                                    issues.append({
+                                        'type': 'debug_path_resource_missing',
+                                        'file': file_path,
+                                        'description': f'【资源文件缺失】\n' +
+                                                     f'问题文件: {prefab_name}\n' +
+                                                     f'缺失资源: {resource_name}\n' +
+                                                     f'存在meta: {meta_name}\n' +
+                                                     f'原因: prefab引用了{resource_name}，但资源文件被删除了\n' +
+                                                     f'解决方案: 恢复缺失的资源文件 {resource_name}',
+                                        'debug_path': debug_path,
+                                        'expected_local_path': expected_path,
+                                        'meta_file_exists': meta_path,
+                                        'solution': f'需要恢复资源文件: {debug_filename}',
+                                        'message': f'prefab文件 {prefab_name} 引用了缺失的资源文件 {resource_name}（meta文件存在）'
+                                })
+                                    self.status_updated.emit(f"   🚨 资源文件缺失: {debug_filename} (meta文件存在: {os.path.basename(meta_path)})")
+                                else:
+                                    # 完全缺失（资源文件和meta文件都没有）
+                                    prefab_name = os.path.basename(file_path)
+                                    expected_paths_str = '\n'.join([f'    • {path}' for path in local_expected_paths[:3]])
+                                    if len(local_expected_paths) > 3:
+                                        expected_paths_str += f'\n    • ... 还有{len(local_expected_paths)-3}个路径'
+                                    
+                                    issues.append({
+                                        'type': 'debug_path_completely_missing',
+                                        'file': file_path,
+                                        'description': f'【文件完全缺失】\n' +
+                                                     f'问题文件: {prefab_name}\n' +
+                                                     f'缺失文件: {debug_filename}\n' +
+                                                 f'原因: prefab的Debug_Path记录指向了不存在的文件\n' +
+                                                 f'预期位置:\n{expected_paths_str}\n' +
+                                                 f'解决方案: 创建文件 {debug_filename} 及其对应的.meta文件',
+                                    'debug_path': debug_path,
+                                    'expected_local_paths': local_expected_paths,
+                                    'solution': f'需要创建文件: {debug_filename} 及其.meta文件',
+                                    'message': f'prefab文件 {prefab_name} 引用了完全不存在的文件 {debug_filename}'
+                                })
+                                self.status_updated.emit(f"   🚨 文件完全缺失: {debug_filename}")
+                                self.status_updated.emit(f"      预期路径: {local_expected_paths}")
+                        
+                except Exception as e:
+                    self.status_updated.emit(f"❌ 检查prefab文件失败: {os.path.basename(file_path)} - {e}")
+                    issues.append({
+                        'type': 'debug_path_check_error',
+                        'file': file_path,
+                        'description': f'检查Debug_Path时发生错误: {str(e)}'
+                    })
+        
+        except Exception as e:
+            self.status_updated.emit(f"❌ Debug_Path检查异常: {e}")
+            issues.append({
+                'type': 'debug_path_system_error',
+                'file': 'system',
+                'description': f'Debug_Path检查系统错误: {str(e)}'
+            })
+        
+        if issues:
+            self.status_updated.emit(f"Debug_Path检查完成，发现 {len(issues)} 个问题")
+        else:
+            self.status_updated.emit("✅ Debug_Path检查通过，所有文件都存在")
+        
+        return issues
+    
+    def _is_system_default_material(self, debug_path: str) -> bool:
+        """检查是否为系统默认材质路径
+        
+        Args:
+            debug_path: Debug_Path路径
+            
+        Returns:
+            bool: True表示是系统默认材质，False表示不是
+        """
+        try:
+            # 标准化路径（统一使用正斜杠）
+            normalized_path = debug_path.replace('\\', '/').lower()
+            
+            # 系统默认材质的特征路径
+            system_material_patterns = [
+                '/assets/systemdefault/',  # 主要的系统默认路径
+                '/systemdefault/',         # 简化的系统默认路径
+                '/engineresource/',        # 引擎资源路径
+                '/assets/engineresource/', # 完整引擎资源路径
+            ]
+            
+            # 检查是否包含系统材质路径特征
+            for pattern in system_material_patterns:
+                if pattern in normalized_path:
+                    return True
+            
+            # 检查是否为常见的系统材质文件名
+            filename = os.path.basename(normalized_path)
+            system_material_files = [
+                'particlematerial.mat',        # 粒子材质
+                'defaultmaterial.mat',         # 默认材质
+                'spritematerial.mat',          # 精灵材质
+                'ui-default.mat',              # UI默认材质
+                'legacy-diffuse.mat',          # 传统漫反射材质
+                'legacy-transparent.mat',      # 传统透明材质
+            ]
+            
+            if filename in system_material_files:
+                return True
+                
+            return False
+            
+        except Exception as e:
+            # 如果检查过程中出现异常，默认认为不是系统材质
+            return False
+    
+    def _get_local_expected_paths(self, debug_path: str, prefab_file: str) -> List[str]:
+        """根据Debug_Path和prefab文件位置，推断本地预期的文件路径"""
+        expected_paths = []
+        
+        try:
+            # 🚨 新增：检查是否为系统默认材质路径
+            if self._is_system_default_material(debug_path):
+                # 系统材质路径，不需要检查本地存在性，直接返回空列表
+                # 这样会跳过后续的缺失文件检查
+                return []
+            
+            # 提取Debug_Path中的文件名
+            debug_filename = os.path.basename(debug_path)
+            prefab_dir = os.path.dirname(prefab_file)
+            
+            # 🚨 关键修复：首先尝试Debug_Path的直接路径映射
+            # Debug_Path可能使用正斜杠，但在Windows下文件实际使用反斜杠
+            # 1. 直接将Debug_Path转换为Windows路径格式进行检查
+            direct_path = debug_path.replace('/', os.sep)
+            expected_paths.append(direct_path)
+            
+            # 2. 如果Debug_Path包含盘符路径，尝试映射到当前工作环境
+            if ':' in debug_path:
+                # 提取Assets之后的相对路径部分
+                debug_normalized = debug_path.replace('\\', '/')
+                if '/Assets/' in debug_normalized:
+                    assets_index = debug_normalized.find('/Assets/')
+                    relative_from_assets = debug_normalized[assets_index:]  # 包含/Assets/
+                    
+                    # 基于prefab文件位置推断项目根目录
+                    prefab_normalized = os.path.normpath(prefab_file).replace('\\', '/')
+                    if '/Assets/' in prefab_normalized:
+                        prefab_assets_index = prefab_normalized.find('/Assets/')
+                        project_root = prefab_normalized[:prefab_assets_index]
+                        mapped_path = project_root + relative_from_assets
+                        expected_paths.append(mapped_path)
+                        
+                        # 🚨 新增：基于Debug_Path的目录结构进行更精确的映射
+                        # 提取Debug_Path中Assets之后的路径结构
+                        debug_asset_relative = relative_from_assets[8:]  # 去掉/Assets/
+                        debug_parts = debug_asset_relative.split('/')
+                        
+                        if len(debug_parts) >= 2:  # 至少有目录/文件名
+                            # 尝试将Debug_Path的目录结构映射到prefab所在的相对位置
+                            # 例如: entity/140494/Timeline/Prefab/zhoushen_ring.prefab
+                            # 映射到: remotes/entity/140494/Timeline/Prefab/zhoushen_ring.prefab
+                            
+                            prefab_asset_relative = prefab_normalized[prefab_assets_index + 8:]  # 去掉/Assets/
+                            prefab_parts = prefab_asset_relative.split('/')
+                            
+                            if len(prefab_parts) >= 2:
+                                # 尝试找到共同的目录结构
+                                # 如果Debug_Path是 entity/140494/Timeline/Prefab/xxx
+                                # 而prefab在 remotes/entity/140494/xxx
+                                # 则尝试 remotes/entity/140494/Timeline/Prefab/xxx
+                                
+                                # 找到实体ID（通常是数字目录）
+                                entity_id = None
+                                for part in debug_parts:
+                                    if part.isdigit() and len(part) == 6:  # 6位数字的实体ID
+                                        entity_id = part
+                                        break
+                                
+                                if entity_id:
+                                    # 在prefab路径中找到相同的实体ID位置
+                                    for i, part in enumerate(prefab_parts):
+                                        if part == entity_id:
+                                            # 构建映射路径：prefab的前缀 + debug的后缀
+                                            prefab_prefix = '/'.join(prefab_parts[:i+1])  # 到实体ID为止
+                                            
+                                            # 找到Debug_Path中实体ID之后的部分
+                                            debug_entity_index = debug_parts.index(entity_id)
+                                            debug_suffix = '/'.join(debug_parts[debug_entity_index+1:])  # 实体ID之后的部分
+                                            
+                                            if debug_suffix:
+                                                mapped_structure_path = project_root + '/Assets/' + prefab_prefix + '/' + debug_suffix
+                                                expected_paths.append(mapped_structure_path)
+                                            break
+            
+            # 根据Debug_Path的结构推断本地路径
+            # 例如: "F:/Minigame_Art_NewPrefab_6.1.10/Assets/remotes/entity/140491/Material/body_skin.mat"
+            # 可能的本地路径：
+            
+            # 3. 同目录下
+            expected_paths.append(os.path.join(prefab_dir, debug_filename))
+            
+            # 4. Material子目录下
+            material_dir = os.path.join(prefab_dir, 'Material')
+            expected_paths.append(os.path.join(material_dir, debug_filename))
+            
+            # 5. 上级目录的Material子目录
+            parent_dir = os.path.dirname(prefab_dir)
+            if parent_dir != prefab_dir:  # 确保不是根目录
+                expected_paths.append(os.path.join(parent_dir, 'Material', debug_filename))
+            
+            # 6. 根据Debug_Path的目录结构推断
+            if 'Material' in debug_path:
+                # 如果Debug_Path包含Material目录，尝试在本地找到相似结构
+                debug_parts = debug_path.replace('\\', '/').split('/')
+                if 'Material' in debug_parts:
+                    material_index = debug_parts.index('Material')
+                    # 从Material开始的相对路径
+                    relative_path = '/'.join(debug_parts[material_index:])
+                    expected_paths.append(os.path.join(prefab_dir, relative_path))
+                    expected_paths.append(os.path.join(parent_dir, relative_path))
+            
+            # 🚨 新增：检查本地特效资源路径
+            # 7. 本地特效资源常见路径
+            if debug_filename.endswith('.mat'):
+                # 基于prefab文件位置推断项目根目录
+                prefab_normalized = os.path.normpath(prefab_file).replace('\\', '/')
+                if '/Assets/' in prefab_normalized:
+                    prefab_assets_index = prefab_normalized.find('/Assets/')
+                    project_root = prefab_normalized[:prefab_assets_index]
+                    
+                    # 常见的本地特效资源路径
+                    local_fx_paths = [
+                        # 标准特效资源路径
+                        f"{project_root}/Assets/prefab/particles/public/Material/{debug_filename}",
+                        f"{project_root}/Assets/prefab/particles/Material/{debug_filename}",
+                        f"{project_root}/Assets/prefab/fx/Material/{debug_filename}",
+                        f"{project_root}/Assets/particles/public/Material/{debug_filename}",
+                        f"{project_root}/Assets/particles/Material/{debug_filename}",
+                        f"{project_root}/Assets/fx/Material/{debug_filename}",
+                        
+                        # 通用Material目录
+                        f"{project_root}/Assets/Material/{debug_filename}",
+                        f"{project_root}/Assets/Materials/{debug_filename}",
+                    ]
+                    
+                    expected_paths.extend(local_fx_paths)
+            
+            # 7. 基于文件名模式的推断
+            if 'body_skin' in debug_filename.lower():
+                # 常见的材质文件位置
+                expected_paths.append(os.path.join(prefab_dir, 'Materials', debug_filename))
+                expected_paths.append(os.path.join(parent_dir, 'Materials', debug_filename))
+            
+            # 去重并标准化路径 - 统一使用正斜杠以匹配Debug_Path格式
+            unique_paths = []
+            for path in expected_paths:
+                # 🚨 修复：统一使用正斜杠，与Debug_Path格式保持一致
+                normalized = os.path.normpath(path).replace('\\', '/')
+                if normalized not in unique_paths:
+                    unique_paths.append(normalized)
+            
+            return unique_paths
+            
+        except Exception as e:
+            # 如果推断失败，至少返回同目录下的路径
+            fallback_path = os.path.join(os.path.dirname(prefab_file), os.path.basename(debug_path))
+            # 🚨 修复：统一使用正斜杠格式
+            return [fallback_path.replace('\\', '/')]
+    
+    def _search_file_in_svn_by_name_and_guid(self, filename: str, debug_path: str, prefab_file: str) -> dict:
+        """在SVN仓库中搜索同名文件并通过GUID验证引用关系"""
+        try:
+            # 1. 获取SVN根目录
+            svn_root = None
+            if hasattr(self, 'git_manager') and self.git_manager and self.git_manager.svn_path:
+                svn_root = self.git_manager.svn_path
+            else:
+                # 尝试从prefab文件路径推断SVN根目录
+                svn_root = self._find_svn_root_from_file(prefab_file)
+            
+            if not svn_root or not os.path.exists(svn_root):
+                self.status_updated.emit(f"   ⚠️ 无法确定SVN根目录，跳过全局搜索")
+                return None
+            
+            self.status_updated.emit(f"   🔍 在SVN根目录搜索: {svn_root}")
+            
+            # 2. 搜索所有同名文件
+            matching_files = []
+            file_count = 0
+            max_files_to_scan = 10000  # 限制扫描文件数量，避免过度消耗性能
+            
+            for root, dirs, files in os.walk(svn_root):
+                # 跳过一些不必要的目录
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in ['temp', 'tmp', 'cache']]
+                
+                for file in files:
+                    file_count += 1
+                    if file_count > max_files_to_scan:
+                        self.status_updated.emit(f"   ⚠️ 已扫描{max_files_to_scan}个文件，停止搜索以避免性能问题")
+                        break
+                    
+                    if file.lower() == filename.lower():
+                        full_path = os.path.join(root, file)
+                        matching_files.append(full_path)
+                        self.status_updated.emit(f"   🔍 找到同名文件: {full_path}")
+                        
+                        # 🚨 特殊处理：如果是在本地特效资源路径中找到的，优先考虑
+                        if 'particles' in root.lower() or 'fx' in root.lower():
+                            self.status_updated.emit(f"   ✅ 发现本地特效资源: {full_path}")
+                
+                if file_count > max_files_to_scan:
+                    break
+            
+            if not matching_files:
+                self.status_updated.emit(f"   ❌ SVN仓库中未找到同名文件: {filename}")
+                return None
+            
+            # 3. 从Debug_Path中提取期望的GUID（如果可能）
+            expected_guid = self._extract_guid_from_debug_path(debug_path, prefab_file)
+            
+            # 4. 检查每个同名文件的GUID和Assets路径匹配
+            best_match = None
+            for candidate_file in matching_files:
+                meta_file = candidate_file + '.meta'
+                if os.path.exists(meta_file):
+                    try:
+                        candidate_guid = self.analyzer.parse_meta_file(meta_file)
+                        if candidate_guid:
+                            self.status_updated.emit(f"      检查GUID: {candidate_guid}")
+                            
+                            # 🚨 新增：使用增强的Debug_Path一致性验证
+                            validation_result = self._validate_debug_path_consistency(debug_path, candidate_file, expected_guid)
+                            
+                            # 输出详细验证信息
+                            for detail in validation_result['validation_details']:
+                                self.status_updated.emit(f"      {detail}")
+                            
+                            # 如果验证通过，返回匹配结果
+                            if validation_result['is_valid']:
+                                match_type = 'exact_match' if validation_result['guid_match'] else 'path_match'
+                                return {
+                                    'path': candidate_file.replace('\\', '/'),
+                                    'guid': candidate_guid,
+                                    'match_type': match_type,
+                                    'assets_similarity': validation_result['confidence_score'],
+                                    'validation_status': 'confirmed',
+                                    'validation_details': '; '.join(validation_result['validation_details'])
+                                }
+                            
+                            # 如果有期望的GUID但验证未通过，继续检查其他候选
+                            elif expected_guid and candidate_guid.lower() == expected_guid.lower():
+                                self.status_updated.emit(f"      ✅ GUID完全匹配！")
+                                self.status_updated.emit(f"      📋 依赖关系验证: GUID匹配，但路径可能有差异")
+                                return {
+                                    'path': candidate_file.replace('\\', '/'),
+                                    'guid': candidate_guid,
+                                    'match_type': 'exact_guid',
+                                    'assets_similarity': validation_result['confidence_score'],
+                                    'validation_status': 'partial',
+                                    'validation_details': '; '.join(validation_result['validation_details'])
+                                }
+                            
+                            # 记录为候选（如果验证结果有一定置信度）
+                            elif validation_result['confidence_score'] > 0.3:
+                                if not best_match or validation_result['confidence_score'] > best_match.get('assets_similarity', 0):
+                                    best_match = {
+                                        'path': candidate_file.replace('\\', '/'),
+                                        'guid': candidate_guid,
+                                        'match_type': 'candidate',
+                                        'assets_similarity': validation_result['confidence_score'],
+                                        'validation_details': '; '.join(validation_result['validation_details'])
+                                    }
+                    except Exception as e:
+                        self.status_updated.emit(f"      ⚠️ 读取meta文件失败: {e}")
+                        continue
+            
+            # 如果找到了最佳匹配，返回它
+            if best_match:
+                self.status_updated.emit(f"      ✅ 返回最佳匹配: {best_match['match_type']}")
+                return best_match
+            
+            # 5. 如果没有找到GUID匹配的文件，但有同名文件，返回第一个
+            if matching_files:
+                first_match = matching_files[0]
+                self.status_updated.emit(f"   ⚠️ 未找到GUID匹配的文件，返回第一个同名文件")
+                return {
+                    'path': first_match.replace('\\', '/'),
+                    'guid': None,
+                    'match_type': 'name_fallback'
+                }
+            
+            return None
+            
+        except Exception as e:
+            self.status_updated.emit(f"   ❌ 全局搜索出错: {e}")
+            return None
+    
+    def _find_svn_root_from_file(self, file_path: str) -> str:
+        """从文件路径推断SVN根目录"""
+        try:
+            current_dir = os.path.dirname(os.path.abspath(file_path))
+            
+            # 向上搜索，寻找包含.svn或Assets目录的根目录
+            while current_dir and current_dir != os.path.dirname(current_dir):
+                if os.path.exists(os.path.join(current_dir, '.svn')):
+                    return current_dir
+                
+                # 如果找到Assets目录，其父目录通常是项目根目录
+                if os.path.basename(current_dir).lower() == 'assets':
+                    return os.path.dirname(current_dir)
+                
+                current_dir = os.path.dirname(current_dir)
+            
+            return None
+        except Exception:
+            return None
+    
+    def _calculate_assets_path_similarity(self, debug_path: str, candidate_file: str) -> float:
+        """计算Debug_Path与候选文件的Assets路径相似度"""
+        try:
+            # 1. 使用统一的路径标准化方法
+            debug_normalized = self._normalize_path_for_comparison(debug_path)
+            candidate_normalized = self._normalize_path_for_comparison(candidate_file)
+            
+            # 2. 提取Assets之后的路径部分
+            debug_assets_path = self._extract_assets_path_from_debug_path(debug_path)
+            candidate_assets_path = self._extract_assets_path_from_debug_path(candidate_file)
+            
+            # 3. 增强调试信息
+            self.status_updated.emit(f"      🔍 路径标准化调试:")
+            self.status_updated.emit(f"         原始Debug_Path: {debug_path}")
+            self.status_updated.emit(f"         标准化Debug_Path: {debug_normalized}")
+            self.status_updated.emit(f"         提取的Debug Assets路径: {debug_assets_path}")
+            self.status_updated.emit(f"         原始候选文件路径: {candidate_file}")
+            self.status_updated.emit(f"         标准化候选文件路径: {candidate_normalized}")
+            self.status_updated.emit(f"         提取的候选Assets路径: {candidate_assets_path}")
+            
+            # 如果其中一个没有Assets路径，返回较低的相似度
+            if not debug_assets_path or not candidate_assets_path:
+                return 0.1
+            
+            # 3. 分割路径为组件
+            debug_parts = [part for part in debug_assets_path.split('/') if part]
+            candidate_parts = [part for part in candidate_assets_path.split('/') if part]
+            
+            # 4. 计算路径相似度
+            # 方法1: 检查是否有相同的实体ID模式
+            entity_id_match = self._check_entity_id_pattern_match(debug_parts, candidate_parts)
+            if entity_id_match > 0:
+                return entity_id_match
+            
+            # 方法2: 计算路径组件的重叠度
+            if not debug_parts or not candidate_parts:
+                return 0.1
+            
+            # 计算公共前缀长度
+            common_prefix_len = 0
+            min_len = min(len(debug_parts), len(candidate_parts))
+            for i in range(min_len):
+                if debug_parts[i] == candidate_parts[i]:
+                    common_prefix_len += 1
+                else:
+                    break
+            
+            # 计算公共后缀长度（文件名通常在最后）
+            common_suffix_len = 0
+            for i in range(1, min_len + 1):
+                if debug_parts[-i] == candidate_parts[-i]:
+                    common_suffix_len += 1
+                else:
+                    break
+            
+            # 计算总体匹配度
+            max_len = max(len(debug_parts), len(candidate_parts))
+            common_parts = common_prefix_len + common_suffix_len
+            
+            # 避免重复计算（如果前缀和后缀重叠）
+            if common_prefix_len + common_suffix_len > min_len:
+                common_parts = min_len
+            
+            similarity = common_parts / max_len if max_len > 0 else 0
+            
+            # 5. 特殊加分项
+            # 如果文件名完全相同，加分
+            debug_filename = debug_parts[-1] if debug_parts else ""
+            candidate_filename = candidate_parts[-1] if candidate_parts else ""
+            if debug_filename == candidate_filename:
+                similarity += 0.2
+            
+            # 如果包含相同的特殊目录（如Timeline, Material等），加分
+            special_dirs = {'timeline', 'material', 'prefab', 'texture', 'animation'}
+            debug_special = set(part for part in debug_parts if part in special_dirs)
+            candidate_special = set(part for part in candidate_parts if part in special_dirs)
+            if debug_special & candidate_special:  # 有交集
+                similarity += 0.1
+            
+            return min(similarity, 1.0)  # 确保不超过1.0
+            
+        except Exception as e:
+            self.status_updated.emit(f"   ⚠️ 计算路径相似度失败: {e}")
+            return 0.1
+    
+    def _check_entity_id_pattern_match(self, debug_parts: list, candidate_parts: list) -> float:
+        """检查实体ID模式匹配（专门处理跨实体引用）"""
+        try:
+            # 查找6位数字的实体ID
+            debug_entity_ids = [part for part in debug_parts if part.isdigit() and len(part) == 6]
+            candidate_entity_ids = [part for part in candidate_parts if part.isdigit() and len(part) == 6]
+            
+            if not debug_entity_ids or not candidate_entity_ids:
+                return 0
+            
+            # 如果是跨实体引用（不同的实体ID），这是正常的
+            debug_entity_id = debug_entity_ids[0]
+            candidate_entity_id = candidate_entity_ids[0]
+            
+            # 找到实体ID在路径中的位置
+            debug_entity_index = debug_parts.index(debug_entity_id)
+            candidate_entity_index = candidate_parts.index(candidate_entity_id)
+            
+            # 检查实体ID之前的路径是否相似（如 entity, remotes/entity 等）
+            debug_prefix = debug_parts[:debug_entity_index]
+            candidate_prefix = candidate_parts[:candidate_entity_index]
+            
+            # 检查实体ID之后的路径是否相似
+            debug_suffix = debug_parts[debug_entity_index + 1:]
+            candidate_suffix = candidate_parts[candidate_entity_index + 1:]
+            
+            # 计算前缀相似度
+            prefix_similarity = self._calculate_list_similarity(debug_prefix, candidate_prefix)
+            
+            # 计算后缀相似度
+            suffix_similarity = self._calculate_list_similarity(debug_suffix, candidate_suffix)
+            
+            # 如果前缀和后缀都比较相似，说明是合理的跨实体引用
+            if prefix_similarity >= 0.5 and suffix_similarity >= 0.5:
+                # 跨实体引用的相似度计算
+                overall_similarity = (prefix_similarity + suffix_similarity) / 2
+                self.status_updated.emit(f"      🔗 检测到跨实体引用: {debug_entity_id} → {candidate_entity_id}")
+                self.status_updated.emit(f"      前缀相似度: {prefix_similarity:.2%}, 后缀相似度: {suffix_similarity:.2%}")
+                return min(overall_similarity + 0.3, 1.0)  # 跨实体引用给予额外加分
+            
+            return 0
+            
+        except Exception:
+            return 0
+    
+    def _calculate_list_similarity(self, list1: list, list2: list) -> float:
+        """计算两个列表的相似度"""
+        if not list1 and not list2:
+            return 1.0
+        if not list1 or not list2:
+            return 0.0
+        
+        # 计算公共元素数量
+        set1 = set(list1)
+        set2 = set(list2)
+        common = len(set1 & set2)
+        total = len(set1 | set2)
+        
+        return common / total if total > 0 else 0.0
+    
+    def _validate_debug_path_consistency(self, debug_path: str, candidate_file: str, expected_guid: str = None) -> dict:
+        """验证Debug_Path与候选文件的一致性（专门处理140489/140488场景）"""
+        result = {
+            'is_valid': False,
+            'confidence_score': 0.0,
+            'validation_details': [],
+            'assets_path_match': False,
+            'guid_match': False
+        }
+        
+        try:
+            # 1. 提取并比较Assets路径
+            debug_assets_path = self._extract_assets_path_from_debug_path(debug_path)
+            candidate_assets_path = self._extract_assets_path_from_debug_path(candidate_file)
+            
+            if debug_assets_path and candidate_assets_path:
+                # 计算路径相似度
+                similarity = self._calculate_assets_path_similarity(debug_path, candidate_file)
+                result['confidence_score'] = similarity
+                
+                if similarity >= 0.8:
+                    result['assets_path_match'] = True
+                    result['validation_details'].append(f"✅ Assets路径高度匹配 (相似度: {similarity:.2%})")
+                elif similarity >= 0.5:
+                    result['validation_details'].append(f"⚠️ Assets路径部分匹配 (相似度: {similarity:.2%})")
+                else:
+                    result['validation_details'].append(f"❌ Assets路径差异较大 (相似度: {similarity:.2%})")
+                
+                # 详细路径分析
+                result['validation_details'].append(f"Debug Assets路径: {debug_assets_path}")
+                result['validation_details'].append(f"候选文件Assets路径: {candidate_assets_path}")
+            
+            # 2. GUID验证（如果提供）
+            if expected_guid:
+                meta_file = candidate_file + '.meta'
+                if os.path.exists(meta_file):
+                    candidate_guid = self.analyzer.parse_meta_file(meta_file)
+                    if candidate_guid and candidate_guid.lower() == expected_guid.lower():
+                        result['guid_match'] = True
+                        result['validation_details'].append(f"✅ GUID完全匹配: {expected_guid}")
+                    else:
+                        result['validation_details'].append(f"❌ GUID不匹配: 期望{expected_guid}, 实际{candidate_guid}")
+                else:
+                    result['validation_details'].append(f"⚠️ 候选文件缺少meta文件: {meta_file}")
+            
+            # 3. 综合判断
+            if result['guid_match'] and result['assets_path_match']:
+                result['is_valid'] = True
+                result['validation_details'].append("🎉 依赖关系完全验证通过：GUID和Debug_Path都匹配")
+            elif result['assets_path_match']:
+                result['is_valid'] = True
+                result['validation_details'].append("✅ 依赖关系基本验证通过：Debug_Path匹配度高")
+            elif result['guid_match']:
+                result['validation_details'].append("⚠️ GUID匹配但路径差异较大，可能存在路径映射问题")
+            
+            return result
+            
+        except Exception as e:
+            result['validation_details'].append(f"❌ 验证过程出错: {e}")
+            return result
+    
+    def _normalize_path_for_comparison(self, path: str) -> str:
+        """统一的路径标准化方法，专门用于路径比较"""
+        try:
+            if not path:
+                return ""
+            
+            # 1. 标准化路径分隔符：统一使用正斜杠
+            normalized = path.replace('\\', '/')
+            
+            # 2. 转换为小写（Windows路径不区分大小写）
+            normalized = normalized.lower()
+            
+            # 3. 移除开头和结尾的斜杠
+            normalized = normalized.strip('/')
+            
+            # 4. 处理多个连续斜杠
+            while '//' in normalized:
+                normalized = normalized.replace('//', '/')
+            
+            return normalized
+        except:
+            return ""
+    
+    def _extract_assets_path_from_debug_path(self, path: str) -> str:
+        """从Debug_Path或文件路径中提取Assets之后的部分"""
+        try:
+            normalized_path = self._normalize_path_for_comparison(path)
+            if '/assets/' in normalized_path:
+                assets_index = normalized_path.find('/assets/')
+                return normalized_path[assets_index + 8:]  # 去掉 '/assets/'
+            # 🚨 增强：如果没有找到 '/assets/'，尝试查找 'assets/' （没有前导斜杠）
+            elif 'assets/' in normalized_path:
+                assets_index = normalized_path.find('assets/')
+                return normalized_path[assets_index + 7:]  # 去掉 'assets/'
+            return ""
+        except:
+            return ""
+
+    def _extract_debug_path_guid_mapping(self, prefab_file: str) -> dict:
+        """从prefab文件中提取Debug_Path和GUID的映射关系"""
+        mapping = {}
+        try:
+            with open(prefab_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 尝试解析JSON格式
+            try:
+                import json
+                data = json.loads(content)
+                self._extract_debug_path_from_json(data, mapping)
+            except json.JSONDecodeError:
+                # 如果不是JSON，使用正则表达式提取
+                self._extract_debug_path_with_regex(content, mapping)
+            
+            return mapping
+        except Exception as e:
+            self.status_updated.emit(f"   ⚠️ 提取Debug_Path映射失败: {e}")
+            return {}
+    
+    def _extract_debug_path_from_json(self, data, mapping, path=""):
+        """递归从JSON数据中提取Debug_Path和GUID的映射"""
+        if isinstance(data, dict):
+            debug_path = data.get("Debug_Path")
+            guid = data.get("m_GUID") or data.get("guid") or data.get("m_SourcePrefabGUID")
+            
+            if debug_path and guid:
+                # 标准化Debug_Path
+                normalized_debug_path = self._normalize_path_for_comparison(debug_path)
+                mapping[normalized_debug_path] = {
+                    'guid': guid.lower(),
+                    'original_debug_path': debug_path,
+                    'context': path
+                }
+                self.status_updated.emit(f"   🔍 提取映射: {debug_path} -> {guid}")
+            
+            # 递归处理嵌套对象
+            for key, value in data.items():
+                self._extract_debug_path_from_json(value, mapping, f"{path}.{key}" if path else key)
+        
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                self._extract_debug_path_from_json(item, mapping, f"{path}[{i}]" if path else f"[{i}]")
+    
+    def _extract_debug_path_with_regex(self, content: str, mapping: dict):
+        """使用正则表达式提取Debug_Path和GUID的映射"""
+        # 匹配Debug_Path和附近的GUID
+        debug_path_pattern = r'"Debug_Path":\s*"([^"]+)"[^}]*?"(?:m_GUID|guid|m_SourcePrefabGUID)":\s*"([a-f0-9]{32})"'
+        matches = re.findall(debug_path_pattern, content, re.IGNORECASE | re.DOTALL)
+        
+        for debug_path, guid in matches:
+            normalized_debug_path = self._normalize_path_for_comparison(debug_path)
+            mapping[normalized_debug_path] = {
+                'guid': guid.lower(),
+                'original_debug_path': debug_path,
+                'context': 'regex_extract'
+            }
+            self.status_updated.emit(f"   🔍 正则提取映射: {debug_path} -> {guid}")
+
+    def _extract_guid_from_debug_path(self, debug_path: str, prefab_file: str) -> str:
+        """从Debug_Path或相关prefab文件中提取期望的GUID"""
+        try:
+            # 使用新的映射提取方法
+            mapping = self._extract_debug_path_guid_mapping(prefab_file)
+            normalized_debug_path = self._normalize_path_for_comparison(debug_path)
+            
+            if normalized_debug_path in mapping:
+                return mapping[normalized_debug_path]['guid']
+            
+            # 如果没有找到精确匹配，尝试部分匹配
+            for mapped_path, info in mapping.items():
+                if debug_path.lower() in info['original_debug_path'].lower():
+                    self.status_updated.emit(f"   🔍 部分匹配找到GUID: {info['guid']}")
+                    return info['guid']
+            
+            # 方法1: 尝试从prefab文件内容中找到对应的GUID引用
+            with open(prefab_file, 'r', encoding='utf-8') as f:
+                prefab_content = f.read()
+            
+            # 在prefab内容中搜索Debug_Path附近的GUID
+            # 这里简化处理，实际可能需要更复杂的JSON解析
+            import re
+            
+            # 查找Debug_Path行附近的GUID
+            lines = prefab_content.split('\n')
+            debug_filename = os.path.basename(debug_path)
+            
+            for i, line in enumerate(lines):
+                if debug_filename in line and 'Debug_Path' in line:
+                    # 在前后几行中搜索GUID
+                    search_range = range(max(0, i-10), min(len(lines), i+10))
+                    for j in search_range:
+                        guid_match = re.search(r'"guid":\s*"([a-f0-9]{32})"', lines[j], re.IGNORECASE)
+                        if guid_match:
+                            return guid_match.group(1)
+                        
+                        # 也尝试其他GUID格式
+                        guid_match2 = re.search(r'guid:\s*([a-f0-9]{32})', lines[j], re.IGNORECASE)
+                        if guid_match2:
+                            return guid_match2.group(1)
+            
+            return None
+            
+        except Exception as e:
+            self.status_updated.emit(f"   ⚠️ 提取GUID失败: {e}")
+            return None
     
     def _analyze_missing_guid(self, missing_guid: str, referencing_file: str) -> str:
         """分析缺失的GUID可能对应的文件类型和建议"""
@@ -4202,10 +6397,19 @@ class ResourceChecker(QThread):
             'Character_AVATAR_Tranclucent.templatemat',
             'Character_PBR_Opaque.templatemat',
             'Character_PBR_Translucent.templatemat',
+            'Character_PatternMask.templatemat',
             'Scene_Prop_Opaque.templatemat',
             'Scene_Prop_Tranclucent.templatemat',
             'Scene_Prop_Masked.templatemat',
             'Sight.templatemat',
+            
+            # 🆕 通用模板 - DefaultToonMat可以在所有路径下使用
+            'DefaultToonMat.templatemat',
+            'DefaultMaterial.templatemat',
+            
+            # 🆕 新增的场景PBR模板
+            'Scene_PBR_Opaque.templatemat',
+            'Scene_PBR_Translucent.templatemat',
             
             # 特效模板
             'fx_basic_ADD.templatemat',
@@ -4236,6 +6440,12 @@ class ResourceChecker(QThread):
             'standard_particle_translucent.templatemat'
         }
         
+        # Timeline文件夹下材质的额外允许模板
+        timeline_allowed_templates = {
+            'DefaultMaterial.templatemat',
+            'DefaultToonMat.templatemat'
+        }
+        
         try:
             self.status_updated.emit("🔍 开始材质模板检查...")
             
@@ -4263,22 +6473,47 @@ class ResourceChecker(QThread):
                 excluded_path = False
                 remaining_parts = path_parts[entity_index + 1:]
                 
-                # 检查是否在entity/Environment/Scenes目录下
+                # 🆕 检查是否在entity/Environment/Scenes目录下（特殊规则）
+                is_environment_scenes = False
                 if (len(remaining_parts) >= 2 and 
                     remaining_parts[0].lower() == 'environment' and 
                     remaining_parts[1].lower() == 'scenes'):
-                    excluded_path = True
+                    is_environment_scenes = True
+                    print(f"🔍 [DEBUG] 检测到Environment/Scenes材质文件: {os.path.basename(file_path)}")
+                    print(f"   完整路径: {file_path}")
+                    print(f"   标准化路径: {normalized_path}")
+                    print(f"   路径部分: {remaining_parts[:3]}")  # 显示前3个部分
                 
-                if not excluded_path:
-                    material_files.append(file_path)
+                # 所有entity下的材质文件都需要检查（包括Environment/Scenes）
+                material_files.append((file_path, is_environment_scenes))
             
             self.status_updated.emit(f"找到 {len(material_files)} 个需要检查的材质文件")
             
             # 检查每个材质文件的模板使用情况
-            for file_path in material_files:
+            for file_path, is_environment_scenes in material_files:
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
+                    
+                    # 检查文件是否在Timeline文件夹下
+                    is_timeline_material = False
+                    normalized_path = os.path.normpath(file_path)
+                    path_parts = normalized_path.split(os.sep)
+                    
+                    # 查找entity目录索引
+                    entity_index = -1
+                    for i, part in enumerate(path_parts):
+                        if part.lower() == 'entity':
+                            entity_index = i
+                            break
+                    
+                    if entity_index != -1:
+                        # 检查是否在entity/.../Timeline/...路径下
+                        remaining_parts = path_parts[entity_index + 1:]
+                        for part in remaining_parts:
+                            if part.lower() == 'timeline':
+                                is_timeline_material = True
+                                break
                     
                     # 查找模板引用
                     template_references = self._find_template_references(content)
@@ -4302,11 +6537,27 @@ class ResourceChecker(QThread):
                                 # 记录使用了正确的模板（信息性）
                                 self.status_updated.emit(f"✅ {os.path.basename(file_path)} 使用了正确模板: {template_name}")
                                 found_valid_template = True
+                            elif is_timeline_material and template_name in timeline_allowed_templates:
+                                # Timeline特殊规则检查
+                                self.status_updated.emit(f"✅ {os.path.basename(file_path)} (Timeline) 使用了允许的特殊模板: {template_name}")
+                                found_valid_template = True
+                            elif is_environment_scenes and template_name == 'DefaultToonMat.templatemat':
+                                # 🆕 Environment/Scenes特殊规则：允许使用DefaultToonMat.templatemat
+                                self.status_updated.emit(f"✅ {os.path.basename(file_path)} (Environment/Scenes) 使用了允许的特殊模板: {template_name}")
+                                found_valid_template = True
                             else:
+                                # 提供更详细的错误信息，包括特殊文件夹下可用的模板
+                                if is_timeline_material:
+                                    message = f'使用了不允许的材质模板: {template_name} (Timeline文件夹下可额外使用: DefaultMaterial.templatemat, DefaultToonMat.templatemat)'
+                                elif is_environment_scenes:
+                                    message = f'使用了不允许的材质模板: {template_name} (Environment/Scenes路径下只允许使用DefaultToonMat.templatemat或标准模板)'
+                                else:
+                                    message = f'使用了不允许的材质模板: {template_name}'
+                                
                                 issues.append({
                                     'file': file_path,
                                     'type': 'invalid_template',
-                                    'message': f'使用了不允许的材质模板: {template_name}',
+                                    'message': message,
                                     'template_name': template_name
                                 })
                         
@@ -4389,6 +6640,461 @@ class ResourceChecker(QThread):
             debug_print(f"查找模板引用失败: {str(e)}")
         
         return template_references
+    
+    def _find_defaulttoon_referenced_images(self) -> Set[str]:
+        """找到所有使用DefaultToonMat.templatemat的材质文件引用的贴图文件"""
+        referenced_images = set()
+        
+        try:
+            # 找到所有使用DefaultToonMat.templatemat的材质文件
+            defaulttoon_materials = []
+            for file_path in self.upload_files:
+                if file_path.lower().endswith('.mat'):
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        # 查找模板引用
+                        template_references = self._find_template_references(content)
+                        
+                        # 检查是否使用DefaultToonMat.templatemat
+                        if 'DefaultToonMat.templatemat' in template_references:
+                            defaulttoon_materials.append(file_path)
+                            print(f"🔍 [DEBUG] 找到使用DefaultToonMat.templatemat的材质: {os.path.basename(file_path)}")
+                    except Exception as e:
+                        debug_print(f"检查材质文件失败 {file_path}: {str(e)}")
+            
+            # 对每个DefaultToonMat材质文件，找到它引用的贴图
+            for mat_file in defaulttoon_materials:
+                try:
+                    with open(mat_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 使用ResourceDependencyAnalyzer来解析依赖
+                    dependencies = self.analyzer.parse_editor_asset(mat_file)
+                    
+                    # 找到对应的贴图文件
+                    for guid in dependencies:
+                        # 在上传文件中查找对应GUID的图片文件
+                        for upload_file in self.upload_files:
+                            _, ext = os.path.splitext(upload_file.lower())
+                            if ext in self.image_types:
+                                meta_file = upload_file + '.meta'
+                                if os.path.exists(meta_file):
+                                    try:
+                                        file_guid = self.analyzer.parse_meta_file(meta_file)
+                                        if file_guid == guid:
+                                            referenced_images.add(upload_file)
+                                            print(f"🔍 [DEBUG] DefaultToonMat材质 {os.path.basename(mat_file)} 引用贴图: {os.path.basename(upload_file)}")
+                                            break
+                                    except Exception as e:
+                                        debug_print(f"解析meta文件失败 {meta_file}: {str(e)}")
+                        
+                except Exception as e:
+                    debug_print(f"分析材质依赖失败 {mat_file}: {str(e)}")
+                    
+        except Exception as e:
+            debug_print(f"查找DefaultToonMat引用的贴图失败: {str(e)}")
+        
+        print(f"🔍 [DEBUG] 总共找到 {len(referenced_images)} 个被DefaultToonMat.templatemat引用的贴图文件")
+        return referenced_images
+    
+    def _is_environment_scenes_path(self, file_path: str) -> bool:
+        """检查文件是否在Assets/entity/Environment/Scenes路径下"""
+        try:
+            # 🚨 路径分隔符统一处理：将所有路径统一为正斜杠格式进行比较
+            normalized_path = os.path.normpath(file_path).replace('\\', '/')
+            path_parts = normalized_path.split('/')
+            
+            # 查找entity目录
+            entity_index = -1
+            for i, part in enumerate(path_parts):
+                if part.lower() == 'entity':
+                    entity_index = i
+                    break
+            
+            if entity_index == -1:
+                return False
+            
+            # 检查是否在entity/Environment/Scenes路径下
+            remaining_parts = path_parts[entity_index + 1:]
+            print(f"🔍 [DEBUG] _is_environment_scenes_path 检查:")
+            print(f"   文件: {os.path.basename(file_path)}")
+            print(f"   标准化路径: {normalized_path}")
+            print(f"   entity后的路径部分: {remaining_parts}")
+            print(f"   检查条件: len >= 2? {len(remaining_parts) >= 2}")
+            if len(remaining_parts) >= 2:
+                print(f"   第1部分: '{remaining_parts[0]}' == 'environment'? {remaining_parts[0].lower() == 'environment'}")
+                print(f"   第2部分: '{remaining_parts[1]}' == 'scenes'? {remaining_parts[1].lower() == 'scenes'}")
+            
+            if (len(remaining_parts) >= 2 and 
+                remaining_parts[0].lower() == 'environment' and 
+                remaining_parts[1].lower() == 'scenes'):
+                print(f"   ✅ 匹配Environment/Scenes路径")
+                return True
+            
+            print(f"   ❌ 不匹配Environment/Scenes路径")
+            return False
+            
+        except Exception:
+            return False
+
+    def _check_folder_filelist(self, folder_type: str) -> List[Dict[str, str]]:
+        """检查指定文件夹中的all.filelist文件完整性
+        
+        Args:
+            folder_type: 文件夹类型，支持 'avatar' 或 'weapon'
+        """
+        issues = []
+        
+        try:
+            self.status_updated.emit(f"🔍 开始{folder_type.title()}文件夹all.filelist检查...")
+            
+            # 收集指定文件夹下的上传文件包
+            folder_packages = {}  # {package_path: [files_in_package]}
+            
+            for file_path in self.upload_files:
+                try:
+                    # 标准化路径
+                    normalized_path = os.path.normpath(file_path).replace('\\', '/')
+                    
+                    # 检查是否在指定文件夹中 - 支持avatar/MiniUniverse子目录
+                    folder_pattern = f'/{folder_type}/'
+                    miniuniverse_pattern = f'/{folder_type}/miniuniverse/'  # 新增：支持MiniUniverse子目录
+                    
+                    folder_pos = -1
+                    actual_folder_type = folder_type
+                    
+                    # 首先检查是否在MiniUniverse子目录下
+                    if miniuniverse_pattern in normalized_path.lower():
+                        folder_pos = normalized_path.lower().find(miniuniverse_pattern)
+                        actual_folder_type = f"{folder_type}/MiniUniverse"
+                        folder_pattern = miniuniverse_pattern
+                    elif folder_pattern in normalized_path.lower():
+                        folder_pos = normalized_path.lower().find(folder_pattern)
+                    
+                    if folder_pos != -1:
+                        # 提取文件夹后的路径部分
+                        after_folder = normalized_path[folder_pos + len(folder_pattern):]
+                        
+                        # 查找文件夹下的文件包目录（如 1000_1018, 2000_237）
+                        if '/' in after_folder:
+                            package_name = after_folder.split('/')[0]  # 获取文件包名
+                            
+                            # 重构完整的文件包路径
+                            package_path = normalized_path[:folder_pos] + folder_pattern[:-1] + '/' + package_name
+                            
+                            if package_path not in folder_packages:
+                                folder_packages[package_path] = []
+                            folder_packages[package_path].append(file_path)
+                            
+                            debug_print(f"发现{actual_folder_type}文件包: {package_name}, 文件: {os.path.basename(file_path)}")
+                            
+                except Exception as e:
+                    debug_print(f"处理文件路径失败 {file_path}: {e}")
+                    continue
+            
+            if not folder_packages:
+                self.status_updated.emit(f"✅ 没有发现{folder_type}文件夹(包括MiniUniverse子目录)下的文件，跳过检查")
+                return issues
+            
+            # 统计普通avatar和MiniUniverse的文件包数量
+            normal_packages = 0
+            miniuniverse_packages = 0
+            for package_path in folder_packages.keys():
+                if '/miniuniverse/' in package_path.lower():
+                    miniuniverse_packages += 1
+                else:
+                    normal_packages += 1
+            
+            status_msg = f"发现 {len(folder_packages)} 个{folder_type}文件包需要检查"
+            if miniuniverse_packages > 0:
+                status_msg += f" (其中{miniuniverse_packages}个在MiniUniverse子目录)"
+            self.status_updated.emit(status_msg)
+            
+            # 检查每个文件包
+            for package_path, files_in_package in folder_packages.items():
+                package_name = os.path.basename(package_path)
+                
+                # 确定文件包的位置（普通avatar还是MiniUniverse）
+                if '/miniuniverse/' in package_path.lower():
+                    location_info = f"{folder_type}/MiniUniverse"
+                else:
+                    location_info = folder_type
+                
+                self.status_updated.emit(f"检查{location_info}文件包: {package_name}")
+                
+                # 查找all.filelist文件
+                all_filelist_path = None
+                for file_path in files_in_package:
+                    if os.path.basename(file_path).lower() == 'all.filelist':
+                        all_filelist_path = file_path
+                        break
+                
+                if not all_filelist_path:
+                    issues.append({
+                        'file': package_path,
+                        'type': f'{folder_type}_missing_filelist',
+                        'message': f'{location_info}文件包 {package_name} 缺少 all.filelist 文件'
+                    })
+                    continue
+                
+                # 读取all.filelist的原始内容和解析后的GUID
+                try:
+                    with open(all_filelist_path, 'r', encoding='utf-8') as f:
+                        filelist_content = f.read()
+                    
+                    # 解析标准格式的GUID（32位）
+                    filelist_guids = self._parse_all_filelist(all_filelist_path)
+                    if not filelist_content.strip():
+                        issues.append({
+                            'file': all_filelist_path,
+                            'type': f'{folder_type}_empty_filelist',
+                            'message': f'all.filelist 文件为空'
+                        })
+                        continue
+                    
+                except Exception as e:
+                    issues.append({
+                        'file': all_filelist_path,
+                        'type': f'{folder_type}_filelist_parse_error',
+                        'message': f'all.filelist 文件解析失败: {str(e)}'
+                    })
+                    continue
+                
+                # 收集文件包内所有文件的GUID
+                package_guids = self._collect_folder_guids(files_in_package)
+                
+                # 分析GUID问题：区分缺失和格式错误
+                guid_issues = self._analyze_guid_issues(package_guids, filelist_guids, filelist_content)
+                
+                missing_guids = []
+                if guid_issues:
+                    missing_guids = guid_issues
+                
+                # 报告缺失的GUID
+                if missing_guids:
+                    missing_files = ', '.join([os.path.basename(item['file']) for item in missing_guids[:5]])
+                    if len(missing_guids) > 5:
+                        missing_files += f" 等{len(missing_guids)}个文件"
+                    
+                    issues.append({
+                        'file': all_filelist_path,
+                        'type': f'{folder_type}_filelist_incomplete',
+                        'message': f'all.filelist 缺少 {len(missing_guids)} 个文件的GUID记录: {missing_files}',
+                        'missing_guids': missing_guids,
+                        'package_name': package_name
+                    })
+                else:
+                    self.status_updated.emit(f"✅ {location_info}文件包 {package_name} 的all.filelist检查通过")
+            
+            if issues:
+                summary_msg = f"{folder_type.title()}文件包all.filelist检查完成，发现 {len(issues)} 个问题"
+                if miniuniverse_packages > 0:
+                    summary_msg += f" (包含MiniUniverse子目录检查)"
+                self.status_updated.emit(summary_msg)
+            else:
+                summary_msg = f"✅ 所有{folder_type.title()}文件包的all.filelist检查通过"
+                if miniuniverse_packages > 0:
+                    summary_msg += f" (包含{miniuniverse_packages}个MiniUniverse文件包)"
+                self.status_updated.emit(summary_msg)
+                
+        except Exception as e:
+            issues.append({
+                'file': 'SYSTEM',
+                'type': f'{folder_type}_filelist_system_error',
+                'message': f'{folder_type.title()}文件包all.filelist检查系统错误: {str(e)}'
+            })
+        
+        return issues
+
+    def _check_avatar_filelist(self) -> List[Dict[str, str]]:
+        """检查avatar文件夹中的all.filelist文件完整性"""
+        return self._check_folder_filelist('avatar')
+        
+    def _check_weapon_filelist(self) -> List[Dict[str, str]]:
+        """检查weapon文件夹中的all.filelist文件完整性"""
+        return self._check_folder_filelist('weapon')
+    
+    def _parse_all_filelist(self, filelist_path: str) -> Set[str]:
+        """解析all.filelist文件，提取GUID列表（忽略**符号等特殊标记）"""
+        guids = set()
+        
+        try:
+            with open(filelist_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 查找所有GUID模式（32位十六进制字符）
+            import re
+            # 使用更全面的模式，包括处理**符号和其他特殊字符的情况
+            # 匹配冒号后、空格/制表符后、或行首的32位十六进制GUID
+            guid_pattern = r'[:\s\t*]+([a-f0-9]{32})|^([a-f0-9]{32})'
+            raw_matches = re.findall(guid_pattern, content, re.IGNORECASE | re.MULTILINE)
+            
+            # 合并匹配组的结果
+            matches = []
+            for match_group in raw_matches:
+                for group in match_group:
+                    if group:  # 非空组
+                        matches.append(group)
+            
+            # 额外处理：使用更简单的模式作为补充，确保不遗漏任何GUID
+            # 查找所有独立的32位十六进制字符串
+            simple_pattern = r'\b([a-f0-9]{32})\b'
+            simple_matches = re.findall(simple_pattern, content, re.IGNORECASE)
+            
+            # 合并所有匹配结果
+            all_matches = matches + simple_matches
+            
+            for guid in all_matches:
+                if len(guid) == 32:  # 确保是32位GUID
+                    guids.add(guid.lower())
+            
+            debug_print(f"从 {os.path.basename(filelist_path)} 解析出 {len(guids)} 个GUID（支持**符号等特殊格式）")
+            
+        except Exception as e:
+            debug_print(f"解析all.filelist文件失败 {filelist_path}: {e}")
+        
+        return guids
+    
+    def _collect_folder_guids(self, file_list: List[str]) -> Dict[str, str]:
+        """收集文件夹内所有文件的GUID"""
+        folder_guids = {}  # {file_path: guid}
+        
+        for file_path in file_list:
+            try:
+                # 跳过all.filelist文件本身
+                if os.path.basename(file_path).lower() == 'all.filelist':
+                    continue
+                
+                # 跳过.meta文件（这些文件的GUID由对应的资源文件表示）
+                if file_path.lower().endswith('.meta'):
+                    continue
+                
+                # 尝试获取文件的GUID
+                file_guid = None
+                
+                # 1. 优先从对应的.meta文件中获取GUID（最可靠）
+                meta_path = file_path + '.meta'
+                if os.path.exists(meta_path):
+                    file_guid = self.analyzer.parse_meta_file(meta_path)
+                    if file_guid:
+                        debug_print(f"从meta文件获取GUID: {os.path.basename(file_path)} -> {file_guid}")
+                
+                # 2. 如果.meta文件不存在或无法解析，尝试直接从文件内容获取
+                if not file_guid:
+                    try:
+                        guids = self.analyzer.parse_editor_asset(file_path)
+                        if guids:
+                            # 取第一个GUID作为文件的主GUID
+                            file_guid = next(iter(guids))
+                            debug_print(f"从文件内容获取GUID: {os.path.basename(file_path)} -> {file_guid}")
+                    except Exception as e:
+                        debug_print(f"从文件内容获取GUID失败 {os.path.basename(file_path)}: {e}")
+                
+                # 3. 如果仍然没有GUID，尝试使用更详细的解析方法
+                if not file_guid:
+                    try:
+                        import json
+                        with open(meta_path if os.path.exists(meta_path) else file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        # 尝试JSON解析
+                        try:
+                            data = json.loads(content)
+                            if 'm_MetaHeader' in data and 'm_GUID' in data['m_MetaHeader']:
+                                file_guid = data['m_MetaHeader']['m_GUID']
+                                debug_print(f"JSON解析获取GUID: {os.path.basename(file_path)} -> {file_guid}")
+                        except:
+                            # 使用正则表达式作为最后手段
+                            import re
+                            guid_match = re.search(r'"?m_GUID"?\s*:?\s*"?([a-f0-9]{32})"?', content, re.IGNORECASE)
+                            if guid_match:
+                                file_guid = guid_match.group(1)
+                                debug_print(f"正则表达式获取GUID: {os.path.basename(file_path)} -> {file_guid}")
+                    except Exception as e:
+                        debug_print(f"详细解析GUID失败 {os.path.basename(file_path)}: {e}")
+                
+                if file_guid and len(file_guid) == 32:
+                    folder_guids[file_path] = file_guid.lower()
+                    debug_print(f"✅ 收集到文件GUID: {os.path.basename(file_path)} -> {file_guid}")
+                else:
+                    debug_print(f"❌ 无法获取有效GUID: {os.path.basename(file_path)}")
+                
+            except Exception as e:
+                debug_print(f"收集文件GUID失败 {file_path}: {e}")
+                continue
+        
+        return folder_guids
+
+    def _analyze_guid_issues(self, package_guids: Dict[str, str], filelist_guids: Set[str], filelist_content: str) -> List[Dict[str, str]]:
+        """分析GUID问题：检测缺失的GUID和GUID不一致的问题"""
+        issues = []
+        
+        try:
+            # 提取all.filelist中所有32位GUID
+            import re
+            all_guids_in_filelist = re.findall(r'([a-f0-9]{32})', filelist_content, re.IGNORECASE)
+            all_guids_in_filelist = [guid.lower() for guid in all_guids_in_filelist]
+            
+            debug_print(f"all.filelist中找到的32位GUID: {len(all_guids_in_filelist)}")
+            debug_print(f"解析的标准GUID: {len(filelist_guids)}")
+            debug_print(f"需要检查的文件数: {len(package_guids)}")
+            
+            for file_path, correct_guid in package_guids.items():
+                if not correct_guid:
+                    continue
+                
+                file_name = os.path.basename(file_path)
+                correct_guid_lower = correct_guid.lower()
+                
+                debug_print(f"检查文件: {file_name}, 正确GUID: {correct_guid_lower}")
+                
+                # 1. 检查是否存在正确的GUID
+                if correct_guid_lower in filelist_guids:
+                    debug_print(f"✅ {file_name} 的GUID正确存在")
+                    continue
+                
+                # 2. 查找是否有错误的GUID记录
+                wrong_guid = None
+                for guid_in_file in all_guids_in_filelist:
+                    if guid_in_file != correct_guid_lower:
+                        # 检查相似度 - 如果差异较小，可能是错误的GUID
+                        diff_count = sum(1 for a, b in zip(correct_guid_lower, guid_in_file) if a != b)
+                        debug_print(f"  比较GUID: {guid_in_file}, 差异: {diff_count}个字符")
+                        
+                        # 如果差异在1-10个字符之间，认为是错误的GUID
+                        if 1 <= diff_count <= 10:
+                            wrong_guid = guid_in_file
+                            debug_print(f"❌ {file_name} 发现错误GUID: {wrong_guid} (与正确GUID有{diff_count}处不同)")
+                            break
+                
+                if wrong_guid:
+                    # GUID不一致错误
+                    issues.append({
+                        'file': file_path,
+                        'correct_guid': correct_guid,
+                        'wrong_guid': wrong_guid,
+                        'issue_type': 'format_error'
+                    })
+                    debug_print(f"❌ 添加GUID不一致记录: {file_name}")
+                else:
+                    # GUID缺失
+                    issues.append({
+                        'file': file_path,
+                        'correct_guid': correct_guid,
+                        'issue_type': 'missing'
+                    })
+                    debug_print(f"❌ 添加GUID缺失记录: {file_name}")
+            
+            debug_print(f"发现 {len(issues)} 个GUID问题")
+            
+        except Exception as e:
+            debug_print(f"分析GUID问题失败: {e}")
+            import traceback
+            debug_print(f"错误详情: {traceback.format_exc()}")
+        
+        return issues
 
     def _generate_detailed_report(self, all_issues: List[Dict[str, str]], total_files: int) -> Dict[str, Any]:
         """生成详细报告 - 美术友好版本"""
@@ -4407,7 +7113,11 @@ class ResourceChecker(QThread):
             critical_types = {
                 'meta_missing_both', 'meta_missing_svn', 'guid_mismatch', 'guid_invalid_both',
                 'guid_duplicate_internal', 'guid_duplicate_git', 'guid_reference_missing',
-                'internal_dependency_missing', 'invalid_template'
+                'internal_dependency_missing', 'invalid_template',
+                'avatar_missing_filelist', 'avatar_empty_filelist', 'avatar_filelist_parse_error',
+                'avatar_filelist_incomplete', 'avatar_filelist_system_error',
+                'weapon_missing_filelist', 'weapon_empty_filelist', 'weapon_filelist_parse_error',
+                'weapon_filelist_incomplete', 'weapon_filelist_system_error'
             }
             
             warning_types = {
@@ -4610,6 +7320,13 @@ class ResourceChecker(QThread):
                         'impact': '无法确认文件包完整性',
                         'solution': '重新检查，或联系技术支持'
                     },
+                    'remote_resource_reference': {
+                        'icon': '🔴',
+                        'title': '禁止引用远程资源',
+                        'description': '本地资源文件引用了Assets\\remotes\\entity目录下的远程资源',
+                        'impact': '违反项目资源管理规范，可能导致依赖混乱',
+                        'solution': '将远程资源复制到本地目录，或移除对远程资源的引用'
+                    },
                     'invalid_template': {
                         'icon': '🔴',
                         'title': '材质模板错误',
@@ -4622,6 +7339,78 @@ class ResourceChecker(QThread):
                         'title': '材质模板检查系统错误',
                         'description': '材质模板检查系统发生严重错误',
                         'impact': '无法进行材质模板验证',
+                        'solution': '联系技术支持'
+                    },
+                    
+                    # Avatar文件夹all.filelist检查类型
+                    'avatar_missing_filelist': {
+                        'icon': '🔴',
+                        'title': '缺少Avatar文件清单',
+                        'description': 'Avatar文件包中缺少all.filelist文件',
+                        'impact': '无法验证文件包的完整性',
+                        'solution': '在Avatar文件包目录中创建all.filelist文件并记录所有文件的GUID'
+                    },
+                    'avatar_empty_filelist': {
+                        'icon': '🔴',
+                        'title': 'Avatar文件清单为空',
+                        'description': 'all.filelist文件存在但为空或无法解析',
+                        'impact': '无法验证文件包的完整性',
+                        'solution': '检查all.filelist文件格式，确保包含所有文件的GUID'
+                    },
+                    'avatar_filelist_parse_error': {
+                        'icon': '🔴',
+                        'title': 'Avatar文件清单解析失败',
+                        'description': 'all.filelist文件解析失败',
+                        'impact': '无法验证文件包的完整性',
+                        'solution': '检查all.filelist文件格式是否正确'
+                    },
+                    'avatar_filelist_incomplete': {
+                        'icon': '🔴',
+                        'title': 'Avatar文件清单不完整',
+                        'description': 'all.filelist文件缺少部分文件的GUID记录',
+                        'impact': '文件包不完整，可能导致资源缺失',
+                        'solution': '在all.filelist中添加所有缺失文件的GUID'
+                    },
+                    'avatar_filelist_system_error': {
+                        'icon': '🔴',
+                        'title': 'Avatar文件清单检查系统错误',
+                        'description': 'Avatar文件包清单检查系统发生严重错误',
+                        'impact': '无法进行Avatar文件包清单验证',
+                        'solution': '联系技术支持'
+                    },
+                    'weapon_missing_filelist': {
+                        'icon': '🔴',
+                        'title': 'Weapon文件清单缺失',
+                        'description': 'Weapon文件包目录缺少all.filelist文件',
+                        'impact': '无法验证文件包的完整性，可能导致资源缺失或版本不一致',
+                        'solution': '在Weapon文件包目录中创建all.filelist文件并记录所有文件的GUID'
+                    },
+                    'weapon_empty_filelist': {
+                        'icon': '🔴',
+                        'title': 'Weapon文件清单为空',
+                        'description': 'all.filelist文件存在但为空或无法解析',
+                        'impact': '无法验证文件包的完整性',
+                        'solution': '检查all.filelist文件格式，确保包含所有文件的GUID'
+                    },
+                    'weapon_filelist_parse_error': {
+                        'icon': '🔴',
+                        'title': 'Weapon文件清单解析失败',
+                        'description': 'all.filelist文件解析失败',
+                        'impact': '无法验证文件包的完整性',
+                        'solution': '检查all.filelist文件格式是否正确'
+                    },
+                    'weapon_filelist_incomplete': {
+                        'icon': '🔴',
+                        'title': 'Weapon文件清单不完整',
+                        'description': 'all.filelist文件缺少部分文件的GUID记录',
+                        'impact': '文件包不完整，可能导致资源缺失',
+                        'solution': '在all.filelist中添加所有缺失文件的GUID'
+                    },
+                    'weapon_filelist_system_error': {
+                        'icon': '🔴',
+                        'title': 'Weapon文件清单检查系统错误',
+                        'description': 'Weapon文件包清单检查系统发生严重错误',
+                        'impact': '无法进行Weapon文件包清单验证',
                         'solution': '联系技术支持'
                     },
                     
@@ -4811,28 +7600,65 @@ class ResourceChecker(QThread):
                         # 显示关键信息
                         if 'message' in issue:
                             message = issue['message']
-                            if len(message) > 50:
-                                message = message[:47] + "..."
-                            report_lines.append(f"│     💬 {message}")
+                            # 增加消息长度限制到150字符，支持多行显示
+                            if len(message) > 150:
+                                # 如果消息太长，按行分割显示
+                                lines = message.split('\n')
+                                if len(lines) > 1:
+                                    # 多行消息，显示前3行
+                                    for i, line in enumerate(lines[:3]):
+                                        if i == 0:
+                                            report_lines.append(f"│     💬 {line}")
+                                        else:
+                                            report_lines.append(f"│        {line}")
+                                    if len(lines) > 3:
+                                        report_lines.append(f"│        ... 还有{len(lines)-3}行")
+                                else:
+                                    # 单行消息太长，截断但保留更多内容
+                                    message = message[:147] + "..."
+                                    report_lines.append(f"│     💬 {message}")
+                            else:
+                                # 消息不长，可能包含多行，逐行显示
+                                lines = message.split('\n')
+                                for i, line in enumerate(lines):
+                                    if i == 0:
+                                        report_lines.append(f"│     💬 {line}")
+                                    else:
+                                        report_lines.append(f"│        {line}")
                         
                         # 显示GUID相关的详细信息
                         if issue_type in ['guid_mismatch', 'guid_invalid_svn', 'guid_invalid_git', 'guid_invalid_both', 'svn_meta_no_guid']:
                             self._add_guid_details(report_lines, issue, issue_type)
                         
+                        # 显示Avatar文件清单不完整的详细信息
+                        elif issue_type == 'avatar_filelist_incomplete':
+                            self._add_avatar_filelist_details(report_lines, issue)
+                        
+                        # 显示Weapon文件清单不完整的详细信息
+                        elif issue_type == 'weapon_filelist_incomplete':
+                            self._add_weapon_filelist_details(report_lines, issue)
+                        
                         # 显示其他特定问题的关键信息
                         elif 'missing_guid' in issue:
-                            report_lines.append(f"│     🔍 缺失ID: {issue['missing_guid'][:20]}...")
+                            missing_guid = issue['missing_guid']
+                            report_lines.append(f"│     🔍 缺失ID: {missing_guid}")
                         elif 'missing_file' in issue:
                             missing_file = os.path.basename(issue['missing_file'])
                             report_lines.append(f"│     📂 缺失文件: {missing_file}")
                         elif 'git_guid' in issue and 'svn_guid' in issue:
-                            report_lines.append(f"│     🔄 Git ID: {issue['git_guid'][:10]}...")
-                            report_lines.append(f"│     🔄 SVN ID: {issue['svn_guid'][:10]}...")
+                            # 显示完整GUID，按8位分组便于阅读
+                            git_guid = issue['git_guid']
+                            svn_guid = issue['svn_guid']
+                            report_lines.append(f"│     🔄 Git ID: {git_guid}")
+                            report_lines.append(f"│     🔄 SVN ID: {svn_guid}")
                         
                         if i < len(issues):
                             report_lines.append("│" + " " * 68 + "│")
                     
                     report_lines.append("└" + "─" * 68 + "┘")
+            
+                # 添加完整的GUID对比报告
+                self._generate_comprehensive_guid_comparison_report(report_lines, blocking_issues)
             
                 # 最后的建议
                 report_lines.append("\n🎯 **处理建议**")
@@ -5055,6 +7881,284 @@ class ResourceChecker(QThread):
         # 显示建议的解决方案
         report_lines.append("│     💡 **建议:** 以Git中的GUID为准，更新本地文件")
     
+    def _add_avatar_filelist_details(self, report_lines: List[str], issue: Dict):
+        """添加Avatar文件清单GUID问题的详细信息"""
+        missing_guids = issue.get('missing_guids', [])
+        package_name = issue.get('package_name', '未知包')
+        
+        if not missing_guids:
+            report_lines.append("│     ❌ 未能获取GUID问题详细信息")
+            return
+        
+        report_lines.append(f"│     📦 **文件包:** {package_name}")
+        report_lines.append("│     📋 **GUID问题详细信息:**")
+        report_lines.append("│     ")
+        
+        # 按问题类型分组显示
+        format_errors = [item for item in missing_guids if item.get('issue_type') == 'format_error']
+        missing_entries = [item for item in missing_guids if item.get('issue_type') == 'missing']
+        
+        # 显示GUID不一致错误（需要修正）
+        if format_errors:
+            report_lines.append("│     ❌ **GUID不一致错误（需要修正）:**")
+            for idx, error_info in enumerate(format_errors[:5], 1):
+                file_name = os.path.basename(error_info.get('file', '未知文件'))
+                git_guid = error_info.get('correct_guid', '未知')  # Git中正确的GUID
+                svn_guid = error_info.get('wrong_guid', '未知')    # SVN/all.filelist中错误的GUID
+                
+                self._add_guid_comparison_details(report_lines, file_name, git_guid, svn_guid, idx)
+            
+            if len(format_errors) > 5:
+                report_lines.append(f"│        ... 还有 {len(format_errors) - 5} 个GUID不一致")
+            report_lines.append("│     ")
+        
+        # 显示缺失的GUID（需要添加）
+        if missing_entries:
+            report_lines.append("│     ❌ **缺失的GUID（需要添加到all.filelist）:**")
+            for idx, missing_info in enumerate(missing_entries[:5], 1):
+                file_name = os.path.basename(missing_info.get('file', '未知文件'))
+                git_guid = missing_info.get('correct_guid', '未知')
+                report_lines.append(f"│        {idx}. 📝 **{file_name}**")
+                report_lines.append(f"│           📝 **SVN GUID:** 缺失 ❌")
+                report_lines.append(f"│           📝 **Git GUID:** {git_guid} ✅")
+                report_lines.append(f"│           📝 **状态:** 需要添加到all.filelist")
+                report_lines.append("│        ")
+            
+            if len(missing_entries) > 5:
+                report_lines.append(f"│        ... 还有 {len(missing_entries) - 5} 个缺失文件")
+            report_lines.append("│     ")
+        
+        # 修复步骤
+        report_lines.append("│     🔧 **修复步骤:**")
+        report_lines.append("│     1. 打开 all.filelist 文件")
+        
+        if format_errors:
+            report_lines.append("│     2. 找到上述标记为❌的SVN GUID，替换为对应的✅Git GUID")
+        if missing_entries:
+            step_num = 3 if format_errors else 2
+            report_lines.append(f"│     {step_num}. 添加上述缺失文件的GUID记录")
+        
+        final_step = len([x for x in [format_errors, missing_entries] if x]) + 1
+        report_lines.append(f"│     {final_step}. 保存文件并重新检查")
+    
+    def _add_guid_comparison_details(self, report_lines: List[str], file_name: str, git_guid: str, svn_guid: str, idx: int):
+        """添加GUID对比的详细信息显示"""
+        report_lines.append(f"│        {idx}. 📁 **{file_name}**")
+        report_lines.append(f"│           📝 **SVN GUID:** {svn_guid} ❌")
+        report_lines.append(f"│           📝 **Git GUID:** {git_guid} ✅")
+        
+        # 生成对比显示，标记不同的字符
+        if len(git_guid) == len(svn_guid) == 32:
+            # 显示完整GUID
+            report_lines.append("│           📊 **详细对比:**")
+            report_lines.append(f"│              SVN: {svn_guid} ❌")
+            report_lines.append(f"│              Git: {git_guid} ✅")
+            
+            # 显示字符级对比
+            comparison_line = "│              差异: "
+            diff_markers = ""
+            for i, (git_char, svn_char) in enumerate(zip(git_guid, svn_guid)):
+                if i > 0 and i % 8 == 0:
+                    diff_markers += "-"
+                if git_char != svn_char:
+                    diff_markers += "^"
+                else:
+                    diff_markers += " "
+            report_lines.append(comparison_line + diff_markers)
+            
+            # 显示具体差异位置
+            diff_positions = []
+            for i, (git_char, svn_char) in enumerate(zip(git_guid, svn_guid)):
+                if git_char != svn_char:
+                    diff_positions.append(f"位置{i+1}({svn_char}→{git_char})")
+            
+            if diff_positions:
+                diff_text = ", ".join(diff_positions[:5])  # 显示前5个差异
+                if len(diff_positions) > 5:
+                    diff_text += f" 等{len(diff_positions)}处"
+                report_lines.append(f"│           🔍 **差异详情:** {diff_text}")
+                report_lines.append(f"│           📊 **差异统计:** 共{len(diff_positions)}个字符不同")
+        elif len(git_guid) != len(svn_guid):
+            report_lines.append(f"│           ⚠️  **长度不匹配:** SVN({len(svn_guid)}位) vs Git({len(git_guid)}位)")
+        
+        report_lines.append("│        ")
+
+    def _generate_comprehensive_guid_comparison_report(self, report_lines: List[str], guid_issues: List[Dict[str, str]]):
+        """生成完整的GUID对比报告"""
+        if not guid_issues:
+            return
+            
+        # 分类GUID问题
+        mismatch_issues = [issue for issue in guid_issues if issue.get('type') == 'guid_mismatch']
+        duplicate_issues = [issue for issue in guid_issues if issue.get('type') == 'guid_duplicate_git']
+        missing_issues = [issue for issue in guid_issues if issue.get('type') == 'guid_reference_missing']
+        
+        if mismatch_issues or duplicate_issues:
+            report_lines.append("")
+            report_lines.append("╔══════════════════════════════════════════════════════════════════════════════════════════════════╗")
+            report_lines.append("║                                    📊 GUID详细对比报告                                            ║")
+            report_lines.append("╚══════════════════════════════════════════════════════════════════════════════════════════════════╝")
+            
+        # GUID不匹配对比
+        if mismatch_issues:
+            report_lines.append("")
+            report_lines.append("🔄 **SVN vs Git GUID不匹配对比:**")
+            report_lines.append("─" * 100)
+            
+            for idx, issue in enumerate(mismatch_issues[:10], 1):  # 最多显示10个
+                file_name = os.path.basename(issue.get('file', '未知文件'))
+                svn_guid = issue.get('svn_guid', issue.get('local_guid', ''))
+                git_guid = issue.get('git_guid', issue.get('expected_guid', ''))
+                
+                if svn_guid and git_guid:
+                    report_lines.append(f"")
+                    report_lines.append(f"📁 **{idx}. {file_name}**")
+                    report_lines.append(f"   📝 SVN GUID: {svn_guid} ❌")
+                    report_lines.append(f"   📝 Git GUID: {git_guid} ✅")
+                    
+                    # 计算差异
+                    if len(svn_guid) == len(git_guid) == 32:
+                        diff_count = sum(1 for s, g in zip(svn_guid, git_guid) if s != g)
+                        diff_positions = [i+1 for i, (s, g) in enumerate(zip(svn_guid, git_guid)) if s != g]
+                        
+                        if diff_count > 0:
+                            report_lines.append(f"   🔍 差异统计: {diff_count}个字符不同")
+                            if diff_count <= 8:
+                                pos_text = ", ".join([f"位置{pos}" for pos in diff_positions[:8]])
+                                report_lines.append(f"   📍 差异位置: {pos_text}")
+                        
+                        # 显示差异标记
+                        diff_markers = ""
+                        for i, (s, g) in enumerate(zip(svn_guid, git_guid)):
+                            if i > 0 and i % 8 == 0:
+                                diff_markers += "-"
+                            diff_markers += "^" if s != g else " "
+                        report_lines.append(f"   📊 差异标记: {diff_markers}")
+                    
+            if len(mismatch_issues) > 10:
+                report_lines.append(f"")
+                report_lines.append(f"... 还有 {len(mismatch_issues) - 10} 个GUID不匹配问题")
+                
+        # GUID冲突对比  
+        if duplicate_issues:
+            report_lines.append("")
+            report_lines.append("⚠️ **GUID冲突详情 (不同文件使用相同GUID):**")
+            report_lines.append("─" * 100)
+            
+            for idx, issue in enumerate(duplicate_issues[:5], 1):  # 最多显示5个
+                file_name = os.path.basename(issue.get('file', '未知文件'))
+                git_file_name = issue.get('git_file_name', '未知Git文件')
+                guid = issue.get('guid', '')
+                
+                if guid:
+                    report_lines.append(f"")
+                    report_lines.append(f"⚠️ **{idx}. GUID冲突**")
+                    report_lines.append(f"   🆔 GUID: {guid}")
+                    report_lines.append(f"   📄 SVN文件: {file_name}")
+                    report_lines.append(f"   📄 Git文件: {git_file_name}")
+                    report_lines.append(f"   💡 建议: 请统一文件名或重新生成GUID")
+                    
+            if len(duplicate_issues) > 5:
+                report_lines.append(f"")
+                report_lines.append(f"... 还有 {len(duplicate_issues) - 5} 个GUID冲突")
+        
+        # 缺失GUID引用
+        if missing_issues:
+            report_lines.append("")
+            report_lines.append("❌ **缺失的GUID引用:**")
+            report_lines.append("─" * 100)
+            
+            for idx, issue in enumerate(missing_issues[:5], 1):  # 最多显示5个
+                file_name = os.path.basename(issue.get('file', '未知文件'))
+                missing_guid = issue.get('guid', '')
+                
+                if missing_guid:
+                    report_lines.append(f"")
+                    report_lines.append(f"❌ **{idx}. 缺失引用**")
+                    report_lines.append(f"   🆔 被引用GUID: {missing_guid}")
+                    report_lines.append(f"   📄 引用文件: {file_name}")
+                    
+                    # 尝试获取引用文件的SVN GUID
+                    referring_file_guid = issue.get('referring_file_guid', '')
+                    referring_file_guid_status = issue.get('referring_file_guid_status', '未知状态')
+                    
+                    if referring_file_guid:
+                        report_lines.append(f"   🔗 引用文件GUID: {referring_file_guid}")
+                    else:
+                        # 显示为什么没有找到SVN GUID
+                        report_lines.append(f"   ⚠️  引用文件GUID状态: {referring_file_guid_status}")
+                    
+                    report_lines.append(f"   💡 建议: 确保被引用的资源文件已包含在上传列表中")
+                    
+            if len(missing_issues) > 5:
+                report_lines.append(f"")
+                report_lines.append(f"... 还有 {len(missing_issues) - 5} 个缺失的GUID引用")
+
+        if mismatch_issues or duplicate_issues or missing_issues:
+            report_lines.append("")
+            report_lines.append("═" * 100)
+            report_lines.append("")
+
+    def _add_weapon_filelist_details(self, report_lines: List[str], issue: Dict):
+        """添加Weapon文件清单GUID问题的详细信息"""
+        missing_guids = issue.get('missing_guids', [])
+        package_name = issue.get('package_name', '未知包')
+        
+        if not missing_guids:
+            report_lines.append("│     ❌ 未能获取GUID问题详细信息")
+            return
+        
+        report_lines.append(f"│     📦 **文件包:** {package_name}")
+        report_lines.append("│     📋 **GUID问题详细信息:**")
+        report_lines.append("│     ")
+        
+        # 按问题类型分组显示
+        format_errors = [item for item in missing_guids if item.get('issue_type') == 'format_error']
+        missing_entries = [item for item in missing_guids if item.get('issue_type') == 'missing']
+        
+        # 显示GUID不一致错误（需要修正）
+        if format_errors:
+            report_lines.append("│     ❌ **GUID不一致错误（需要修正）:**")
+            for idx, error_info in enumerate(format_errors[:5], 1):
+                file_name = os.path.basename(error_info.get('file', '未知文件'))
+                git_guid = error_info.get('correct_guid', '未知')  # Git中正确的GUID
+                svn_guid = error_info.get('wrong_guid', '未知')    # SVN/all.filelist中错误的GUID
+                
+                self._add_guid_comparison_details(report_lines, file_name, git_guid, svn_guid, idx)
+            
+            if len(format_errors) > 5:
+                report_lines.append(f"│        ... 还有 {len(format_errors) - 5} 个GUID不一致")
+            report_lines.append("│     ")
+        
+        # 显示缺失的GUID（需要添加）
+        if missing_entries:
+            report_lines.append("│     ❌ **缺失的GUID（需要添加到all.filelist）:**")
+            for idx, missing_info in enumerate(missing_entries[:5], 1):
+                file_name = os.path.basename(missing_info.get('file', '未知文件'))
+                git_guid = missing_info.get('correct_guid', '未知')
+                report_lines.append(f"│        {idx}. 📝 **{file_name}**")
+                report_lines.append(f"│           📝 **SVN GUID:** 缺失 ❌")
+                report_lines.append(f"│           📝 **Git GUID:** {git_guid} ✅")
+                report_lines.append(f"│           📝 **状态:** 需要添加到all.filelist")
+                report_lines.append("│        ")
+            
+            if len(missing_entries) > 5:
+                report_lines.append(f"│        ... 还有 {len(missing_entries) - 5} 个缺失文件")
+            report_lines.append("│     ")
+        
+        # 修复步骤
+        report_lines.append("│     🔧 **修复步骤:**")
+        report_lines.append("│     1. 打开 all.filelist 文件")
+        
+        if format_errors:
+            report_lines.append("│     2. 找到上述标记为❌的SVN GUID，替换为对应的✅Git GUID")
+        if missing_entries:
+            step_num = 3 if format_errors else 2
+            report_lines.append(f"│     {step_num}. 添加上述缺失文件的GUID记录")
+        
+        final_step = len([x for x in [format_errors, missing_entries] if x]) + 1
+        report_lines.append(f"│     {final_step}. 保存文件并重新检查")
+    
     def _add_detailed_fix_guide(self, report_lines: List[str], issues: List[Dict], issues_by_type: Dict, type_explanations: Dict):
         """添加详细的修复指南"""
         issue_types_in_list = set(issue.get('type', 'unknown') for issue in issues)
@@ -5128,6 +8232,24 @@ class ResourceChecker(QThread):
                 report_lines.append("   2. 将缺失的文件添加到上传列表")
                 report_lines.append("   3. 或者在材质中移除无效引用")
                 report_lines.append("   4. 重新检查依赖关系")
+            
+            elif issue_type == 'avatar_filelist_incomplete':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 找到Avatar文件包中的all.filelist文件")
+                report_lines.append("   2. 用文本编辑器打开all.filelist")
+                report_lines.append("   3. 根据上面显示的详细信息:")
+                report_lines.append("      • 添加标记为✅的正确GUID")
+                report_lines.append("      • 删除标记为❌的错误GUID")
+                report_lines.append("   4. 保存文件后重新上传检查")
+                report_lines.append("   📝 **注意:** 每个文件的GUID可以在对应的.meta文件中找到")
+            
+            elif issue_type == 'avatar_missing_filelist':
+                report_lines.append("   📋 **操作步骤:**")
+                report_lines.append("   1. 在Avatar文件包目录中创建all.filelist文件")
+                report_lines.append("   2. 收集该目录下所有文件的GUID")
+                report_lines.append("   3. 将GUID按行写入all.filelist文件")
+                report_lines.append("   4. 每个GUID对应一个资源文件")
+                report_lines.append("   📝 **提示:** GUID可以从.meta文件的m_GUID字段获取")
             
             else:
                 report_lines.append("   📋 **操作建议:**")
@@ -5883,12 +9005,64 @@ class ArtResourceManager(QMainWindow):
         self.upload_files = []
         # 文件夹上传模式跟踪
         self.folder_upload_modes = {}  # 格式：{folder_path: {"mode": "replace", "target_path": "..."}}
+        
+        # 🆕 初始化热更新管理器
+        self.hot_updater = None
+        if HOT_UPDATE_AVAILABLE:
+            try:
+                # 🌐 热更新服务器配置选择
+                # 选项1: 使用现有Git服务器（推荐）
+                git_update_url = "https://github.com/jasonaofa/Xproject.git"
+                
+                # 选项2: 本地测试服务器
+                local_test_url = "http://localhost:8000/api"
+                
+                # 选项3: 可以配置为其他服务器
+                # custom_url = "https://your-server.com/api"
+                
+                # 当前使用本地测试，您可以改为git_update_url
+                self.hot_updater = HotUpdateManager(
+                    current_version="1.0.0",  # 可以从配置文件或版本文件读取
+                    update_server_url= "https://github.com/jasonaofa/Xproject.git" # 🔧 可修改为 git_update_url
+                )
+                print("✅ 热更新功能已启用")
+                print(f"🌐 [DEBUG] 更新服务器地址: {self.hot_updater.update_server_url}")
+            except Exception as e:
+                print(f"⚠️ 热更新初始化失败: {e}")
+                self.hot_updater = None
+        
         self.init_ui()
         self.load_settings()
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("美术资源管理工具 v0.0.1")
+        self.setWindowTitle("美术资源管理工具 v0.0.2")
+        
+        # 🆕 创建菜单栏
+        self.create_menu_bar()
+        
+        # 设置窗口图标为默认状态（白色图标）
+        if getattr(sys, 'frozen', False):
+            # 打包后的exe环境
+            icon_path = os.path.join(sys._MEIPASS, 'app_icon_bai.ico')
+        else:
+            # 开发环境
+            icon_path = os.path.join(os.path.dirname(__file__), 'app_icon_bai.ico')
+            
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            print(f"🎨 [DEBUG] 设置默认图标: app_icon_bai.ico")
+        else:
+            print(f"警告: 默认图标文件不存在，尝试备用图标 {icon_path}")
+            # 备用：使用绿色图标
+            fallback_name = 'app_icon_lv.ico'
+            if getattr(sys, 'frozen', False):
+                fallback_path = os.path.join(sys._MEIPASS, fallback_name)
+            else:
+                fallback_path = os.path.join(os.path.dirname(__file__), fallback_name)
+            if os.path.exists(fallback_path):
+                self.setWindowIcon(QIcon(fallback_path))
+                print(f"🎨 [DEBUG] 使用备用图标: {fallback_name}")
         
         # 从配置加载窗口几何信息
         geometry = self.config_manager.get_window_geometry()
@@ -5919,6 +9093,146 @@ class ArtResourceManager(QMainWindow):
         
         # 状态栏
         self.statusBar().showMessage("就绪")
+    
+    def create_menu_bar(self):
+        """创建菜单栏"""
+        menubar = self.menuBar()
+        
+        # 帮助菜单
+        help_menu = menubar.addMenu('帮助(&H)')
+        
+        # 检查更新菜单项
+        if self.hot_updater:
+            check_update_action = QAction('检查更新(&U)', self)
+            check_update_action.setStatusTip('检查是否有可用的更新')
+            check_update_action.triggered.connect(self._on_check_updates_clicked)
+            help_menu.addAction(check_update_action)
+            
+            help_menu.addSeparator()
+        
+        # 🆕 测试菜单项 - 用于验证热更新功能
+        test_action = QAction('测试选项1(&T)', self)
+        test_action.setStatusTip('测试热更新功能的占位选项')
+        test_action.triggered.connect(lambda: QMessageBox.information(self, "测试", "这是测试选项1 - 用于验证热更新功能"))
+        help_menu.addAction(test_action)
+        
+        help_menu.addSeparator()
+        
+        # 关于菜单项
+        about_action = QAction('关于(&A)', self)
+        about_action.setStatusTip('关于美术资源管理工具')
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+    
+    def _on_check_updates_clicked(self):
+        """检查更新菜单点击处理"""
+        if not self.hot_updater:
+            QMessageBox.information(self, "提示", "热更新功能不可用")
+            return
+        
+        try:
+            # 在单独线程中检查更新，避免阻塞UI
+            self.update_thread = UpdateCheckThread(self.hot_updater)
+            self.update_thread.update_found.connect(self._on_update_found)
+            self.update_thread.no_update.connect(self._on_no_update)
+            self.update_thread.check_failed.connect(self._on_update_check_failed)
+            self.update_thread.start()
+            
+            # 显示检查中的状态
+            self.statusBar().showMessage("正在检查更新...")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"检查更新时发生错误：\n{e}")
+    
+    def _on_update_found(self, update_info):
+        """发现更新时的处理"""
+        self.statusBar().showMessage("发现新版本!")
+        
+        try:
+            # 显示更新对话框
+            dialog = UpdateDialog(update_info, self)
+            if dialog.exec_() == QDialog.Accepted:
+                self._start_update(update_info)
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"显示更新对话框时发生错误：\n{e}")
+    
+    def _on_no_update(self):
+        """没有更新时的处理"""
+        self.statusBar().showMessage("当前已是最新版本")
+        QMessageBox.information(self, "检查更新", "当前已是最新版本！")
+    
+    def _on_update_check_failed(self, error_msg):
+        """更新检查失败时的处理"""
+        self.statusBar().showMessage("更新检查失败")
+        QMessageBox.warning(self, "更新检查失败", f"无法检查更新：\n{error_msg}")
+    
+    def _start_update(self, update_info):
+        """开始更新"""
+        try:
+            # 在单独线程中执行更新
+            self.update_execute_thread = UpdateExecuteThread(self.hot_updater, update_info)
+            self.update_execute_thread.update_progress.connect(self._on_update_progress)
+            self.update_execute_thread.update_completed.connect(self._on_update_completed)
+            self.update_execute_thread.update_failed.connect(self._on_update_failed)
+            self.update_execute_thread.start()
+            
+            # 显示更新进度对话框
+            self.progress_dialog = QProgressDialog("正在下载更新...", "取消", 0, 100, self)
+            self.progress_dialog.setWindowModality(Qt.WindowModal)
+            self.progress_dialog.show()
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"开始更新时发生错误：\n{e}")
+    
+    def _on_update_progress(self, progress, message):
+        """更新进度"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.setValue(progress)
+            self.progress_dialog.setLabelText(message)
+    
+    def _on_update_completed(self):
+        """更新完成"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+        
+        self.statusBar().showMessage("更新完成")
+        
+        # 询问是否立即重启
+        reply = QMessageBox.question(
+            self, "更新完成", 
+            "更新已完成！\n\n需要重启应用程序以应用更新。\n是否立即重启？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply == QMessageBox.Yes:
+            self._restart_application()
+    
+    def _on_update_failed(self, error_msg):
+        """更新失败"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+        
+        self.statusBar().showMessage("更新失败")
+        QMessageBox.critical(self, "更新失败", f"更新过程中发生错误：\n{error_msg}")
+    
+    def _restart_application(self):
+        """重启应用程序"""
+        try:
+            # 保存当前配置
+            self.save_settings()
+            
+            # 重启应用
+            if getattr(sys, 'frozen', False):
+                # 打包后的exe
+                subprocess.Popen([sys.executable])
+            else:
+                # 开发环境
+                subprocess.Popen([sys.executable, __file__])
+            
+            # 退出当前应用
+            QApplication.quit()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "重启失败", f"无法重启应用程序：\n{e}")
     
     def load_settings(self):
         """加载配置"""
@@ -5993,9 +9307,14 @@ class ArtResourceManager(QMainWindow):
             # 更新路径映射按钮文本
             self.update_mapping_button_text()
             
+            # 设置初始图标状态为默认（白色）
+            self.set_window_icon_status("default")
+            
         except Exception as e:
             print(f"❌ [DEBUG] 加载配置失败: {e}")
             self.log_text.append(f"加载配置失败: {str(e)}")
+            # 配置加载失败时设置为默认图标
+            self.set_window_icon_status("default")
     
     def save_settings(self):
         """保存设置"""
@@ -6028,6 +9347,54 @@ class ArtResourceManager(QMainWindow):
         
         self.save_settings()
         event.accept()
+    
+    def set_window_icon_status(self, status: str = "default"):
+        """动态设置窗口图标状态
+        
+        Args:
+            status (str): 图标状态
+                - "default": 默认状态 - 绿色图标 (app_icon_lv.ico) - 程序正常运行状态
+                - "success": 成功状态 - 绿色图标 (app_icon_lv.ico)  
+                - "error": 错误状态 - 红色图标 (app_icon.ico)
+                - 也支持旧的布尔值参数以保持兼容性
+        """
+        try:
+            # 兼容旧的布尔值参数
+            if isinstance(status, bool):
+                if status:  # True = has_error
+                    icon_name = 'app_icon.ico'
+                    status_text = "错误状态"
+                else:  # False = no error (success)
+                    icon_name = 'app_icon_lv.ico'
+                    status_text = "成功状态"
+            else:
+                # 新的字符串参数
+                if status == "error":
+                    icon_name = 'app_icon.ico'  # 错误状态 - 红色图标
+                    status_text = "错误状态"
+                elif status == "success":
+                    icon_name = 'app_icon_lv.ico'  # 成功状态 - 绿色图标
+                    status_text = "成功状态"
+                else:  # default
+                    icon_name = 'app_icon_lv.ico'  # 默认状态 - 绿色图标（程序正常运行状态）
+                    status_text = "正常运行状态"
+            
+            # 获取图标路径（兼容打包后的路径）
+            if getattr(sys, 'frozen', False):
+                # 打包后的exe环境
+                icon_path = os.path.join(sys._MEIPASS, icon_name)
+            else:
+                # 开发环境
+                icon_path = os.path.join(os.path.dirname(__file__), icon_name)
+            
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+                print(f"🔄 [DEBUG] 图标已切换到{status_text}: {icon_name}")
+            else:
+                print(f"⚠️ [DEBUG] 图标文件不存在: {icon_path}")
+                
+        except Exception as e:
+            print(f"❌ [DEBUG] 图标切换失败: {str(e)}")
     
     def create_config_widget(self) -> QWidget:
         """创建配置widget"""
@@ -6927,6 +10294,8 @@ class ArtResourceManager(QMainWindow):
         self.file_list.clear_all_items()
         # 清空文件夹上传模式信息
         self.folder_upload_modes.clear()
+        # 重置图标状态到默认状态
+        self.set_window_icon_status("default")
     
     def check_and_push(self):
         """检查资源（不自动推送）"""
@@ -6974,6 +10343,9 @@ class ArtResourceManager(QMainWindow):
         self.checker_thread.check_completed.connect(self.on_check_completed)
         self.checker_thread.detailed_report.connect(self.on_detailed_report_received)
         self.checker_thread.git_sync_required.connect(self.on_git_sync_required)
+        
+        # 设置运行中状态图标
+        self.set_window_icon_status("success")  # 运行中使用绿色图标
         
         self.checker_thread.start()
         self.log_text.append("开始检查资源...")
@@ -7059,6 +10431,12 @@ class ArtResourceManager(QMainWindow):
         """检查完成回调"""
         self.progress_bar.setVisible(False)
         
+        # 根据检查结果更新图标状态
+        if success:
+            self.set_window_icon_status("success")  # 检查通过 - 绿色图标
+        else:
+            self.set_window_icon_status("error")    # 检查失败 - 红色图标
+        
         if success:
             self.result_text.append(f"✓ 检查通过: {message}")
             self.log_text.append("✅ 所有检查通过！准备推送...")
@@ -7098,6 +10476,9 @@ class ArtResourceManager(QMainWindow):
     def execute_push_operation(self):
         """执行推送操作"""
         try:
+            # 设置运行中状态图标
+            self.set_window_icon_status("success")  # 推送中使用绿色图标
+            
             # 开始推送操作
             self.log_text.append("开始推送文件到Git仓库...")
             self.progress_bar.setVisible(True)
@@ -7134,6 +10515,9 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(success_msg)
                 self.result_text.append(success_msg)
                 
+                # 推送成功后恢复默认图标状态（绿色）
+                self.set_window_icon_status("default")
+                
                 summary_text = (
                     f"📊 推送完成！\n\n"
                     f"推送信息:\n"
@@ -7156,6 +10540,8 @@ class ArtResourceManager(QMainWindow):
                 error_msg = f"✗ 推送失败: {message}"
                 self.log_text.append(error_msg)
                 self.result_text.append(error_msg)
+                # 推送失败设置错误图标状态（红色）
+                self.set_window_icon_status("error")
                 QMessageBox.critical(
                     self, 
                     "推送失败", 
@@ -7172,6 +10558,8 @@ class ArtResourceManager(QMainWindow):
             error_msg = f"推送操作发生异常: {str(e)}"
             self.log_text.append(f"✗ {error_msg}")
             self.result_text.append(f"✗ {error_msg}")
+            # 推送异常设置错误图标状态（红色）
+            self.set_window_icon_status("error")
             QMessageBox.critical(self, "推送异常", f"推送文件到Git仓库时发生异常：\n{error_msg}")
     
     def on_detailed_report_received(self, report: dict):
@@ -7298,6 +10686,9 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append("用户取消了重置操作")
                 return
         
+        # 设置运行中状态图标
+        self.set_window_icon_status("success")  # 重置中使用绿色图标
+        
         self.log_text.append("开始重置Git仓库...")
         self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
         
@@ -7313,6 +10704,8 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append("🔄 GUID缓存已自动清除（仓库内容已重置）")
                 self.result_text.append(f"✓ Git仓库重置成功: {message}")
                 QMessageBox.information(self, "重置成功", f"{message}\n\n🔄 GUID缓存已自动清除，确保下次检查使用最新数据。")
+                # 重置成功后恢复默认图标状态（绿色）
+                self.set_window_icon_status("default")
                 # 异步刷新分支列表，避免阻塞界面（强制更新，因为状态已重置）
                 self.refresh_branches_async(fast_mode=True, force_update_ui=True)
                 self.show_current_branch()
@@ -7320,6 +10713,8 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(f"✗ 重置失败: {message}")
                 self.result_text.append(f"✗ Git仓库重置失败: {message}")
                 QMessageBox.critical(self, "重置失败", f"重置Git仓库失败：\n{message}")
+                # 重置失败也恢复默认图标状态（绿色）
+                self.set_window_icon_status("default")
                 
         except Exception as e:
             error_msg = f"重置操作发生异常: {str(e)}"
@@ -7425,6 +10820,9 @@ class ArtResourceManager(QMainWindow):
             self.log_text.append("用户在最后确认时取消了操作")
             return
         
+        # 设置运行中状态图标
+        self.set_window_icon_status("success")  # 删除重拉中使用绿色图标
+        
         # 开始执行操作
         self.log_text.append("🚨 开始执行一键删除重拉操作...")
         self.log_text.append(f"📁 目标路径: {git_path}")
@@ -7489,6 +10887,9 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append("🎉 一键删除重拉操作完成！")
                 self.result_text.append(f"✅ 一键删除重拉成功：{self.git_path_edit.text()}")
                 
+                # 删除重拉成功后恢复默认图标状态（绿色）
+                self.set_window_icon_status("default")
+                
                 # 刷新分支列表
                 self.refresh_branches_async(fast_mode=True, force_update_ui=True)
                 
@@ -7502,6 +10903,8 @@ class ArtResourceManager(QMainWindow):
             else:
                 self.log_text.append(f"❌ 操作失败：{message}")
                 QMessageBox.critical(self, "操作失败", f"一键删除重拉失败：\n\n{message}")
+                # 删除重拉失败也恢复默认图标状态（绿色）
+                self.set_window_icon_status("default")
                 
         except Exception as e:
             self.log_text.append(f"❌ 处理操作结果时出错: {str(e)}")
@@ -8591,6 +11994,131 @@ class ArtResourceManager(QMainWindow):
                 
         except Exception as e:
             QMessageBox.critical(self, "错误", f"智能修复异常：{str(e)}")
+    
+    def check_for_updates(self):
+        """检查更新"""
+        if not self.hot_updater:
+            QMessageBox.information(self, "提示", "热更新功能不可用")
+            return
+        
+        # 在单独线程中检查更新，避免阻塞UI
+        self.update_thread = UpdateCheckThread(self.hot_updater)
+        self.update_thread.update_found.connect(self.on_update_found)
+        self.update_thread.no_update.connect(self.on_no_update)
+        self.update_thread.check_failed.connect(self.on_update_check_failed)
+        self.update_thread.start()
+        
+        # 显示检查中的状态
+        self.statusBar().showMessage("正在检查更新...")
+    
+    def on_update_found(self, update_info):
+        """发现更新时的处理"""
+        self.statusBar().showMessage("发现新版本!")
+        
+        # 显示更新对话框
+        dialog = UpdateDialog(update_info, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.start_update(update_info)
+    
+    def on_no_update(self):
+        """没有更新时的处理"""
+        self.statusBar().showMessage("当前已是最新版本")
+        QMessageBox.information(self, "检查更新", "当前已是最新版本！")
+    
+    def on_update_check_failed(self, error_msg):
+        """更新检查失败时的处理"""
+        self.statusBar().showMessage("更新检查失败")
+        QMessageBox.warning(self, "更新检查失败", f"无法检查更新：\n{error_msg}")
+    
+    def start_update(self, update_info):
+        """开始更新"""
+        # 在单独线程中执行更新
+        self.update_thread = UpdateExecuteThread(self.hot_updater, update_info)
+        self.update_thread.update_progress.connect(self.on_update_progress)
+        self.update_thread.update_completed.connect(self.on_update_completed)
+        self.update_thread.update_failed.connect(self.on_update_failed)
+        self.update_thread.start()
+        
+        # 显示更新进度对话框
+        self.progress_dialog = QProgressDialog("正在下载更新...", "取消", 0, 100, self)
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.show()
+    
+    def on_update_progress(self, progress, message):
+        """更新进度"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.setValue(progress)
+            self.progress_dialog.setLabelText(message)
+    
+    def on_update_completed(self):
+        """更新完成"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+        
+        self.statusBar().showMessage("更新完成")
+        
+        # 询问是否立即重启
+        reply = QMessageBox.question(
+            self, "更新完成", 
+            "更新已完成！\n\n需要重启应用程序以应用更新。\n是否立即重启？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.restart_application()
+    
+    def on_update_failed(self, error_msg):
+        """更新失败"""
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+        
+        self.statusBar().showMessage("更新失败")
+        QMessageBox.critical(self, "更新失败", f"更新过程中发生错误：\n{error_msg}")
+    
+    def restart_application(self):
+        """重启应用程序"""
+        try:
+            # 保存当前配置
+            self.save_settings()
+            
+            # 重启应用
+            if getattr(sys, 'frozen', False):
+                # 打包后的exe
+                subprocess.Popen([sys.executable])
+            else:
+                # 开发环境
+                subprocess.Popen([sys.executable, __file__])
+            
+            # 退出当前应用
+            QApplication.quit()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "重启失败", f"无法重启应用程序：\n{e}")
+    
+    def show_about_dialog(self):
+        """显示关于对话框"""
+        version = "1.0.0"
+        if self.hot_updater:
+            version = self.hot_updater.get_current_version()
+        
+        about_text = f"""
+        <h3>美术资源管理工具</h3>
+        <p><b>版本:</b> {version}</p>
+        <p><b>功能:</b> 专业的Unity资源上传和管理工具</p>
+        <p><b>特性:</b></p>
+        <ul>
+            <li>🚨 远程资源引用检查</li>
+            <li>🌐 Avatar/MiniUniverse子目录支持</li>
+            <li>🎨 材质模板验证</li>
+            <li>🔄 热更新功能</li>
+            <li>📊 完整的资源检查报告</li>
+        </ul>
+        <p><b>作者:</b> 开发团队</p>
+        <p><b>更新时间:</b> {datetime.now().strftime('%Y-%m-%d')}</p>
+        """
+        
+        QMessageBox.about(self, "关于", about_text)
 
 
 class DeployRepositoriesThread(QThread):
@@ -9021,6 +12549,7 @@ class DeleteAndRecloneThread(QThread):
                     pass  # 忽略错误，这只是尝试性操作
         except:
             pass  # 忽略所有错误
+
 
 class BranchLoadThread(QThread):
     """分支加载线程 - 异步加载分支列表"""
@@ -9551,6 +13080,118 @@ class BranchSelectorDialog(QDialog):
         return ""
 
 
+class UpdateCheckThread(QThread):
+    """更新检查线程"""
+    update_found = pyqtSignal(dict)
+    no_update = pyqtSignal()
+    check_failed = pyqtSignal(str)
+    
+    def __init__(self, hot_updater):
+        super().__init__()
+        self.hot_updater = hot_updater
+    
+    def run(self):
+        try:
+            has_update, update_info = self.hot_updater.check_for_updates()
+            if has_update:
+                self.update_found.emit(update_info)
+            else:
+                self.no_update.emit()
+        except Exception as e:
+            self.check_failed.emit(str(e))
+
+
+class UpdateExecuteThread(QThread):
+    """更新执行线程"""
+    update_progress = pyqtSignal(int, str)
+    update_completed = pyqtSignal()
+    update_failed = pyqtSignal(str)
+    
+    def __init__(self, hot_updater, update_info):
+        super().__init__()
+        self.hot_updater = hot_updater
+        self.update_info = update_info
+    
+    def run(self):
+        try:
+            # 下载更新
+            self.update_progress.emit(10, "正在下载更新文件...")
+            if not self.hot_updater.download_update(self.update_info):
+                self.update_failed.emit("下载更新失败")
+                return
+            
+            self.update_progress.emit(70, "正在应用更新...")
+            
+            # 应用更新
+            if self.hot_updater.apply_update():
+                self.update_progress.emit(100, "更新完成")
+                self.update_completed.emit()
+            else:
+                self.update_failed.emit("应用更新失败")
+                
+        except Exception as e:
+            self.update_failed.emit(str(e))
+
+
+class UpdateDialog(QDialog):
+    """更新确认对话框"""
+    
+    def __init__(self, update_info, parent=None):
+        super().__init__(parent)
+        self.update_info = update_info
+        self.init_ui()
+    
+    def init_ui(self):
+        self.setWindowTitle("发现新版本")
+        self.setFixedSize(400, 300)
+        
+        layout = QVBoxLayout()
+        
+        # 标题
+        title_label = QLabel(f"发现新版本 {self.update_info.get('latest_version', 'Unknown')}")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2196F3;")
+        layout.addWidget(title_label)
+        
+        # 当前版本
+        current_version = self.update_info.get('current_version', 'Unknown')
+        current_label = QLabel(f"当前版本: {current_version}")
+        layout.addWidget(current_label)
+        
+        # 更新说明
+        description = self.update_info.get('description', '无更新说明')
+        desc_label = QLabel("更新说明:")
+        desc_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        layout.addWidget(desc_label)
+        
+        desc_text = QTextEdit()
+        desc_text.setPlainText(description)
+        desc_text.setReadOnly(True)
+        desc_text.setMaximumHeight(120)
+        layout.addWidget(desc_text)
+        
+        # 文件信息
+        files = self.update_info.get('files', [])
+        if files:
+            files_label = QLabel(f"更新文件: {len(files)} 个")
+            files_label.setStyleSheet("margin-top: 10px;")
+            layout.addWidget(files_label)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        
+        update_btn = QPushButton("立即更新")
+        update_btn.setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 8px 16px; }")
+        update_btn.clicked.connect(self.accept)
+        button_layout.addWidget(update_btn)
+        
+        later_btn = QPushButton("稍后提醒")
+        later_btn.clicked.connect(self.reject)
+        button_layout.addWidget(later_btn)
+        
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+
 def main():
     """主函数"""
     debug_print("开始主函数...")
@@ -9559,6 +13200,30 @@ def main():
         debug_print("创建QApplication...")
         app = QApplication(sys.argv)
         debug_print("QApplication创建成功")
+        
+        # 设置应用程序图标为默认状态（白色图标）
+        if getattr(sys, 'frozen', False):
+            # 打包后的exe环境
+            icon_path = os.path.join(sys._MEIPASS, 'app_icon_bai.ico')
+        else:
+            # 开发环境
+            icon_path = os.path.join(os.path.dirname(__file__), 'app_icon_bai.ico')
+        
+        debug_print(f"默认图标路径: {icon_path}")
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
+            debug_print("设置应用程序默认图标成功")
+        else:
+            debug_print(f"默认图标文件不存在，尝试备用图标: {icon_path}")
+            # 备用：使用绿色图标
+            fallback_name = 'app_icon_lv.ico'
+            if getattr(sys, 'frozen', False):
+                fallback_path = os.path.join(sys._MEIPASS, fallback_name)
+            else:
+                fallback_path = os.path.join(os.path.dirname(__file__), fallback_name)
+            if os.path.exists(fallback_path):
+                app.setWindowIcon(QIcon(fallback_path))
+                debug_print(f"使用备用图标: {fallback_name}")
         
         # 设置应用程序样式
         app.setStyle('Fusion')

@@ -18,23 +18,33 @@ Traceback (most recent call last):
     buffer.append(fh.read())
   File "C:\Program Files\Python310\lib\codecs.py", line 322, in decode
     (result, consumed) = self._buffer_decode(data, self.errors, final)
-UnicodeDecodeError: 'utf-8' codec can't decode byte 0xc3 in position 6116: invalid continuation byte
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xc3 in position 6673: invalid continuation byte
 ✅ 打包成功！
 ✅ exe文件已复制到项目根目录
+  删除了dist目录
+🧹 清理构建文件...
+  删除目录: build
+  删除文件: ArtResourceManager.spec
 
-❌ 发生未预期的错误: [WinError 5] 拒绝访问。: 'dist\\美术资源上传工具.exe'
-Traceback (most recent call last):
-  File "E:\Xproject-main (1)\Xproject-main\build_exe.py", line 237, in <module>
-    success = main()
-  File "E:\Xproject-main (1)\Xproject-main\build_exe.py", line 190, in main
-    if not copy_exe_to_root():
-  File "E:\Xproject-main (1)\Xproject-main\build_exe.py", line 146, in copy_exe_to_root
-    shutil.rmtree("dist")
-  File "C:\Program Files\Python310\lib\shutil.py", line 750, in rmtree
-    return _rmtree_unsafe(path, onerror)
-  File "C:\Program Files\Python310\lib\shutil.py", line 620, in _rmtree_unsafe
-    onerror(os.unlink, fullname, sys.exc_info())
-  File "C:\Program Files\Python310\lib\shutil.py", line 618, in _rmtree_unsafe
-    os.unlink(fullname)
-PermissionError: [WinError 5] 拒绝访问。: 'dist\\美术资源上传工具.exe'
+============================================================
+🎉 打包完成！
+============================================================
+📁 生成的文件:
+  美术资源上传工具.exe - 可执行文件
+
+💡 使用说明:
+  1. 双击 美术资源上传工具.exe 即可运行
+  2. 无需安装Python环境
+  3. 可以分发给其他用户使用
+
+⚠️  注意事项:
+  1. 首次运行可能被杀毒软件拦截，请添加信任
+  2. exe文件较大是正常现象（包含了所有依赖）
+  3. 如需修改代码，请重新运行此打包脚本
+
+✅ 打包成功完成！
+日志文件已保存到: build_log.txt
+
 按Enter键退出...
+
+用户取消操作

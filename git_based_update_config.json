@@ -1,0 +1,75 @@
+{
+  "git_based_update": {
+    "description": "基于Git的热更新方案 - 最简单的部署方式",
+    "advantages": [
+      "无需额外服务器",
+      "使用现有Git基础设施",
+      "版本管理天然支持",
+      "安全性有保障"
+    ],
+    "implementation": {
+      "方式1_GitLab_Pages": {
+        "description": "使用GitLab Pages托管更新文件",
+        "server_url": "https://your-gitlab-domain.com/your-group/art-tool-updates",
+        "setup_steps": [
+          "1. 在GitLab创建新项目：art-tool-updates",
+          "2. 启用GitLab Pages功能",
+          "3. 创建更新API文件（静态JSON）",
+          "4. 上传更新文件到项目",
+          "5. 配置工具连接到Pages地址"
+        ],
+        "file_structure": {
+          "public/": {
+            "api/": {
+              "check_update.json": "版本检查API响应",
+              "version_info.json": "版本信息"
+            },
+            "files/": {
+              "v1.1.0/": {
+                "art_resource_manager.py": "更新文件"
+              }
+            }
+          }
+        }
+      },
+      "方式2_Git_Raw_Files": {
+        "description": "直接使用Git仓库的raw文件链接",
+        "server_url": "https://your-gitlab.com/api/v4/projects/PROJECT_ID/repository",
+        "example": {
+          "check_update_url": "https://gitlab.com/your-group/art-tool/raw/main/update_info.json",
+          "download_url": "https://gitlab.com/your-group/art-tool/raw/main/art_resource_manager.py"
+        }
+      }
+    }
+  },
+  "simple_solutions": {
+    "方案1_本地网络": {
+      "description": "在局域网内搭建简单HTTP服务器",
+      "server_url": "http://192.168.1.100:8000/api",
+      "setup": "python -m http.server 8000",
+      "适用场景": "团队内部使用，同一局域网"
+    },
+    "方案2_免费托管": {
+      "options": [
+        {
+          "name": "GitHub Pages",
+          "url": "https://your-username.github.io/art-tool-updates",
+          "cost": "免费",
+          "limitation": "只能托管静态文件"
+        },
+        {
+          "name": "Netlify",
+          "url": "https://your-site.netlify.app",
+          "cost": "免费额度",
+          "features": "支持API函数"
+        },
+        {
+          "name": "Vercel",
+          "url": "https://your-project.vercel.app",
+          "cost": "免费额度",
+          "features": "支持动态API"
+        }
+      ]
+    }
+  }
+}
