@@ -9022,7 +9022,7 @@ class ArtResourceManager(QMainWindow):
                 
                 # 当前使用本地测试，您可以改为git_update_url
                 self.hot_updater = HotUpdateManager(
-                    current_version="1.0.1",  # 更新版本号以支持热更新测试
+                    current_version="1.0.2",  # 添加调试信息版本
                     update_server_url= "https://github.com/jasonaofa/Xproject.git" # 🔧 可修改为 git_update_url
                 )
                 print("✅ 热更新功能已启用")
@@ -9036,7 +9036,7 @@ class ArtResourceManager(QMainWindow):
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("美术资源管理工具 v1.0.1")
+        self.setWindowTitle("美术资源管理工具 v1.0.2")
         
         # 🆕 创建菜单栏
         self.create_menu_bar()
@@ -9130,6 +9130,10 @@ class ArtResourceManager(QMainWindow):
             QMessageBox.information(self, "提示", "热更新功能不可用")
             return
         
+        # 🔧 添加调试信息
+        print(f"🔍 [DEBUG] 当前版本: {self.hot_updater.current_version}")
+        print(f"🔍 [DEBUG] 更新服务器: {self.hot_updater.update_server_url}")
+        
         try:
             # 在单独线程中检查更新，避免阻塞UI
             self.update_thread = UpdateCheckThread(self.hot_updater)
@@ -9141,6 +9145,7 @@ class ArtResourceManager(QMainWindow):
             # 显示检查中的状态
             self.statusBar().showMessage("正在检查更新...")
         except Exception as e:
+            print(f"❌ [DEBUG] 检查更新异常: {e}")
             QMessageBox.critical(self, "错误", f"检查更新时发生错误：\n{e}")
     
     def _on_update_found(self, update_info):
@@ -13092,12 +13097,18 @@ class UpdateCheckThread(QThread):
     
     def run(self):
         try:
+            print("🔍 [DEBUG] 开始检查更新...")
             has_update, update_info = self.hot_updater.check_for_updates()
+            print(f"🔍 [DEBUG] 检查结果: has_update={has_update}, update_info={update_info}")
+            
             if has_update:
+                print("✅ [DEBUG] 发现更新，发送update_found信号")
                 self.update_found.emit(update_info)
             else:
+                print("ℹ️ [DEBUG] 无更新，发送no_update信号")
                 self.no_update.emit()
         except Exception as e:
+            print(f"❌ [DEBUG] 检查更新失败: {e}")
             self.check_failed.emit(str(e))
 
 
