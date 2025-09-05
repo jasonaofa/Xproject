@@ -9022,7 +9022,7 @@ class ArtResourceManager(QMainWindow):
                 
                 # 当前使用本地测试，您可以改为git_update_url
                 self.hot_updater = HotUpdateManager(
-                    current_version="1.0.0",  # 可以从配置文件或版本文件读取
+                    current_version="1.0.1",  # 更新版本号以支持热更新测试
                     update_server_url= "https://github.com/jasonaofa/Xproject.git" # 🔧 可修改为 git_update_url
                 )
                 print("✅ 热更新功能已启用")
@@ -9036,7 +9036,7 @@ class ArtResourceManager(QMainWindow):
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("美术资源管理工具 v0.0.2")
+        self.setWindowTitle("美术资源管理工具 v1.0.1")
         
         # 🆕 创建菜单栏
         self.create_menu_bar()
