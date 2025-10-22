@@ -1,0 +1,31 @@
+{
+  "svn_path": "C:\\6.1.10_prefab",
+  "git_path": "H:\\0124v_09\\assetruntimenew\\CommonResource",
+  "window_geometry": {
+    "x": 2772,
+    "y": 174,
+    "width": 1200,
+    "height": 800
+  },
+  "last_selected_branch": "★ miniw/buzzRes/251030 (当前)",
+  "resource_types": {
+    "prefab": true,
+    "material": true,
+    "texture": true,
+    "animation": true,
+    "script": true
+  },
+  "recent_files": [
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_sk.skeleton.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_sk.skeleton",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face4.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face4.mesh",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face3.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face3.mesh",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face2.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face2.mesh",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face1.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140505\\Timeline\\charater\\Model\\body_face1.mesh"
+  ],
+  "max_recent_files": 10
+}

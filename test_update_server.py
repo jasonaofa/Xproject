@@ -44,7 +44,7 @@ class UpdateServerHandler(BaseHTTPRequestHandler):
         print(f"🔍 检查更新请求 - 当前版本: {current_version}")
         
         # 模拟更新检查逻辑
-        latest_version = "1.1.0"  # 模拟有新版本
+        latest_version = "1.0.2"  # 模拟有新版本
         has_update = current_version != latest_version
         
         if has_update:

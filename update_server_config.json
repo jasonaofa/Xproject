@@ -6,7 +6,7 @@
     "backup_versions_to_keep": 5
   },
   "version_info": {
-    "current_version": "1.0.0",
+    "current_version": "1.0.6",
     "build_date": "2025-09-02",
     "features": [
       "远程资源引用检查",
@@ -22,7 +22,7 @@
     "response_format": {
       "has_update": true,
       "latest_version": "1.1.0",
-      "current_version": "1.0.0",
+      "current_version": "1.0.6",
       "description": "新版本更新内容:\n- 修复了替换模式的bug\n- 优化了热更新性能\n- 新增了自动备份功能",
       "release_date": "2025-09-03",
       "files": [
@@ -44,3 +44,5 @@
     }
   }
 }
+
+

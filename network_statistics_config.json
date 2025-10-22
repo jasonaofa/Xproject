@@ -1,0 +1,37 @@
+{
+  "network_statistics": {
+    "enabled": true,
+    "description": "局域网统计配置 - 收集所有美术同事的上传统计",
+    "shared_file_path": "shared_upload_statistics.json",
+    "alternative_paths": [
+      "\\\\10.0.6.231\\shared\\upload_statistics.json",
+      "Z:\\upload_statistics.json",
+      "//server/shared/upload_statistics.json"
+    ],
+    "server": {
+      "enabled": false,
+      "port": 8003,
+      "description": "统计API服务器，提供全局统计查询接口"
+    }
+  },
+  "collection_settings": {
+    "auto_sync": true,
+    "sync_interval": 300,
+    "description": "自动同步设置：每5分钟将本地统计同步到共享位置"
+  },
+  "instructions": {
+    "setup_steps": [
+      "1. 在服务器电脑上创建共享文件夹",
+      "2. 设置共享文件夹的读写权限",
+      "3. 更新 shared_file_path 为共享文件的完整路径",
+      "4. 美术同事的电脑会自动将统计数据写入共享文件",
+      "5. 管理员可以查看全局统计数据"
+    ],
+    "troubleshooting": [
+      "如果共享路径不可用，系统会回退到本地统计",
+      "检查网络权限和共享文件夹设置",
+      "确保所有电脑都能访问共享路径"
+    ]
+  }
+}
+

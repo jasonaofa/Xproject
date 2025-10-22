@@ -18,32 +18,13 @@ Traceback (most recent call last):
     buffer.append(fh.read())
   File "C:\Program Files\Python310\lib\codecs.py", line 322, in decode
     (result, consumed) = self._buffer_decode(data, self.errors, final)
-UnicodeDecodeError: 'utf-8' codec can't decode byte 0xc3 in position 6673: invalid continuation byte
-✅ 打包成功！
-✅ exe文件已复制到项目根目录
-  删除了dist目录
-🧹 清理构建文件...
-  删除目录: build
-  删除文件: ArtResourceManager.spec
+UnicodeDecodeError: 'utf-8' codec can't decode byte 0xbb in position 2022: invalid start byte
+❌ 打包失败！
+错误输出:
+None
 
-============================================================
-🎉 打包完成！
-============================================================
-📁 生成的文件:
-  美术资源上传工具.exe - 可执行文件
-
-💡 使用说明:
-  1. 双击 美术资源上传工具.exe 即可运行
-  2. 无需安装Python环境
-  3. 可以分发给其他用户使用
-
-⚠️  注意事项:
-  1. 首次运行可能被杀毒软件拦截，请添加信任
-  2. exe文件较大是正常现象（包含了所有依赖）
-  3. 如需修改代码，请重新运行此打包脚本
-
-✅ 打包成功完成！
-日志文件已保存到: build_log.txt
+❌ 打包失败！
+详细信息请查看: build_log.txt
 
 按Enter键退出...
 

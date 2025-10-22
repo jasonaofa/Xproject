@@ -1,13 +1,13 @@
 {
   "svn_path": "C:/6.1.10_prefab",
-  "git_path": "H:/0124v_03/assetruntimenew/CommonResource",
+  "git_path": "E:/git8a/assetruntimenew/CommonResource",
   "window_geometry": {
-    "x": 2547,
-    "y": -45,
+    "x": 2544,
+    "y": -8,
     "width": 2560,
-    "height": 1361
+    "height": 1198
   },
-  "last_selected_branch": "★ miniw/release/v1.50.0 (当前)",
+  "last_selected_branch": "★ miniw/hotfix/v1.50.0_cuiming (当前)",
   "resource_types": {
     "prefab": true,
     "material": true,
@@ -16,16 +16,16 @@
     "script": true
   },
   "recent_files": [
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_sk.skeleton.meta",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_sk.skeleton",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_Saihong.mesh.meta",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_Saihong.mesh",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_maojin.mesh.meta",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_maojin.mesh",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_hair.mesh.meta",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_hair.mesh",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_face4.mesh.meta",
-    "C:/6.1.10_prefab/Assets/remotes/entity/140492\\Model\\body_face4.mesh"
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_sk.skeleton.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_sk.skeleton",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_piaodai.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_piaodai.mesh",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_hair.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_hair.mesh",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_face4.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_face4.mesh",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_face3.mesh.meta",
+    "C:/6.1.10_prefab/Assets/remotes/entity/140500\\Model\\body_face3.mesh"
   ],
   "max_recent_files": 10,
   "editor_path": "E:/RPGame5.6.9a"

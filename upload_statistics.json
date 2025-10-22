@@ -1,0 +1,342 @@
+{
+  "version": "1.0.0",
+  "created_time": "2025-09-08T20:14:41.974866",
+  "total_uploads": 10,
+  "total_files": 2418,
+  "users": {
+    "cuiming@cuiming3": {
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "first_upload": "2025-09-08T20:14:42.041195",
+      "last_upload": "2025-09-17T18:32:28.745248",
+      "total_uploads": 10,
+      "total_files": 2418,
+      "upload_days": [
+        "2025-09-13",
+        "2025-09-17",
+        "2025-09-08"
+      ],
+      "success_uploads": 7,
+      "failed_uploads": 2
+    }
+  },
+  "daily_stats": {
+    "2025-09-08": {
+      "date": "2025-09-08",
+      "uploads": 5,
+      "files": 10,
+      "users": [
+        "cuiming@cuiming3"
+      ],
+      "success": 2,
+      "failed": 2
+    },
+    "2025-09-13": {
+      "date": "2025-09-13",
+      "uploads": 1,
+      "success": 1,
+      "failed": 0,
+      "files": 167,
+      "users": [
+        "cuiming@cuiming3"
+      ]
+    },
+    "2025-09-17": {
+      "date": "2025-09-17",
+      "uploads": 4,
+      "success": 4,
+      "failed": 0,
+      "files": 2241,
+      "users": [
+        "cuiming@cuiming3"
+      ]
+    }
+  },
+  "monthly_stats": {
+    "2025-09": {
+      "month": "2025-09",
+      "uploads": 10,
+      "files": 2418,
+      "users": [
+        "cuiming@cuiming3"
+      ],
+      "success": 7,
+      "failed": 2
+    }
+  },
+  "upload_history": [
+    {
+      "timestamp": "2025-09-08T20:14:42.041195",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 3,
+      "file_paths": [
+        "test1.prefab",
+        "test2.mat",
+        "test3.png"
+      ],
+      "git_path": "TestRepo",
+      "additional_info": {
+        "test": true
+      }
+    },
+    {
+      "timestamp": "2025-09-08T20:27:36.074683",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 5,
+      "file_paths": [
+        "test1.prefab",
+        "test2.mat"
+      ],
+      "git_path": "TestRepo2",
+      "success": true,
+      "error_message": "",
+      "error_category": "",
+      "additional_info": {}
+    },
+    {
+      "timestamp": "2025-09-08T20:27:36.095629",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 2,
+      "file_paths": [
+        "fail1.png"
+      ],
+      "git_path": "TestRepo3",
+      "success": false,
+      "error_message": "Git push failed: permission denied",
+      "error_category": "Git操作失败",
+      "additional_info": {}
+    },
+    {
+      "timestamp": "2025-09-08T20:31:31.413045",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 2,
+      "file_paths": [
+        "test1.prefab",
+        "test2.mat"
+      ],
+      "git_path": "TestRepo",
+      "success": true,
+      "error_message": "",
+      "error_category": "",
+      "additional_info": {
+        "test": true
+      }
+    },
+    {
+      "timestamp": "2025-09-08T20:31:31.422022",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 1,
+      "file_paths": [
+        "fail.png"
+      ],
+      "git_path": "TestRepo",
+      "success": false,
+      "error_message": "Network timeout",
+      "error_category": "网络连接问题",
+      "additional_info": {
+        "test": true
+      }
+    },
+    {
+      "timestamp": "2025-09-13T15:59:52.003810",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 167,
+      "file_paths": [
+        "140500.overrideController",
+        "140500.overrideController.meta",
+        "Animation.meta",
+        "body.prefab",
+        "body.prefab.meta",
+        "body_mask.png",
+        "body_mask.png.meta",
+        "default_normal.png",
+        "default_normal.png.meta",
+        "Expand.meta"
+      ],
+      "git_path": "CommonResource",
+      "success": true,
+      "error_message": "",
+      "error_category": "",
+      "additional_info": {
+        "target_directory": "CommonResource"
+      }
+    },
+    {
+      "timestamp": "2025-09-17T14:27:00.313144",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 175,
+      "file_paths": [
+        "140500.overrideController",
+        "140500.overrideController.meta",
+        "Animation.meta",
+        "body.prefab",
+        "body.prefab.meta",
+        "body_mask.png",
+        "body_mask.png.meta",
+        "default_normal.png",
+        "default_normal.png.meta",
+        "Expand.meta"
+      ],
+      "git_path": "CommonResource",
+      "success": true,
+      "error_message": "",
+      "error_category": "",
+      "additional_info": {
+        "target_directory": "CommonResource"
+      }
+    },
+    {
+      "timestamp": "2025-09-17T14:36:09.543608",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 1030,
+      "file_paths": [
+        "140499.overrideController",
+        "140499.overrideController.meta",
+        "Animation.meta",
+        "body.prefab",
+        "body.prefab.meta",
+        "body_mask.png",
+        "body_mask.png.meta",
+        "daoju.png",
+        "daoju.png.meta",
+        "default_normal.png"
+      ],
+      "git_path": "CommonResource",
+      "success": true,
+      "error_message": "",
+      "error_category": "",
+      "additional_info": {
+        "target_directory": "CommonResource"
+      }
+    },
+    {
+      "timestamp": "2025-09-17T16:13:59.982323",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 540,
+      "file_paths": [
+        "110210.controller",
+        "110210.controller.meta",
+        "110210_jiaoyin.prefab",
+        "110210_jiaoyin.prefab.meta",
+        "Animation.meta",
+        "body.prefab",
+        "body.prefab.meta",
+        "Model.meta",
+        "100100.skAnim",
+        "100100.skAnim.meta"
+      ],
+      "git_path": "CommonResource",
+      "success": true,
+      "error_message": "",
+      "error_category": "",
+      "additional_info": {
+        "target_directory": "CommonResource"
+      }
+    },
+    {
+      "timestamp": "2025-09-17T18:32:28.745248",
+      "user_id": "cuiming@cuiming3",
+      "user_info": {
+        "username": "cuiming",
+        "computer_name": "cuiming3",
+        "ip_address": "10.0.6.231",
+        "os": "Windows",
+        "os_version": "10.0.19045"
+      },
+      "file_count": 496,
+      "file_paths": [
+        "140499.overrideController",
+        "140499.overrideController.meta",
+        "Animation.meta",
+        "body.prefab",
+        "body.prefab.meta",
+        "body_mask.png",
+        "body_mask.png.meta",
+        "daoju.png",
+        "daoju.png.meta",
+        "default_normal.png"
+      ],
+      "git_path": "CommonResource",
+      "success": true,
+      "error_message": "",
+      "error_category": "",
+      "additional_info": {
+        "target_directory": "CommonResource"
+      }
+    }
+  ],
+  "total_success": 7,
+  "total_failed": 2,
+  "failure_stats": {
+    "Git操作失败": 1,
+    "网络连接问题": 1
+  }
+}

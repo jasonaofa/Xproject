@@ -280,6 +280,36 @@ class CRLFAutoFixer:
             
         except Exception as e:
             return False, f"快速修复失败: {str(e)}"
+    
+    def quick_fix(self) -> dict:
+        """快速修复方法（为UI调用提供统一接口）"""
+        success, message = self.quick_fix_common_issues()
+        return {'success': success, 'message': message}
+    
+    def preventive_fix(self) -> dict:
+        """预防性修复方法（为UI调用提供统一接口）"""
+        try:
+            print(f"🧠 执行智能预防性CRLF修复...")
+            
+            # 1. 执行快速修复
+            success, message = self.quick_fix_common_issues()
+            if not success:
+                return {'success': False, 'message': f"快速修复失败: {message}"}
+            
+            # 2. 额外的预防性措施
+            # 设置更严格的Git配置
+            subprocess.run(['git', 'config', 'core.autocrlf', 'false'], 
+                          cwd=self.git_path, capture_output=True, timeout=10, creationflags=SUBPROCESS_FLAGS)
+            
+            # 3. 刷新Git索引
+            subprocess.run(['git', 'add', '--renormalize', '.'], 
+                          cwd=self.git_path, capture_output=True, timeout=30, creationflags=SUBPROCESS_FLAGS)
+            
+            print(f"   ✅ 预防性修复完成")
+            return {'success': True, 'message': "智能预防性CRLF修复完成"}
+            
+        except Exception as e:
+            return {'success': False, 'message': f"预防性修复失败: {str(e)}"}
 
 
 def main():

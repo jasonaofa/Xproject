@@ -156,6 +156,7 @@ class HotUpdateManager:
                 return False
             
             downloaded_files = download_info.get("files", [])
+            new_version = download_info.get("version", self.current_version)
             
             # 备份现有文件
             print("💾 备份现有文件...")
@@ -171,12 +172,36 @@ class HotUpdateManager:
                 target_path = file_info["target_path"]
                 
                 try:
-                    # 确保目标目录存在
-                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                    
-                    # 复制文件
-                    shutil.copy2(local_path, target_path)
-                    print(f"✅ 更新文件: {os.path.basename(target_path)}")
+                    # 如果是exe文件，生成新的文件名避免冲突
+                    if target_path.endswith('.exe'):
+                        # 生成新版本的exe文件名
+                        dir_path = os.path.dirname(target_path)
+                        base_name = os.path.basename(target_path)
+                        
+                        # 提取版本号并生成新文件名
+                        if '_v' in base_name:
+                            # 如果文件名包含版本号，保持原样
+                            new_exe_path = target_path
+                        else:
+                            # 如果没有版本号，添加版本号
+                            name_without_ext = os.path.splitext(base_name)[0]
+                            new_exe_path = os.path.join(dir_path, f"{name_without_ext}_v{new_version}.exe")
+                        
+                        # 确保目标目录存在
+                        os.makedirs(os.path.dirname(new_exe_path), exist_ok=True)
+                        
+                        # 复制文件到当前目录
+                        shutil.copy2(local_path, new_exe_path)
+                        print(f"✅ 新版本exe保存到: {new_exe_path}")
+                        
+                        # 更新文件信息，用于重启
+                        file_info["new_exe_path"] = new_exe_path
+                        
+                    else:
+                        # 非exe文件正常处理
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        shutil.copy2(local_path, target_path)
+                        print(f"✅ 更新文件: {os.path.basename(target_path)}")
                     
                 except Exception as e:
                     print(f"❌ 更新文件失败: {target_path} - {e}")
@@ -188,6 +213,7 @@ class HotUpdateManager:
             new_version = download_info.get("version", self.current_version)
             self._update_version_info(new_version)
             
+            # 保存更新后的exe信息供重启使用
             # 清理临时文件
             self._cleanup_temp_files()
             
@@ -220,7 +246,9 @@ class HotUpdateManager:
             bool: version1 > version2
         """
         def version_tuple(v):
-            return tuple(map(int, (v.split("."))))
+            # 移除版本号前缀（如 'v'）
+            clean_v = v.lstrip('v').lstrip('V')
+            return tuple(map(int, clean_v.split(".")))
         
         try:
             return version_tuple(version1) > version_tuple(version2)
@@ -348,11 +376,66 @@ class HotUpdateManager:
         
         self.current_version = new_version
     
-    def _cleanup_temp_files(self):
+    def _save_restart_info(self, downloaded_files: List[Dict], new_version: str):
+        """保存重启信息"""
+        try:
+            # 找到新的exe文件路径
+            exe_file = None
+            # 获取当前运行的exe路径
+            if getattr(sys, 'frozen', False):
+                # 打包后的exe环境
+                current_exe = sys.executable
+            else:
+                # 开发环境，使用主exe文件
+                current_exe = os.path.join(self.app_path, "美术资源上传工具.exe")
+                if not os.path.exists(current_exe):
+                    # 如果不存在，查找任何exe文件
+                    for f in os.listdir(self.app_path):
+                        if f.endswith('.exe') and not f.startswith('美术资源上传工具_v'):
+                            current_exe = os.path.join(self.app_path, f)
+                            break
+            
+            for file_info in downloaded_files:
+                if file_info.get("new_exe_path"):
+                    exe_file = file_info["new_exe_path"]
+                    break
+                elif file_info["local_path"].endswith(".exe"):
+                    exe_file = file_info["local_path"]
+                    break
+            
+            if exe_file:
+                restart_info = {
+                    "version": new_version,
+                    "new_exe_path": exe_file,
+                    "old_exe_path": current_exe,
+                    "update_time": datetime.now().isoformat()
+                }
+                
+                restart_info_file = os.path.join(self.app_path, "restart_info.json")
+                with open(restart_info_file, 'w', encoding='utf-8') as f:
+                    json.dump(restart_info, f, indent=2, ensure_ascii=False)
+                print(f"💾 保存重启信息: {exe_file}")
+                print(f"🗑️ 重启后将删除旧版本: {current_exe}")
+        except Exception as e:
+            print(f"⚠️ 保存重启信息失败: {e}")
+
+    def _cleanup_temp_files(self, keep_exe=False):
         """清理临时文件"""
         try:
-            if os.path.exists(self.temp_dir):
-                shutil.rmtree(self.temp_dir)
+            if keep_exe:
+                # 只清理非exe文件，保留exe文件
+                if os.path.exists(self.temp_dir):
+                    for item in os.listdir(self.temp_dir):
+                        item_path = os.path.join(self.temp_dir, item)
+                        if not item.endswith('.exe') and os.path.isfile(item_path):
+                            os.remove(item_path)
+                            print(f"🗑️ 清理文件: {item}")
+                print("💾 保留exe文件用于重启")
+            else:
+                # 清理所有临时文件
+                if os.path.exists(self.temp_dir):
+                    shutil.rmtree(self.temp_dir)
+                    print("🗑️ 清理所有临时文件")
             
             if os.path.exists(self.update_info_file):
                 os.remove(self.update_info_file)
@@ -362,6 +445,21 @@ class HotUpdateManager:
     
     def get_current_version(self) -> str:
         """获取当前版本"""
+        # 优先从version.json文件读取版本号
+        try:
+            version_file = os.path.join(self.app_path, "version.json")
+            if os.path.exists(version_file):
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    version_data = json.load(f)
+                    file_version = version_data.get("version", "")
+                    if file_version:
+                        # 更新内存中的版本号
+                        self.current_version = file_version
+                        return file_version
+        except Exception as e:
+            print(f"⚠️ 读取版本文件失败: {e}")
+        
+        # 如果读取失败，返回内存中的版本号
         return self.current_version
     
     def set_update_server_url(self, url: str):

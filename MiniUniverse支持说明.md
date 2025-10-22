@@ -30,12 +30,14 @@ Assets/
 - ✅ **自动识别**普通avatar和MiniUniverse子目录
 - ✅ **统一规则**两种目录使用相同的all.filelist检查规则
 - ✅ **区分显示**在状态信息中明确显示文件包位置
+- ✅ **预制体命名规范**支持MiniUniverse目录下的预制体命名检查
 
 ### 检查内容
 1. **all.filelist文件存在性检查**
 2. **all.filelist文件内容完整性检查**
 3. **GUID记录完整性验证**
 4. **文件包内文件与清单匹配检查**
+5. **预制体文件命名规范检查**（🆕 新增MiniUniverse支持）
 
 ## 📊 状态信息示例
 
@@ -78,6 +80,13 @@ avatar/MiniUniverse文件包 2000_237 缺少 all.filelist 文件
 all.filelist 缺少 3 个文件的GUID记录: body.png, face.png, hair.mat
 ```
 
+### 预制体命名规范错误（🆕 新增）
+```
+🔴 预制体命名规范违反
+预制体文件名不符合规定，发现其文件名 3217_2.prefab 不符合规定，
+预期应为 3512.prefab 或 3512_数字.prefab (位置: avatar/MiniUniverse目录下)
+```
+
 ## 🛠️ 使用方法
 
 ### 1. 文件准备
@@ -101,6 +110,7 @@ all.filelist 缺少 3 个文件的GUID记录: body.png, face.png, hair.mat
 2. **检查规则**: 与普通avatar使用完全相同的检查规则
 3. **文件结构**: 文件包内部结构必须与普通avatar保持一致
 4. **all.filelist**: 必须包含文件包内所有文件的GUID记录
+5. **预制体命名**: 支持与普通avatar相同的命名规范（如: 3512.prefab, 3512_2.prefab）
 
 ## 🎉 优势
 
@@ -113,5 +123,10 @@ all.filelist 缺少 3 个文件的GUID记录: body.png, face.png, hair.mat
 
 **版本更新**: 现已支持Avatar/MiniUniverse子目录检查
 **兼容性**: 完全向后兼容，不影响现有avatar文件包检查
+
+
+
+
+
 
 

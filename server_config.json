@@ -1,0 +1,24 @@
+{
+  "server_info": {
+    "description": "局域网热更新服务器配置",
+    "last_updated": "2025-09-08T16:15:00.000000"
+  },
+  "endpoints": {
+    "local": "http://localhost:8002/api",
+    "lan": "http://AUTO_DETECT:8002/api",
+    "manual_lan": "http://10.0.6.231:8002/api"
+  },
+  "instructions": {
+    "setup": [
+      "1. 在服务器电脑上运行: python simple_file_update_server.py",
+      "2. 服务器会自动显示局域网IP地址",
+      "3. 将该IP地址更新到客户端配置中",
+      "4. 或者直接使用AUTO_DETECT让客户端自动检测"
+    ],
+    "client_config": [
+      "在art_resource_manager.py中找到update_server_options",
+      "将simple_file_lan的IP地址改为服务器显示的IP",
+      "重新打包客户端exe文件分发给同事"
+    ]
+  }
+}

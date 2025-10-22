@@ -1,0 +1,18 @@
+{
+    "version": "1.0.21",
+    "update_time": "2025-09-26T16:35:00.000000",
+    "release_notes": "🔧 v1.0.21 PBR材质模板支持更新！\n\n🎨 PBR材质模板完整支持:\n• 新增 Character_PBR_Masked.templatemat 支持\n• 新增 Scene_PBR_Masked.templatemat 支持\n• 完善所有PBR材质模板验证规则\n• 修复PBR材质上传被错误拒绝的问题\n\n✅ 现在支持的PBR模板:\n• Character_PBR_Opaque.templatemat\n• Character_PBR_Masked.templatemat\n• Character_PBR_Translucent.templatemat\n• Scene_PBR_Opaque.templatemat\n• Scene_PBR_Masked.templatemat\n• Scene_PBR_Translucent.templatemat\n\n🚨 完全兼容v1.0.20所有功能\n\n专门解决PBR材质模板使用限制问题！",
+    "download_url": "美术资源上传工具_v1.0.21.exe",
+    "file_size": 43327000,
+    "features": [
+        "🎨 完整的PBR材质模板支持",
+        "🚨 完善的远程资源引用检查",
+        "🔍 详细的调试日志和问题定位",
+        "📊 增强的文件扫描和GUID提取",
+        "🎯 精确的违规引用检测",
+        "📋 完整的检查过程可视化",
+        "🌐 保留MiniUniverse命名规范支持",
+        "📏 保留统一的avatar命名规范管理",
+        "✅ 保留所有v1.0.20现有功能"
+    ]
+}

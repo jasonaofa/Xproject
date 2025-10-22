@@ -28,6 +28,14 @@ except ImportError:
     HOT_UPDATE_AVAILABLE = False
     print("⚠️ 热更新功能不可用：缺少hot_update_manager模块")
 
+# 导入统计管理器
+try:
+    from statistics_ui_manager import create_statistics_ui_manager, record_successful_upload, record_failed_upload
+    STATISTICS_AVAILABLE = True
+except ImportError:
+    STATISTICS_AVAILABLE = False
+    print("⚠️ 统计功能不可用：缺少statistics_ui_manager模块")
+
 # 添加错误处理和调试信息
 def debug_print(msg):
     print(f"DEBUG: {msg}")
@@ -1614,7 +1622,7 @@ class GitSvnManager:
         self._cache_timeout = 300  # 5分钟缓存有效期
         
         # 🎯 路径映射配置系统
-        self.path_mapping_enabled = True
+        self.path_mapping_enabled = True  # ✅ 启用路径映射，提供清晰的资源组织结构
         self.path_mapping_rules = self._load_default_mapping_rules()
         self._load_path_mapping_config()
         
@@ -1623,64 +1631,122 @@ class GitSvnManager:
         self._init_crlf_fixer()
     
     def _load_default_mapping_rules(self) -> dict:
-        """加载内置路径映射规则"""
+        """
+        加载内置路径映射规则 - 专为CommonResource目录设计
+        
+        路径映射说明:
+        1. CommonResource是Unity项目的资源子仓库
+        2. 所有美术资源都会上传到CommonResource/Assets/Resources/目录下
+        3. 不同类型的资源会按类型分类存放，便于管理和加载
+        
+        最终路径结构示例:
+        - 实体资源: CommonResource/Assets/Resources/minigame/entity/100060/...
+        - 远程实体: CommonResource/Assets/Resources/minigame/remotes/entity/140492/...
+        - UI资源: CommonResource/Assets/Resources/minigame/ui/...
+        - 音频资源: CommonResource/Assets/Resources/minigame/sounds/... 
+        - 特效资源: CommonResource/Assets/Resources/minigame/prefab/...
+        - 其他资源: CommonResource/Assets/Resources/minigame/...
+        """
         return {
-            # 🎯 精确路径映射规则 - 按优先级排序（数字越小优先级越高）
+            # 🎯 按优先级排序的路径映射规则（数字越小优先级越高）
+            
             "remotes_entity_mapping": {
-                "name": "远程实体资源映射",
-                "description": "将Assets/remotes/entity路径精确映射到Resources/minigame/remotes/entity",
+                "name": "🌐 远程实体资源映射",
+                "description": "远程实体资源 Assets/remotes/entity/140492/ → Assets/Resources/minigame/remotes/entity/140492/",
+                "example": "Assets/remotes/entity/140492/Model/body.prefab → Assets/Resources/minigame/remotes/entity/140492/Model/body.prefab",
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]remotes[\\\/]entity($|[\\\/])",
-                "target_pattern": "Assets\\Resources\\minigame\\remotes\\entity\\",
-                "priority": 1  # 🔥 最高优先级，确保remotes/entity路径优先匹配
+                "target_pattern": "Assets/Resources/minigame/remotes/entity/",
+                "priority": 1,  # 🔥 最高优先级
+                "category": "实体资源"
             },
+            
             "entity_to_minigame": {
-                "name": "实体资源映射",
-                "description": "将Assets/entity路径映射到Resources/minigame/entity（排除remotes子目录）",
+                "name": "👤 本地实体资源映射",
+                "description": "本地实体资源 Assets/entity/100060/ → Assets/Resources/minigame/entity/100060/",
+                "example": "Assets/entity/100060/Model/body.prefab → Assets/Resources/minigame/entity/100060/Model/body.prefab",
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]entity[\\\/]",
-                "target_pattern": "Assets\\Resources\\minigame\\entity\\",
-                "priority": 2  # 🔥 第二优先级，处理非remotes的entity路径
+                "target_pattern": "Assets/Resources/minigame/entity/",
+                "priority": 2,  # 🔥 第二优先级
+                "category": "实体资源"
             },
-            "assets_to_minigame": {
-                "name": "Assets根目录映射（通用规则）",
-                "description": "将其他Assets目录映射到Assets/Resources/minigame，但排除已处理的路径",
-                "enabled": True,
-                "source_pattern": r"^Assets[\\/](?!Resources[\\/]minigame[\\/])(?!remotes[\\/]entity[\\/])(?!entity[\\/])",
-                "target_pattern": "Assets\\Resources\\minigame\\",
-                "priority": 999  # 🔥 最低优先级，作为兜底规则
-            },
+            
             "ui_mapping": {
-                "name": "UI资源映射", 
-                "description": "将ui目录映射到Resources/ui",
+                "name": "🖼️ UI界面资源映射",
+                "description": "UI界面资源 Assets/ui/ → Assets/Resources/minigame/ui/",
+                "example": "Assets/ui/MainMenu/background.png → Assets/Resources/minigame/ui/MainMenu/background.png",
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]ui($|[\\\/])",
-                "target_pattern": "Assets\\Resources\\ui\\",
-                "priority": 3
+                "target_pattern": "Assets/Resources/minigame/ui/",
+                "priority": 3,
+                "category": "界面资源"
             },
+            
             "audio_mapping": {
-                "name": "音频资源映射",
-                "description": "将audio目录映射到Resources/audio", 
+                "name": "🎵 音频资源映射",
+                "description": "音频资源 Assets/audio/ → Assets/Resources/minigame/sounds/",
+                "example": "Assets/audio/bgm/main_theme.ogg → Assets/Resources/minigame/sounds/bgm/main_theme.ogg",
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]audio($|[\\\/])",
-                "target_pattern": "Assets\\Resources\\audio\\",
-                "priority": 4
+                "target_pattern": "Assets/Resources/minigame/sounds/",
+                "priority": 4,
+                "category": "音频资源"
             },
+            
             "texture_mapping": {
-                "name": "贴图资源映射",
-                "description": "将texture目录映射到Resources/textures",
+                "name": "🖌️ 贴图资源映射",
+                "description": "贴图资源 Assets/texture/ → Assets/Resources/minigame/textures/",
+                "example": "Assets/texture/characters/hero.png → Assets/Resources/minigame/textures/characters/hero.png",
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]texture($|[\\\/])",
-                "target_pattern": "Assets\\Resources\\textures\\",
-                "priority": 5
+                "target_pattern": "Assets/Resources/minigame/textures/",
+                "priority": 5,
+                "category": "贴图资源"
             },
+            
+            "effects_mapping": {
+                "name": "✨ 特效资源映射",
+                "description": "特效资源 Assets/effects/ → Assets/Resources/minigame/prefab/effects/",
+                "example": "Assets/effects/explosion.prefab → Assets/Resources/minigame/prefab/effects/explosion.prefab",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\\/]effects($|[\\\/])",
+                "target_pattern": "Assets/Resources/minigame/prefab/effects/",
+                "priority": 6,
+                "category": "特效资源"
+            },
+            
             "prefab_mapping": {
-                "name": "Prefab资源映射",
-                "description": "将prefab目录映射到Resources/minigame/prefab",
+                "name": "🧩 Prefab预制体映射",
+                "description": "Prefab预制体 Assets/prefab/ → Assets/Resources/minigame/prefab/",
+                "example": "Assets/prefab/weapons/sword.prefab → Assets/Resources/minigame/prefab/weapons/sword.prefab",
                 "enabled": True,
                 "source_pattern": r"^Assets[\\\/]prefab($|[\\\/])",
-                "target_pattern": "Assets\\Resources\\minigame\\prefab\\",
-                "priority": 6
+                "target_pattern": "Assets/Resources/minigame/prefab/",
+                "priority": 7,
+                "category": "游戏预制体"
+            },
+            
+            "assets_to_minigame": {
+                "name": "📦 通用资源映射",
+                "description": "其他未分类资源 Assets/其他/ → Assets/Resources/minigame/其他/",
+                "example": "Assets/materials/wood.mat → Assets/Resources/minigame/materials/wood.mat",
+                "enabled": True,
+                "source_pattern": r"^Assets[\\/](?!Resources[\\/])(?!remotes[\\/]entity[\\/])(?!entity[\\/])(?!ui[\\/])(?!audio[\\/])(?!texture[\\/])(?!effects[\\/])(?!prefab[\\/])",
+                "target_pattern": "Assets/Resources/minigame/",
+                "priority": 998,  # 🔥 倒数第二优先级，作为兜底规则
+                "category": "通用资源"
+            },
+            
+            "direct_assets_mapping": {
+                "name": "📁 直接Assets映射（备用）",
+                "description": "直接使用原始Assets路径，不进行映射转换",
+                "example": "Assets/special/file.txt → Assets/special/file.txt",
+                "enabled": False,  # 🔥 默认禁用，特殊情况下可启用
+                "source_pattern": r"^Assets[\\\/]",
+                "target_pattern": "Assets/",
+                "priority": 999,  # 🔥 最低优先级
+                "category": "特殊用途"
             }
         }
     
@@ -2430,6 +2496,52 @@ class GitSvnManager:
             print(f"💥 [RESET] {error_msg}")
             return False, error_msg
     
+    def auto_fix_git_sync_issues(self) -> Tuple[bool, str]:
+        """自动修复Git同步和认证问题"""
+        if not self.git_path or not os.path.exists(self.git_path):
+            return False, "Git仓库路径无效"
+        
+        try:
+            # 1. 配置Git凭据存储（如果尚未配置）
+            result = subprocess.run(['git', 'config', '--get', 'credential.helper'], 
+                                  cwd=self.git_path, capture_output=True, text=True, timeout=5)
+            if result.returncode != 0:
+                # 配置凭据存储
+                result = subprocess.run(['git', 'config', 'credential.helper', 'store'], 
+                                      cwd=self.git_path, capture_output=True, text=True, timeout=10)
+                if result.returncode != 0:
+                    return False, f"配置Git凭据存储失败: {result.stderr}"
+                print("✅ [SYNC] Git凭据存储已配置")
+            
+            # 2. 检查远程连接
+            print("🌐 [SYNC] 测试远程连接...")
+            result = subprocess.run(['git', 'ls-remote', '--heads', 'origin'], 
+                                  cwd=self.git_path, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                error_msg = result.stderr.strip()
+                if "Authentication failed" in error_msg:
+                    return False, (
+                        "Git认证失败，需要手动输入用户名密码。\n"
+                        "请在命令行中执行以下步骤：\n"
+                        f"1. cd \"{self.git_path}\"\n"
+                        "2. git pull origin <分支名>\n"
+                        "3. 输入用户名和密码（只需输入一次）"
+                    )
+                else:
+                    return False, f"无法连接到远程仓库: {error_msg}"
+            
+            # 3. 尝试同步
+            sync_success, sync_message = self.pull_current_branch()
+            if not sync_success:
+                return False, f"同步失败: {sync_message}"
+            
+            return True, "Git同步和认证问题已自动修复"
+            
+        except subprocess.TimeoutExpired:
+            return False, "操作超时，请检查网络连接"
+        except Exception as e:
+            return False, f"修复过程中发生错误: {str(e)}"
+
     def pull_current_branch(self) -> Tuple[bool, str]:
         """拉取当前分支的最新代码 - 增强版，支持分离头指针状态"""
         if not self.git_path or not os.path.exists(self.git_path):
@@ -2615,6 +2727,68 @@ class GitSvnManager:
         ]
         return any(indicator in error_message for indicator in crlf_indicators)
     
+    def _validate_upload_path(self) -> bool:
+        """
+        验证上传路径是否安全
+        确保只能上传到CommonResource目录，防止误上传到其他仓库路径
+        
+        Returns:
+            bool: True表示路径安全，False表示路径不安全
+        """
+        try:
+            if not self.git_path:
+                print("❌ [PATH_VALIDATION] Git路径为空")
+                return False
+            
+            # 标准化路径
+            normalized_git_path = os.path.normpath(self.git_path).replace('\\', '/')
+            
+            print(f"🔍 [PATH_VALIDATION] 开始验证上传路径...")
+            print(f"   原始Git路径: {self.git_path}")
+            print(f"   标准化路径: {normalized_git_path}")
+            
+            # 检查是否包含CommonResource
+            if 'CommonResource' not in normalized_git_path:
+                print(f"❌ [PATH_VALIDATION] 路径不包含CommonResource目录")
+                print(f"   当前路径: {normalized_git_path}")
+                print(f"   要求: 路径必须包含CommonResource目录")
+                return False
+            
+            # 检查是否以CommonResource结尾（推荐配置）
+            if normalized_git_path.endswith('CommonResource'):
+                print(f"✅ [PATH_VALIDATION] 路径配置正确，直接指向CommonResource目录")
+                return True
+            
+            # 检查是否在CommonResource目录下（也允许）
+            if '/CommonResource/' in normalized_git_path:
+                print(f"✅ [PATH_VALIDATION] 路径在CommonResource目录下，允许上传")
+                print(f"   CommonResource位置: {normalized_git_path.find('/CommonResource/')}")
+                return True
+            
+            # 禁止的路径模式
+            forbidden_patterns = [
+                'assetruntimenew/Assets',  # 防止上传到主仓库的Assets目录
+                'assetruntimenew/Packages',  # 防止上传到Packages目录
+                'assetruntimenew/ProjectSettings',  # 防止上传到ProjectSettings
+                '/Assets/',  # 防止直接上传到任何Assets目录（除非在CommonResource下）
+                '/Packages/',  # 防止上传到Packages目录
+                '/ProjectSettings/'  # 防止上传到ProjectSettings目录
+            ]
+            
+            for pattern in forbidden_patterns:
+                if pattern in normalized_git_path and 'CommonResource' not in normalized_git_path:
+                    print(f"❌ [PATH_VALIDATION] 检测到禁止的路径模式: {pattern}")
+                    print(f"   当前路径: {normalized_git_path}")
+                    print(f"   说明: 此路径可能导致资源上传到错误的仓库位置")
+                    return False
+            
+            print(f"✅ [PATH_VALIDATION] 路径验证通过")
+            return True
+            
+        except Exception as e:
+            print(f"❌ [PATH_VALIDATION] 路径验证过程中发生错误: {e}")
+            return False
+    
     def _auto_fix_crlf_issue(self, error_message: str) -> tuple:
         """自动修复CRLF问题
         
@@ -2628,7 +2802,8 @@ class GitSvnManager:
             print("🔧 [CRLF] 尝试自动修复CRLF问题...")
             
             # 使用CRLF修复器进行智能修复
-            result = self.crlf_fixer.smart_fix_crlf_error(error_message)
+            success, message = self.crlf_fixer.auto_fix_crlf_issue(error_message)
+            result = {'success': success, 'message': message}
             
             if result['success']:
                 print(f"✅ [CRLF] 自动修复成功: {result['message']}")
@@ -2667,6 +2842,10 @@ class GitSvnManager:
         
         if not self.git_path or not os.path.exists(self.git_path):
             return False, "Git仓库路径无效"
+        
+        # 🛡️ 路径安全验证：确保只能上传到CommonResource目录
+        if not self._validate_upload_path():
+            return False, "❌ 路径验证失败：只能上传到CommonResource目录，请检查Git路径配置"
         
         if not source_files:
             return False, "没有要推送的文件"
@@ -3005,7 +3184,67 @@ class GitSvnManager:
             
             if result.returncode != 0:
                 print(f"   ❌ 推送失败: {result.stderr}")
-                return False, f"推送到远程仓库失败: {result.stderr}"
+                error_msg = result.stderr.strip()
+                
+                # 🚨 推送失败时的智能回滚判断
+                print(f"🔍 [ROLLBACK_CHECK] 推送失败，分析是否需要回滚...")
+                should_rollback, rollback_reason = self._should_perform_rollback(copied_files, error_msg)
+                
+                if should_rollback:
+                    print(f"✅ [ROLLBACK_CHECK] 确认需要回滚: {rollback_reason}")
+                    rollback_success = self._rollback_failed_push(copied_files)
+                else:
+                    print(f"🛡️ [ROLLBACK_CHECK] 跳过回滚: {rollback_reason}")
+                    rollback_success = False
+                
+                if should_rollback:
+                    if rollback_success:
+                        print(f"   ✅ 安全回滚成功：已撤销当前上传的文件，其他文件未受影响")
+                        rollback_msg = "\n\n🔄 已安全回滚本次上传的文件，Git仓库中的其他文件和历史记录未受影响。"
+                    else:
+                        print(f"   ⚠️ 回滚部分失败：可能需要手动清理本次上传的文件")
+                        rollback_msg = "\n\n⚠️ 自动回滚部分失败，建议手动检查并清理本次上传的文件。"
+                else:
+                    rollback_msg = f"\n\n🛡️ 为安全起见，未执行自动回滚。原因：{rollback_reason}\n💡 如需回滚，请手动处理。"
+                
+                # 🔍 分析推送失败原因并提供解决方案
+                if "rejected" in error_msg and "remote contains work" in error_msg:
+                    return False, (
+                        "❌ 推送被拒绝：远程仓库包含您本地没有的更改。\n\n"
+                        "💡 重要说明：文件未成功上传到远程仓库，团队成员无法获取这些文件。\n\n"
+                        "解决方案：\n"
+                        "1. 点击工具中的'拉取最新代码'按钮同步远程更改\n"
+                        "2. 或者手动执行: git pull origin <分支名>\n"
+                        "3. 解决可能的冲突后重新推送\n\n"
+                        f"详细错误: {error_msg}{rollback_msg}"
+                    )
+                elif "Authentication failed" in error_msg or "could not read Username" in error_msg:
+                    return False, (
+                        "❌ Git认证失败：需要输入用户名和密码。\n\n"
+                        "💡 重要说明：文件未成功上传到远程仓库，团队成员无法获取这些文件。\n\n"
+                        "解决方案：\n"
+                        "1. 运行 git_auth_fix.py 脚本配置凭据存储\n"
+                        "2. 或手动执行: git config credential.helper store\n"
+                        "3. 然后执行一次 git pull 并输入用户名密码\n"
+                        "4. 凭据将被保存，以后不需要重复输入\n\n"
+                        f"详细错误: {error_msg}{rollback_msg}"
+                    )
+                elif "Connection" in error_msg or "network" in error_msg or "timeout" in error_msg:
+                    return False, (
+                        "❌ 网络连接失败：无法连接到Git服务器。\n\n"
+                        "💡 重要说明：文件未成功上传到远程仓库，团队成员无法获取这些文件。\n\n"
+                        "解决方案：\n"
+                        "1. 检查网络连接是否正常\n"
+                        "2. 确认Git服务器地址是否正确\n"
+                        "3. 如果使用VPN，请确保VPN连接正常\n"
+                        "4. 稍后重试推送操作\n\n"
+                        f"详细错误: {error_msg}{rollback_msg}"
+                    )
+                else:
+                    return False, (
+                        f"❌ 推送到远程仓库失败: {error_msg}\n\n"
+                        f"💡 重要说明：文件未成功上传到远程仓库，团队成员无法获取这些文件。{rollback_msg}"
+                    )
             else:
                 print(f"   ✅ 推送成功")
             
@@ -3037,6 +3276,527 @@ class GitSvnManager:
             else:
                 return False, f"推送过程中发生异常: {error_msg}"
     
+    def reset_and_pull_repository(self) -> tuple:
+        """
+        重置仓库并拉取最新代码
+        
+        Returns:
+            tuple: (是否成功, 消息)
+        """
+        try:
+            print(f"🔄 [REPO_RESET] 开始重置和拉取仓库...")
+            
+            if not self.git_path or not os.path.exists(self.git_path):
+                return False, "Git仓库路径无效"
+            
+            # 第1步：Git重置 (git reset --hard)
+            print(f"   🔄 执行 git reset --hard...")
+            result = subprocess.run(['git', 'reset', '--hard'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode != 0:
+                error_msg = f"git reset --hard 失败: {result.stderr.strip()}"
+                print(f"   ❌ {error_msg}")
+                return False, error_msg
+            else:
+                print(f"   ✅ git reset --hard 成功")
+            
+            # 第2步：清理未跟踪文件 (git clean -f)
+            print(f"   🗑️ 执行 git clean -f...")
+            result = subprocess.run(['git', 'clean', '-f'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode != 0:
+                error_msg = f"git clean -f 失败: {result.stderr.strip()}"
+                print(f"   ❌ {error_msg}")
+                return False, error_msg
+            else:
+                cleaned_output = result.stdout.strip()
+                if cleaned_output:
+                    print(f"   ✅ git clean -f 成功，清理了文件:")
+                    cleaned_lines = cleaned_output.split('\n')
+                    for line in cleaned_lines[:5]:  # 只显示前5行
+                        print(f"     🗑️ {line}")
+                    if len(cleaned_lines) > 5:
+                        remaining_count = len(cleaned_lines) - 5
+                        print(f"     ... 还有 {remaining_count} 个文件")
+                else:
+                    print(f"   ✅ git clean -f 成功，没有需要清理的文件")
+            
+            # 第3步：拉取最新代码 (git pull)
+            print(f"   📥 执行 git pull...")
+            
+            # 获取当前分支
+            current_branch = self.get_current_branch()
+            if not current_branch:
+                return False, "无法获取当前分支信息"
+            
+            print(f"   📋 当前分支: {current_branch}")
+            
+            result = subprocess.run(['git', 'pull', 'origin', current_branch], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=180, creationflags=SUBPROCESS_FLAGS)  # 3分钟超时
+            
+            if result.returncode != 0:
+                error_msg = f"git pull 失败: {result.stderr.strip()}"
+                print(f"   ❌ {error_msg}")
+                
+                # 分析拉取失败的原因
+                stderr_lower = result.stderr.lower()
+                if 'authentication' in stderr_lower or 'credential' in stderr_lower:
+                    return False, f"Git认证失败，请检查用户名密码配置:\n{result.stderr.strip()}"
+                elif 'connection' in stderr_lower or 'network' in stderr_lower:
+                    return False, f"网络连接失败，请检查网络状态:\n{result.stderr.strip()}"
+                elif 'permission' in stderr_lower or 'access' in stderr_lower:
+                    return False, f"权限不足，请检查仓库访问权限:\n{result.stderr.strip()}"
+                else:
+                    return False, error_msg
+            else:
+                pull_output = result.stdout.strip()
+                if 'Already up to date' in pull_output or 'Already up-to-date' in pull_output:
+                    print(f"   ✅ 仓库已是最新版本")
+                else:
+                    print(f"   ✅ git pull 成功，更新内容:")
+                    # 显示更新摘要
+                    for line in pull_output.split('\n')[:3]:  # 只显示前3行
+                        if line.strip():
+                            print(f"     📥 {line}")
+            
+            print(f"🎉 [REPO_RESET] 仓库重置和拉取完成")
+            return True, "仓库重置和拉取成功"
+            
+        except subprocess.TimeoutExpired as e:
+            error_msg = f"操作超时: {str(e)}"
+            print(f"❌ [REPO_RESET] {error_msg}")
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"重置和拉取过程中发生异常: {str(e)}"
+            print(f"❌ [REPO_RESET] {error_msg}")
+            return False, error_msg
+
+    def _should_perform_rollback(self, copied_files: List[str], error_msg: str) -> tuple:
+        """
+        智能判断是否应该执行回滚操作
+        
+        Args:
+            copied_files: 已复制的文件列表
+            error_msg: 推送错误信息
+            
+        Returns:
+            tuple: (是否应该回滚, 判断原因)
+        """
+        try:
+            print(f"🔍 [ROLLBACK_ANALYSIS] 分析推送失败情况...")
+            
+            # 1. 检查是否有本地文件被成功复制和提交
+            if not copied_files:
+                return False, "没有文件被复制到本地仓库"
+            
+            # 2. 验证文件确实存在于本地Git仓库中
+            existing_files = []
+            for file_path in copied_files:
+                if os.path.exists(file_path):
+                    existing_files.append(file_path)
+            
+            if not existing_files:
+                return False, f"本地仓库中没有找到已复制的文件（{len(copied_files)} 个文件都不存在）"
+            
+            print(f"   📊 文件存在性检查: {len(existing_files)}/{len(copied_files)} 个文件存在于本地仓库")
+            
+            # 3. 检查Git是否有新的提交（确认本地提交成功）
+            result = subprocess.run(['git', 'log', '--oneline', '-1'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=15, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode != 0:
+                return False, "无法检查Git提交历史"
+            
+            latest_commit = result.stdout.strip()
+            if not latest_commit:
+                return False, "没有找到最新的Git提交"
+            
+            print(f"   📝 最新提交: {latest_commit[:50]}...")
+            
+            # 4. 检查最新提交是否包含我们的文件
+            result = subprocess.run(['git', 'show', '--name-only', '--format='], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=15, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode != 0:
+                return False, "无法检查最新提交的文件列表"
+            
+            committed_files = [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
+            if not committed_files:
+                return False, "最新提交中没有文件更改"
+            
+            print(f"   📋 最新提交包含 {len(committed_files)} 个文件")
+            
+            # 5. 验证提交中的文件是否与我们上传的文件匹配
+            our_relative_files = []
+            for file_path in copied_files:
+                rel_path = os.path.relpath(file_path, self.git_path).replace('\\', '/')
+                our_relative_files.append(rel_path)
+            
+            matching_files = [f for f in committed_files if f in our_relative_files]
+            if not matching_files:
+                return False, f"最新提交中没有找到我们上传的文件（提交: {len(committed_files)} 个，上传: {len(our_relative_files)} 个）"
+            
+            print(f"   ✅ 匹配文件: {len(matching_files)}/{len(our_relative_files)} 个文件在最新提交中")
+            
+            # 6. 分析推送失败的具体原因，判断是否适合回滚
+            error_lower = error_msg.lower()
+            
+            # 6.1 网络或连接问题 - 适合回滚
+            if any(keyword in error_lower for keyword in ['connection', 'network', 'timeout', 'unreachable', 'failed to connect']):
+                return True, f"网络连接问题导致推送失败，本地已提交 {len(matching_files)} 个文件"
+            
+            # 6.2 认证问题 - 适合回滚  
+            if any(keyword in error_lower for keyword in ['authentication', 'credential', 'username', 'password', 'token']):
+                return True, f"认证问题导致推送失败，本地已提交 {len(matching_files)} 个文件"
+            
+            # 6.3 远程仓库冲突 - 需要谨慎，通常不回滚
+            if any(keyword in error_lower for keyword in ['rejected', 'non-fast-forward', 'remote contains work']):
+                # 检查是否是简单的版本冲突
+                if 'hint: updates were rejected because the remote contains work' in error_lower:
+                    return True, f"远程版本冲突，本地已提交 {len(matching_files)} 个文件（可安全回滚后重新同步）"
+                else:
+                    return False, "复杂的远程冲突，建议手动处理而非自动回滚"
+            
+            # 6.4 权限问题 - 适合回滚
+            if any(keyword in error_lower for keyword in ['permission', 'access', 'forbidden', '403', '401']):
+                return True, f"权限问题导致推送失败，本地已提交 {len(matching_files)} 个文件"
+            
+            # 6.5 其他未知错误 - 保守处理，不回滚
+            print(f"   ⚠️ 未识别的推送错误类型: {error_msg[:100]}...")
+            return False, "未知的推送错误，为安全起见不执行自动回滚"
+            
+        except Exception as e:
+            print(f"❌ [ROLLBACK_ANALYSIS] 分析过程异常: {e}")
+            return False, f"回滚分析过程出现异常: {e}"
+
+    def _rollback_failed_push(self, copied_files: List[str]) -> bool:
+        """
+        推送失败时回滚本地更改
+        
+        Args:
+            copied_files: 已复制的文件列表
+            
+        Returns:
+            bool: 回滚是否成功
+        """
+        try:
+            print(f"🔄 [ROLLBACK] 开始回滚操作...")
+            print(f"   需要回滚 {len(copied_files)} 个文件")
+            
+            # 1. 安全的Git回滚 - 只撤销当前提交的文件
+            print(f"   🔄 安全回滚Git提交（只影响当前上传的文件）...")
+            
+            # 1.1 首先获取当前提交中修改的文件列表
+            result = subprocess.run(['git', 'show', '--name-only', '--format='], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=30, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode == 0:
+                committed_files = [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
+                print(f"   📋 当前提交包含 {len(committed_files)} 个文件")
+                
+                # 验证这些文件是否都是我们刚才上传的文件
+                our_relative_files = []
+                for file_path in copied_files:
+                    rel_path = os.path.relpath(file_path, self.git_path).replace('\\', '/')
+                    our_relative_files.append(rel_path)
+                
+                # 检查是否有不属于当前上传的文件被提交了
+                unexpected_files = [f for f in committed_files if f not in our_relative_files]
+                if unexpected_files:
+                    print(f"   ⚠️ 警告：发现不属于当前上传的文件在提交中: {unexpected_files[:3]}")
+                    print(f"   🛡️ 为安全起见，使用精确回滚模式")
+                    
+                    # 使用更安全的回滚方式：只撤销我们的文件
+                    return self._safe_selective_rollback(copied_files, our_relative_files)
+                else:
+                    print(f"   ✅ 验证通过：提交中只包含当前上传的文件")
+            else:
+                print(f"   ⚠️ 无法获取当前提交文件列表，使用安全回滚模式")
+                return self._safe_selective_rollback(copied_files, [])
+            
+            # 1.2 安全的完整回滚（只有确认安全时才执行）
+            print(f"   🔄 执行安全的完整回滚...")
+            result = subprocess.run(['git', 'reset', '--hard', 'HEAD~1'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=30, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode != 0:
+                print(f"   ❌ Git reset失败: {result.stderr}")
+                print(f"   🔄 改用精确文件回滚模式...")
+                our_relative_files = []
+                for file_path in copied_files:
+                    rel_path = os.path.relpath(file_path, self.git_path).replace('\\', '/')
+                    our_relative_files.append(rel_path)
+                return self._safe_selective_rollback(copied_files, our_relative_files)
+            else:
+                print(f"   ✅ 安全回滚成功")
+            
+            # 2. 删除已复制的文件
+            print(f"   🗑️ 清理已复制的文件...")
+            deleted_count = 0
+            failed_deletions = []
+            
+            for file_path in copied_files:
+                try:
+                    if os.path.exists(file_path):
+                        # 支持长路径删除
+                        def get_long_path_name(path):
+                            if os.name == 'nt' and not path.startswith('\\\\?\\'):
+                                abs_path = os.path.abspath(path)
+                                if len(abs_path) > 260:
+                                    return '\\\\?\\' + abs_path
+                            return path
+                        
+                        long_file_path = get_long_path_name(file_path)
+                        os.remove(long_file_path)
+                        deleted_count += 1
+                        print(f"     ✅ 删除: {os.path.basename(file_path)}")
+                    else:
+                        print(f"     ⚠️ 文件不存在: {os.path.basename(file_path)}")
+                        
+                except Exception as e:
+                    failed_deletions.append(f"{os.path.basename(file_path)}: {str(e)}")
+                    print(f"     ❌ 删除失败: {os.path.basename(file_path)} - {e}")
+            
+            # 3. 清理空目录
+            print(f"   📁 清理空目录...")
+            self._cleanup_empty_directories(copied_files)
+            
+            # 4. 总结回滚结果
+            print(f"📊 [ROLLBACK] 回滚完成:")
+            print(f"   成功删除文件: {deleted_count}/{len(copied_files)}")
+            if failed_deletions:
+                print(f"   删除失败: {len(failed_deletions)} 个")
+                for failure in failed_deletions[:3]:  # 只显示前3个
+                    print(f"     • {failure}")
+                if len(failed_deletions) > 3:
+                    print(f"     • ... 还有 {len(failed_deletions) - 3} 个失败")
+            
+            # 如果大部分文件成功删除，认为回滚成功
+            success_rate = deleted_count / len(copied_files) if copied_files else 1.0
+            rollback_success = success_rate >= 0.8  # 80%成功率
+            
+            print(f"   回滚成功率: {success_rate:.1%}")
+            print(f"   回滚结果: {'✅ 成功' if rollback_success else '❌ 部分失败'}")
+            
+            return rollback_success
+            
+        except Exception as e:
+            print(f"❌ [ROLLBACK] 回滚操作异常: {e}")
+            return False
+    
+    def _safe_selective_rollback(self, copied_files: List[str], our_relative_files: List[str]) -> bool:
+        """
+        安全的选择性回滚 - 只撤销当前上传的文件，不影响其他文件
+        
+        Args:
+            copied_files: 已复制的文件绝对路径列表
+            our_relative_files: 我们上传的文件相对路径列表
+            
+        Returns:
+            bool: 回滚是否成功
+        """
+        try:
+            print(f"🛡️ [SAFE_ROLLBACK] 开始精确选择性回滚...")
+            print(f"   只回滚当前上传的 {len(copied_files)} 个文件")
+            
+            # 1. 使用git checkout恢复我们的文件到上一个版本
+            if our_relative_files:
+                print(f"   🔄 从Git历史恢复文件到上一版本...")
+                for rel_file in our_relative_files[:5]:  # 显示前5个文件
+                    print(f"     📄 {rel_file}")
+                if len(our_relative_files) > 5:
+                    print(f"     ... 还有 {len(our_relative_files) - 5} 个文件")
+                
+                # 批量恢复文件到HEAD~1版本
+                result = subprocess.run(['git', 'checkout', 'HEAD~1', '--'] + our_relative_files, 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=60, creationflags=SUBPROCESS_FLAGS)
+                
+                if result.returncode != 0:
+                    print(f"   ⚠️ Git checkout部分失败: {result.stderr}")
+                    # 继续尝试删除文件
+                else:
+                    print(f"   ✅ Git文件恢复成功")
+            
+            # 2. 直接删除我们复制的文件（如果Git恢复失败的话）
+            print(f"   🗑️ 确保删除当前上传的文件...")
+            deleted_count = 0
+            failed_deletions = []
+            
+            for file_path in copied_files:
+                try:
+                    if os.path.exists(file_path):
+                        # 支持长路径删除
+                        def get_long_path_name(path):
+                            if os.name == 'nt' and not path.startswith('\\\\?\\'):
+                                abs_path = os.path.abspath(path)
+                                if len(abs_path) > 260:
+                                    return '\\\\?\\' + abs_path
+                            return path
+                        
+                        long_file_path = get_long_path_name(file_path)
+                        os.remove(long_file_path)
+                        deleted_count += 1
+                        print(f"     ✅ 删除: {os.path.basename(file_path)}")
+                    else:
+                        print(f"     ✅ 文件已不存在: {os.path.basename(file_path)}")
+                        deleted_count += 1  # 算作成功
+                        
+                except Exception as e:
+                    failed_deletions.append(f"{os.path.basename(file_path)}: {str(e)}")
+                    print(f"     ❌ 删除失败: {os.path.basename(file_path)} - {e}")
+            
+            # 3. 撤销Git暂存区的更改（只针对我们的文件）
+            if our_relative_files:
+                print(f"   🔄 撤销Git暂存区的更改...")
+                result = subprocess.run(['git', 'reset', 'HEAD'] + our_relative_files, 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      encoding='utf-8',
+                                      errors='ignore',
+                                      timeout=30, creationflags=SUBPROCESS_FLAGS)
+                
+                if result.returncode != 0:
+                    print(f"   ⚠️ Git reset暂存区失败: {result.stderr}")
+                else:
+                    print(f"   ✅ 暂存区重置成功")
+            
+            # 4. 修正最后一次提交（移除我们的文件）
+            print(f"   🔧 修正最后一次提交（移除当前上传的文件）...")
+            result = subprocess.run(['git', 'commit', '--amend', '--no-edit'], 
+                                  cwd=self.git_path, 
+                                  capture_output=True, 
+                                  text=True,
+                                  encoding='utf-8',
+                                  errors='ignore',
+                                  timeout=60, creationflags=SUBPROCESS_FLAGS)
+            
+            if result.returncode != 0:
+                # 如果amend失败，尝试创建一个回滚提交
+                print(f"   ⚠️ 修正提交失败，尝试创建回滚提交...")
+                result = subprocess.run(['git', 'add', '.'], 
+                                      cwd=self.git_path, 
+                                      capture_output=True, 
+                                      text=True,
+                                      timeout=30, creationflags=SUBPROCESS_FLAGS)
+                
+                if result.returncode == 0:
+                    result = subprocess.run(['git', 'commit', '-m', f'回滚推送失败的 {len(copied_files)} 个文件'], 
+                                          cwd=self.git_path, 
+                                          capture_output=True, 
+                                          text=True,
+                                          timeout=60, creationflags=SUBPROCESS_FLAGS)
+                    
+                    if result.returncode == 0:
+                        print(f"   ✅ 回滚提交创建成功")
+                    else:
+                        print(f"   ⚠️ 回滚提交失败: {result.stderr}")
+            else:
+                print(f"   ✅ 提交修正成功")
+            
+            # 5. 清理空目录
+            print(f"   📁 清理空目录...")
+            self._cleanup_empty_directories(copied_files)
+            
+            # 6. 总结回滚结果
+            success_rate = deleted_count / len(copied_files) if copied_files else 1.0
+            rollback_success = success_rate >= 0.8  # 80%成功率
+            
+            print(f"📊 [SAFE_ROLLBACK] 精确回滚完成:")
+            print(f"   文件处理: {deleted_count}/{len(copied_files)} 成功")
+            print(f"   成功率: {success_rate:.1%}")
+            print(f"   回滚结果: {'✅ 成功' if rollback_success else '❌ 部分失败'}")
+            print(f"   🛡️ 其他文件和Git历史未受影响")
+            
+            if failed_deletions:
+                print(f"   失败文件: {len(failed_deletions)} 个")
+                for failure in failed_deletions[:3]:
+                    print(f"     • {failure}")
+                if len(failed_deletions) > 3:
+                    print(f"     • ... 还有 {len(failed_deletions) - 3} 个失败")
+            
+            return rollback_success
+            
+        except Exception as e:
+            print(f"❌ [SAFE_ROLLBACK] 精确回滚异常: {e}")
+            return False
+
+    def _cleanup_empty_directories(self, copied_files: List[str]):
+        """清理空目录"""
+        try:
+            # 收集所有目录
+            directories = set()
+            for file_path in copied_files:
+                dir_path = os.path.dirname(file_path)
+                while dir_path and dir_path != self.git_path:
+                    directories.add(dir_path)
+                    parent = os.path.dirname(dir_path)
+                    if parent == dir_path:  # 避免无限循环
+                        break
+                    dir_path = parent
+            
+            # 按深度排序（深的先删除）
+            sorted_dirs = sorted(directories, key=lambda x: x.count(os.sep), reverse=True)
+            
+            cleaned_count = 0
+            for dir_path in sorted_dirs:
+                try:
+                    if os.path.exists(dir_path) and not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                        cleaned_count += 1
+                        print(f"     🗑️ 清理空目录: {os.path.relpath(dir_path, self.git_path)}")
+                except Exception as e:
+                    # 目录不为空或其他错误，忽略
+                    pass
+            
+            if cleaned_count > 0:
+                print(f"   清理了 {cleaned_count} 个空目录")
+                
+        except Exception as e:
+            print(f"   ⚠️ 清理空目录时出错: {e}")
+
     def _handle_long_path_error(self, error_msg: str, source_files: List[str]) -> str:
         """处理Windows长路径错误"""
         try:
@@ -3150,7 +3910,8 @@ class GitSvnManager:
                 else:
                     print(f"   ⚠️ Windows系统长路径支持未启用")
                     print(f"   💡 建议以管理员身份运行PowerShell并执行:")
-                    print(f"      New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -Name 'LongPathsEnabled' -Value 1 -PropertyType DWORD -Force")
+                    powershell_cmd = "New-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\FileSystem' -Name 'LongPathsEnabled' -Value 1 -PropertyType DWORD -Force"
+                    print(f"      {powershell_cmd}")
                     
             except FileNotFoundError:
                 print(f"   ⚠️ Windows系统长路径支持未配置")
@@ -4110,15 +4871,33 @@ class ResourceChecker(QThread):
         try:
             self.status_updated.emit("开始检查资源...")
             
-            # 🔍 第一步：检查Git同步状态
-            self.status_updated.emit("🔍 检查Git仓库同步状态...")
-            self.progress_updated.emit(2)
+            # 🔄 新增步骤：重置和拉取仓库
+            self.status_updated.emit("🔄 重置Git仓库并拉取最新代码...")
+            self.progress_updated.emit(1)
+            
+            reset_success, reset_message = self.git_manager.reset_and_pull_repository()
+            if not reset_success:
+                # 如果重置和拉取失败，停止检查
+                error_msg = f"❌ 仓库重置和拉取失败: {reset_message}"
+                self.status_updated.emit(error_msg)
+                self.check_completed.emit(False, error_msg)
+                return
+            
+            self.status_updated.emit(f"✅ 仓库重置和拉取完成: {reset_message}")
+            self.progress_updated.emit(3)
+            
+            # 🔍 第一步：检查Git同步状态（重置后应该已经同步）
+            self.status_updated.emit("🔍 验证Git仓库同步状态...")
+            self.progress_updated.emit(4)
             
             git_sync_result = self._check_git_sync_status()
             if not git_sync_result['is_up_to_date']:
-                # 发出需要同步的信号，暂停后续检查
+                # 理论上重置和拉取后应该已经同步，如果还是不同步，可能有其他问题
+                warning_msg = f"⚠️ 重置拉取后仓库状态仍不同步: {git_sync_result.get('message', '未知原因')}"
+                self.status_updated.emit(warning_msg)
+                # 继续检查，但发出警告信号
                 self.git_sync_required.emit(git_sync_result)
-                return  # 等待用户决定是否更新
+                # 不return，继续执行检查
             
             self.status_updated.emit("✅ Git仓库状态正常，继续检查资源...")
             self.progress_updated.emit(5)
@@ -4176,9 +4955,27 @@ class ResourceChecker(QThread):
             
             # 9. Weapon文件夹all.filelist检查
             self.status_updated.emit("检查Weapon文件夹all.filelist...")
-            self.progress_updated.emit(95)
+            self.progress_updated.emit(92)
             weapon_filelist_issues = self._check_weapon_filelist()
             all_issues.extend(weapon_filelist_issues)
+            
+            # 10. 预制体文件名规范检查
+            self.status_updated.emit("检查预制体文件名规范...")
+            self.progress_updated.emit(93)
+            prefab_naming_issues = self._check_prefab_naming_convention()
+            all_issues.extend(prefab_naming_issues)
+            
+            # 11. 图片文件扩展名大小写检查
+            self.status_updated.emit("检查图片文件扩展名大小写...")
+            self.progress_updated.emit(94)
+            extension_case_issues = self._check_file_extension_case()
+            all_issues.extend(extension_case_issues)
+            
+            # 12. overrideController缓存检查
+            self.status_updated.emit("检查overrideController缓存...")
+            self.progress_updated.emit(95)
+            override_controller_issues = self._check_override_controller_cache()
+            all_issues.extend(override_controller_issues)
             
             # 生成详细报告
             report = self._generate_detailed_report(all_issues, len(self.upload_files))
@@ -5010,12 +5807,13 @@ class ResourceChecker(QThread):
                         # 分析文件中引用的GUID
                         referenced_guids = self.analyzer.parse_editor_asset(file_path)
                         
+                        # 分析文件中引用的GUID
                         if referenced_guids:
                             self.status_updated.emit(f"🔍 文件 {os.path.basename(file_path)} 引用了 {len(referenced_guids)} 个GUID")
                             # 🚨 增强调试：显示所有引用的GUID
                             for guid in list(referenced_guids)[:5]:  # 只显示前5个
                                 self.status_updated.emit(f"   📎 引用GUID: {guid}")
-                            
+                                
                             for ref_guid in referenced_guids:
                                 # 🚨 增强调试：显示GUID检查详情
                                 in_local = ref_guid in local_guids
@@ -6916,6 +7714,444 @@ class ResourceChecker(QThread):
         """检查weapon文件夹中的all.filelist文件完整性"""
         return self._check_folder_filelist('weapon')
     
+    def _check_prefab_naming_convention(self) -> List[Dict[str, str]]:
+        """检查预制体文件名是否符合命名规范"""
+        issues = []
+        
+        for file_path in self.upload_files:
+            if not file_path.lower().endswith('.prefab'):
+                continue
+                
+            try:
+                # 标准化路径
+                normalized_path = os.path.normpath(file_path).replace('\\', '/')
+                
+                # 检查是否在avatar目录下（包括MiniUniverse子目录）
+                if '/avatar/' in normalized_path:
+                    # 提取路径信息
+                    path_parts = normalized_path.split('/')
+                    avatar_index = -1
+                    
+                    # 找到avatar目录的位置
+                    for i, part in enumerate(path_parts):
+                        if part == 'avatar':
+                            avatar_index = i
+                            break
+                    
+                    if avatar_index != -1:
+                        # 检查是否在MiniUniverse子目录下
+                        is_miniuniverse = False
+                        target_dir_index = avatar_index + 1
+                        
+                        if (avatar_index + 1 < len(path_parts) and 
+                            path_parts[avatar_index + 1].lower() == 'miniuniverse'):
+                            # 在MiniUniverse子目录下，实际的目录名在下一级
+                            is_miniuniverse = True
+                            target_dir_index = avatar_index + 2
+                        
+                        if target_dir_index < len(path_parts):
+                            # 获取目标目录名 (如: 1000_3512)
+                            target_dir = path_parts[target_dir_index]
+                            
+                            # 获取文件名 (不包含扩展名)
+                            file_name = os.path.splitext(os.path.basename(file_path))[0]
+                            
+                            # 检查命名规范
+                            naming_issue = self._validate_prefab_name(target_dir, file_name, normalized_path, is_miniuniverse)
+                            if naming_issue:
+                                issues.append({
+                                    'type': 'prefab_naming_violation',
+                                    'file': file_path,
+                                    'message': naming_issue,
+                                    'severity': 'error'
+                                })
+                                
+                                # 更新状态信息
+                                location_info = "avatar/MiniUniverse" if is_miniuniverse else "avatar"
+                                self.status_updated.emit(f"❌ {location_info}预制体文件名检查错误: {os.path.basename(file_path)}")
+                        
+            except Exception as e:
+                issues.append({
+                    'type': 'prefab_naming_check_error',
+                    'file': file_path,
+                    'message': f"检查预制体文件名时发生错误: {str(e)}",
+                    'severity': 'warning'
+                })
+        
+        return issues
+    
+    def _validate_prefab_name(self, avatar_dir: str, file_name: str, full_path: str, is_miniuniverse: bool = False) -> str:
+        """
+        验证预制体文件名是否符合avatar目录命名规范（支持普通avatar和MiniUniverse子目录）
+        
+        Args:
+            avatar_dir: avatar目录名 (如: 1000_3512)
+            file_name: 预制体文件名 (不含扩展名, 如: 3215_2)
+            full_path: 完整路径 (用于错误信息)
+            is_miniuniverse: 是否在MiniUniverse子目录下
+        
+        Returns:
+            错误信息字符串，如果符合规范则返回空字符串
+        """
+        try:
+            # 解析avatar目录名，提取ID部分
+            if '_' in avatar_dir:
+                # 格式: 1000_3512 -> 期望文件名: 3512 或 3512_X
+                avatar_parts = avatar_dir.split('_')
+                if len(avatar_parts) >= 2:
+                    expected_base = avatar_parts[1]  # 3512
+                    
+                    # 检查文件名是否符合规范
+                    if file_name == expected_base:
+                        # 完全匹配: 3512.prefab ✅
+                        return ""
+                    elif file_name.startswith(expected_base + '_'):
+                        # 带序号匹配: 3512_2.prefab ✅
+                        suffix = file_name[len(expected_base + '_'):]
+                        if suffix.isdigit():
+                            return ""
+                        else:
+                            location_prefix = "avatar/MiniUniverse" if is_miniuniverse else "avatar"
+                            return (f"预制体文件名不符合规定，发现其文件名 {file_name}.prefab 不符合规定，"
+                                  f"预期应为 {expected_base}.prefab 或 {expected_base}_数字.prefab "
+                                  f"(位置: {location_prefix}目录下)")
+                    else:
+                        # 不匹配 ❌
+                        location_prefix = "avatar/MiniUniverse" if is_miniuniverse else "avatar"
+                        return (f"预制体文件名不符合规定，发现其文件名 {file_name}.prefab 不符合规定，"
+                              f"预期应为 {expected_base}.prefab 或 {expected_base}_数字.prefab "
+                              f"(位置: {location_prefix}目录下)")
+                else:
+                    return f"无法解析avatar目录名格式: {avatar_dir}"
+            else:
+                # 没有下划线的目录名，直接使用目录名作为期望文件名
+                if file_name == avatar_dir or file_name.startswith(avatar_dir + '_'):
+                    return ""
+                else:
+                    location_prefix = "avatar/MiniUniverse" if is_miniuniverse else "avatar"
+                    return (f"预制体文件名不符合规定，发现其文件名 {file_name}.prefab 不符合规定，"
+                          f"预期应为 {avatar_dir}.prefab 或 {avatar_dir}_数字.prefab "
+                          f"(位置: {location_prefix}目录下)")
+                          
+        except Exception as e:
+            return f"验证预制体文件名时发生错误: {str(e)}"
+    
+    def _check_file_extension_case(self) -> List[Dict[str, str]]:
+        """检查文件扩展名大小写规范 - 仅检查图片格式"""
+        issues = []
+        
+        # 定义应该使用小写的文件扩展名 - 仅包含图片格式
+        lowercase_extensions = {
+            # 图片文件
+            '.png', '.jpg', '.jpeg', '.tga', '.bmp', '.psd', '.tiff', '.exr', '.hdr'
+        }
+        
+        for file_path in self.upload_files:
+            try:
+                # 获取文件扩展名
+                _, ext = os.path.splitext(file_path)
+                
+                if ext:  # 如果有扩展名
+                    ext_lower = ext.lower()
+                    
+                    # 检查是否在需要小写的扩展名列表中
+                    if ext_lower in lowercase_extensions:
+                        # 检查是否有大写字母
+                        if ext != ext_lower:
+                            # 特别检查avatar目录
+                            is_avatar_file = '/avatar/' in file_path.replace('\\', '/')
+                            
+                            # 确定严重程度
+                            severity = 'error' if is_avatar_file else 'warning'
+                            
+                            # 生成建议的正确文件名
+                            file_dir = os.path.dirname(file_path)
+                            file_basename = os.path.basename(file_path)
+                            correct_basename = os.path.splitext(file_basename)[0] + ext_lower
+                            correct_path = os.path.join(file_dir, correct_basename)
+                            
+                            issues.append({
+                                'type': 'file_extension_case_violation',
+                                'file': file_path,
+                                'message': (
+                                    f"文件扩展名大小写不规范：发现扩展名 '{ext}'，"
+                                    f"应使用小写 '{ext_lower}'。"
+                                    f"建议重命名为：{correct_basename}"
+                                ),
+                                'severity': severity,
+                                'current_extension': ext,
+                                'expected_extension': ext_lower,
+                                'suggested_filename': correct_basename,
+                                'is_avatar_file': is_avatar_file
+                            })
+                            
+                            # 更新状态信息
+                            status_icon = "🔴" if is_avatar_file else "⚠️"
+                            self.status_updated.emit(
+                                f"{status_icon} 扩展名大小写错误: {os.path.basename(file_path)} "
+                                f"({ext} → {ext_lower})"
+                            )
+                        
+            except Exception as e:
+                issues.append({
+                    'type': 'extension_case_check_error',
+                    'file': file_path,
+                    'message': f"检查文件扩展名大小写时发生错误: {str(e)}",
+                    'severity': 'warning'
+                })
+        
+        return issues
+    
+    def _check_override_controller_cache(self) -> List[Dict[str, str]]:
+        """检查overrideController缓存问题 - 检测丢失的动画片段引用"""
+        issues = []
+        
+        # 收集所有上传文件中的GUID映射
+        available_guids = set()
+        for file_path in self.upload_files:
+            try:
+                if file_path.endswith('.meta'):
+                    guid = self.analyzer.parse_meta_file(file_path)
+                    if guid:
+                        available_guids.add(guid.lower())
+                else:
+                    meta_path = file_path + '.meta'
+                    if os.path.exists(meta_path):
+                        guid = self.analyzer.parse_meta_file(meta_path)
+                        if guid:
+                            available_guids.add(guid.lower())
+            except Exception as e:
+                continue
+        
+        # 检查Git仓库中的GUID
+        try:
+            git_guids = self.analyzer._get_git_repository_guids(self.git_manager.repo_path)
+            available_guids.update(guid.lower() for guid in git_guids.keys())
+        except Exception as e:
+            self.status_updated.emit(f"⚠️ 获取Git仓库GUID失败: {str(e)}")
+        
+        # 检查SVN仓库中的GUID
+        try:
+            svn_root = self.analyzer._find_svn_root_from_files(self.upload_files)
+            if svn_root:
+                svn_guid_map = {}
+                self.analyzer._scan_directory_for_guids(svn_root, svn_guid_map)
+                available_guids.update(guid.lower() for guid in svn_guid_map.keys())
+        except Exception as e:
+            self.status_updated.emit(f"⚠️ 获取SVN仓库GUID失败: {str(e)}")
+        
+        # 检查所有overrideController文件
+        for file_path in self.upload_files:
+            if not file_path.lower().endswith('.overridecontroller'):
+                continue
+                
+            try:
+                self.status_updated.emit(f"🔍 检查overrideController: {os.path.basename(file_path)}")
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # 解析JSON内容
+                import json
+                try:
+                    controller_data = json.loads(content)
+                except json.JSONDecodeError:
+                    issues.append({
+                        'type': 'override_controller_parse_error',
+                        'file': file_path,
+                        'message': f"overrideController文件格式错误，无法解析JSON内容",
+                        'severity': 'warning'
+                    })
+                    continue
+                
+                # 提取所有GUID引用
+                missing_guids = []
+                total_refs = 0
+                
+                def extract_guids_from_object(obj, path=""):
+                    nonlocal total_refs, missing_guids
+                    
+                    if isinstance(obj, dict):
+                        # 特殊处理 m_OverrideClip 字段
+                        if "m_OverrideClip" in obj and isinstance(obj["m_OverrideClip"], dict):
+                            override_clip = obj["m_OverrideClip"]
+                            if "m_GUID" in override_clip and isinstance(override_clip["m_GUID"], str):
+                                guid = override_clip["m_GUID"]
+                                if len(guid) == 32:
+                                    total_refs += 1
+                                    guid_lower = guid.lower()
+                                    
+                                    # 00000000000000000000000000000000 是正常的，表示没有赋予动画片段
+                                    if guid_lower == "00000000000000000000000000000000":
+                                        # 这是正常情况，不报错
+                                        pass
+                                    elif (not guid_lower.startswith('00000000000000') and
+                                          guid_lower not in self.builtin_guids and
+                                          guid_lower not in available_guids):
+                                        
+                                        # 检查是否是动画片段引用
+                                        is_animation_clip = self._is_animation_clip_reference(obj, path)
+                                        
+                                        missing_guids.append({
+                                            'guid': guid_lower,
+                                            'path': f"{path}.m_OverrideClip.m_GUID",
+                                            'context': "动画片段引用" if is_animation_clip else "overrideClip引用",
+                                            'is_animation_clip': is_animation_clip,
+                                            'original_clip': obj.get("m_OriginalClip", {}).get("m_GUID", "未知")
+                                        })
+                        
+                        # 继续处理其他GUID字段
+                        for key, value in obj.items():
+                            if key == "m_GUID" and isinstance(value, str) and len(value) == 32:
+                                # 如果不是 m_OverrideClip 中的 GUID，按原逻辑处理
+                                if not (path.endswith("m_OverrideClip") or "m_OverrideClip" in path):
+                                    total_refs += 1
+                                    guid_lower = value.lower()
+                                    
+                                    # 跳过内置GUID、全零GUID和自身GUID
+                                    if (guid_lower != "00000000000000000000000000000000" and
+                                        not guid_lower.startswith('00000000000000') and
+                                        guid_lower not in self.builtin_guids and
+                                        guid_lower not in available_guids):
+                                        
+                                        missing_guids.append({
+                                            'guid': guid_lower,
+                                            'path': f"{path}.{key}" if path else key,
+                                            'context': self._get_override_controller_context(obj, key),
+                                            'is_animation_clip': False
+                                        })
+                            else:
+                                extract_guids_from_object(value, f"{path}.{key}" if path else key)
+                    elif isinstance(obj, list):
+                        for i, item in enumerate(obj):
+                            extract_guids_from_object(item, f"{path}[{i}]" if path else f"[{i}]")
+                
+                # 提取所有GUID
+                extract_guids_from_object(controller_data)
+                
+                # 如果发现丢失的GUID，报告问题
+                if missing_guids:
+                    # 分析丢失GUID的类型
+                    animation_clip_guids = []
+                    controller_guids = []
+                    other_guids = []
+                    
+                    # 生成详细的丢失动画片段信息
+                    missing_clips_details = []
+                    
+                    for missing in missing_guids:
+                        if missing.get('is_animation_clip', False):
+                            animation_clip_guids.append(missing)
+                            # 添加详细信息，包括原始片段GUID
+                            original_clip = missing.get('original_clip', '未知')
+                            missing_clips_details.append({
+                                'missing_guid': missing['guid'],
+                                'original_clip': original_clip,
+                                'path': missing['path']
+                            })
+                        elif 'controller' in missing['context'].lower():
+                            controller_guids.append(missing)
+                        else:
+                            other_guids.append(missing)
+                    
+                    # 生成详细的错误信息
+                    details = []
+                    if animation_clip_guids:
+                        details.append(f"丢失动画片段: {len(animation_clip_guids)}个")
+                    if controller_guids:
+                        details.append(f"丢失控制器引用: {len(controller_guids)}个")
+                    if other_guids:
+                        details.append(f"其他丢失引用: {len(other_guids)}个")
+                    
+                    # 生成更详细的错误消息
+                    error_message = f"overrideController存在缓存问题：发现{len(missing_guids)}个丢失的引用。"
+                    if animation_clip_guids:
+                        error_message += f"\n特别注意：{len(animation_clip_guids)}个m_OverrideClip动画片段引用丢失，这些片段的meta文件在项目中找不到。"
+                    error_message += f"\n详情：{', '.join(details)}。"
+                    error_message += f"\n建议：在引擎编辑器中重新打开并保存此overrideController文件以刷新缓存，或者检查引用的动画文件是否存在。"
+                    
+                    issues.append({
+                        'type': 'override_controller_missing_references',
+                        'file': file_path,
+                        'message': error_message,
+                        'severity': 'error',
+                        'missing_count': len(missing_guids),
+                        'total_references': total_refs,
+                        'missing_guids': [m['guid'] for m in missing_guids[:5]],  # 只保存前5个用于显示
+                        'animation_clips': len(animation_clip_guids),
+                        'controllers': len(controller_guids),
+                        'others': len(other_guids),
+                        'missing_clips_details': missing_clips_details[:3],  # 保存前3个详细信息
+                        'fix_suggestion': "在引擎编辑器中重新打开并保存overrideController文件"
+                    })
+                    
+                    # 更新状态显示
+                    self.status_updated.emit(
+                        f"🔴 overrideController缓存问题: {os.path.basename(file_path)} "
+                        f"({len(missing_guids)}个丢失引用)"
+                    )
+                else:
+                    # 没有问题的情况
+                    self.status_updated.emit(
+                        f"✅ overrideController正常: {os.path.basename(file_path)} "
+                        f"({total_refs}个引用都有效)"
+                    )
+                        
+            except Exception as e:
+                issues.append({
+                    'type': 'override_controller_check_error',
+                    'file': file_path,
+                    'message': f"检查overrideController时发生错误: {str(e)}",
+                    'severity': 'warning'
+                })
+                
+        return issues
+    
+    def _is_animation_clip_reference(self, obj: dict, path: str) -> bool:
+        """判断是否是动画片段引用"""
+        try:
+            # 检查对象中是否包含 m_OriginalClip 和 m_OverrideClip，这是动画片段替换的典型结构
+            if "m_OriginalClip" in obj and "m_OverrideClip" in obj:
+                return True
+            
+            # 检查路径中是否包含动画相关关键词
+            path_lower = path.lower()
+            animation_keywords = ['clip', 'animation', 'anim', 'override']
+            for keyword in animation_keywords:
+                if keyword in path_lower:
+                    return True
+            
+            return False
+        except:
+            return False
+    
+    def _get_override_controller_context(self, obj: dict, guid_key: str) -> str:
+        """获取overrideController中GUID的上下文信息"""
+        try:
+            # 检查父级对象的类型信息
+            context_clues = []
+            
+            # 检查同级键名
+            for key in obj.keys():
+                if 'animation' in key.lower():
+                    context_clues.append('动画')
+                elif 'clip' in key.lower():
+                    context_clues.append('片段')
+                elif 'controller' in key.lower():
+                    context_clues.append('控制器')
+                elif 'state' in key.lower():
+                    context_clues.append('状态')
+                elif 'transition' in key.lower():
+                    context_clues.append('转换')
+            
+            if context_clues:
+                return f"{'/'.join(context_clues)}引用"
+            else:
+                return "未知类型引用"
+                
+        except:
+            return "引用"
+    
     def _parse_all_filelist(self, filelist_path: str) -> Set[str]:
         """解析all.filelist文件，提取GUID列表（忽略**符号等特殊标记）"""
         guids = set()
@@ -7117,12 +8353,16 @@ class ResourceChecker(QThread):
                 'avatar_missing_filelist', 'avatar_empty_filelist', 'avatar_filelist_parse_error',
                 'avatar_filelist_incomplete', 'avatar_filelist_system_error',
                 'weapon_missing_filelist', 'weapon_empty_filelist', 'weapon_filelist_parse_error',
-                'weapon_filelist_incomplete', 'weapon_filelist_system_error'
+                'weapon_filelist_incomplete', 'weapon_filelist_system_error',
+                'prefab_naming_violation', 'file_extension_case_violation',
+                'override_controller_missing_references', 'remote_resource_reference'
             }
             
             warning_types = {
                 'chinese_filename', 'image_width_not_power_of_2', 'image_height_not_power_of_2',
-                'image_too_large', 'guid_parse_error', 'template_check_error'
+                'image_too_large', 'guid_parse_error', 'template_check_error', 
+                'prefab_naming_check_error', 'extension_case_check_error',
+                'override_controller_parse_error', 'override_controller_check_error'
             }
             
             for issue in blocking_issues:
@@ -9000,6 +10240,13 @@ class ArtResourceManager(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        
+        # 🔇 抑制PyInstaller临时目录警告
+        self._suppress_pyinstaller_warnings()
+        
+        # 🗑️ 处理删除旧exe的命令行参数
+        self._handle_delete_old_exe()
+        
         self.config_manager = ConfigManager()
         self.git_manager = GitSvnManager()
         self.upload_files = []
@@ -9021,9 +10268,20 @@ class ArtResourceManager(QMainWindow):
                 # custom_url = "https://your-server.com/api"
                 
                 # 当前使用本地测试，您可以改为git_update_url
+                # 🔧 热更新服务器配置选项
+                update_server_options = {
+                    "simple_file_local": "http://localhost:8002/api",  # 本地访问
+                    "simple_file_lan": self._get_lan_server_url(),  # 局域网访问（动态检测或配置）
+                    "github_api": "http://localhost:8001/api",  # GitHub API服务器
+                    "github_pages": "https://jasonaofa.github.io/Xproject",  # GitHub Pages
+                    "local_test": "http://localhost:8000/api"  # 本地测试服务器
+                }
+                
+                # 从version.json文件读取当前版本
+                current_version = self._read_current_version()
                 self.hot_updater = HotUpdateManager(
-                    current_version="1.0.2",  # 添加调试信息版本
-                    update_server_url= "https://github.com/jasonaofa/Xproject.git" # 🔧 可修改为 git_update_url
+                    current_version=current_version,
+                    update_server_url=update_server_options["simple_file_lan"]  # 🔧 使用局域网地址，其他电脑可访问
                 )
                 print("✅ 热更新功能已启用")
                 print(f"🌐 [DEBUG] 更新服务器地址: {self.hot_updater.update_server_url}")
@@ -9031,12 +10289,85 @@ class ArtResourceManager(QMainWindow):
                 print(f"⚠️ 热更新初始化失败: {e}")
                 self.hot_updater = None
         
+        # 初始化统计管理器
+        if STATISTICS_AVAILABLE:
+            try:
+                self.statistics_ui = create_statistics_ui_manager(self)
+                print("✅ 统计功能已启用")
+            except Exception as e:
+                print(f"⚠️ 统计功能初始化失败: {e}")
+                self.statistics_ui = None
+        else:
+            self.statistics_ui = None
+            print("ℹ️ 统计功能不可用")
+        
         self.init_ui()
         self.load_settings()
+    
+    def _read_current_version(self):
+        """从version.json文件读取当前版本"""
+        try:
+            version_file = os.path.join(os.path.dirname(__file__), "version.json")
+            if os.path.exists(version_file):
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    version_data = json.load(f)
+                    return version_data.get('version', '1.0.0')
+            else:
+                print("⚠️ version.json文件不存在，使用默认版本")
+                return '1.0.0'
+        except Exception as e:
+            print(f"⚠️ 读取版本文件失败: {e}")
+            return '1.0.0'
+    
+    def _get_lan_server_url(self):
+        """获取局域网服务器地址"""
+        try:
+            # 1. 尝试从配置文件读取
+            config_file = "server_config.json"
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    manual_lan = config.get("endpoints", {}).get("manual_lan", "")
+                    if manual_lan and not manual_lan.startswith("http://192.168.1.100"):
+                        print(f"📡 使用配置文件中的服务器地址: {manual_lan}")
+                        return manual_lan
+            
+            # 2. 尝试扫描常见的局域网地址
+            common_ips = [
+                "10.0.6.231", "10.0.6.230", "10.0.6.232",  # 您的网段
+                "192.168.1.100", "192.168.1.101", "192.168.1.102",
+                "192.168.0.100", "192.168.0.101", "192.168.0.102",
+                "10.0.0.100", "10.0.0.101", "10.0.0.102"
+            ]
+            
+            for ip in common_ips:
+                test_url = f"http://{ip}:8002/api/version_info"
+                try:
+                    import requests
+                    response = requests.get(test_url, timeout=1)
+                    if response.status_code == 200:
+                        server_url = f"http://{ip}:8002/api"
+                        print(f"🎯 自动检测到服务器: {server_url}")
+                        return server_url
+                except:
+                    continue
+            
+            # 3. 如果都失败，返回默认地址
+            default_url = "http://localhost:8002/api"
+            print(f"⚠️ 无法检测到局域网服务器，使用默认地址: {default_url}")
+            return default_url
+            
+        except Exception as e:
+            print(f"⚠️ 获取服务器地址失败: {e}")
+            return "http://localhost:8002/api"
 
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle("美术资源管理工具 v1.0.2")
+        # 动态获取当前版本号
+        current_version = self._read_current_version()  # 直接从文件读取，确保准确性
+        if self.hot_updater:
+            current_version = self.hot_updater.get_current_version()
+        self.setWindowTitle(f"美术资源管理工具 v{current_version}")
         
         # 🆕 创建菜单栏
         self.create_menu_bar()
@@ -9098,6 +10429,22 @@ class ArtResourceManager(QMainWindow):
         """创建菜单栏"""
         menubar = self.menuBar()
         
+        # 管理菜单（仅管理员可见）
+        admin_menu = menubar.addMenu('管理(&M)')
+        
+        # 查看上传统计
+        if hasattr(self, 'statistics_ui') and self.statistics_ui:
+            stats_action = QAction('上传统计(&S)', self)
+            stats_action.setStatusTip('查看美术同事上传统计')
+            stats_action.triggered.connect(self.statistics_ui.show_statistics_dialog)
+            admin_menu.addAction(stats_action)
+            
+            # 导出统计报告
+            export_stats_action = QAction('导出统计报告(&E)', self)
+            export_stats_action.setStatusTip('导出详细统计报告')
+            export_stats_action.triggered.connect(self.statistics_ui.export_statistics_report)
+            admin_menu.addAction(export_stats_action)
+        
         # 帮助菜单
         help_menu = menubar.addMenu('帮助(&H)')
         
@@ -9109,14 +10456,6 @@ class ArtResourceManager(QMainWindow):
             help_menu.addAction(check_update_action)
             
             help_menu.addSeparator()
-        
-        # 🆕 测试菜单项 - 用于验证热更新功能
-        test_action = QAction('测试选项1(&T)', self)
-        test_action.setStatusTip('测试热更新功能的占位选项')
-        test_action.triggered.connect(lambda: QMessageBox.information(self, "测试", "这是测试选项1 - 用于验证热更新功能"))
-        help_menu.addAction(test_action)
-        
-        help_menu.addSeparator()
         
         # 关于菜单项
         about_action = QAction('关于(&A)', self)
@@ -9130,10 +10469,6 @@ class ArtResourceManager(QMainWindow):
             QMessageBox.information(self, "提示", "热更新功能不可用")
             return
         
-        # 🔧 添加调试信息
-        print(f"🔍 [DEBUG] 当前版本: {self.hot_updater.current_version}")
-        print(f"🔍 [DEBUG] 更新服务器: {self.hot_updater.update_server_url}")
-        
         try:
             # 在单独线程中检查更新，避免阻塞UI
             self.update_thread = UpdateCheckThread(self.hot_updater)
@@ -9145,7 +10480,6 @@ class ArtResourceManager(QMainWindow):
             # 显示检查中的状态
             self.statusBar().showMessage("正在检查更新...")
         except Exception as e:
-            print(f"❌ [DEBUG] 检查更新异常: {e}")
             QMessageBox.critical(self, "错误", f"检查更新时发生错误：\n{e}")
     
     def _on_update_found(self, update_info):
@@ -9200,16 +10534,15 @@ class ArtResourceManager(QMainWindow):
         
         self.statusBar().showMessage("更新完成")
         
-        # 询问是否立即重启
-        reply = QMessageBox.question(
-            self, "更新完成", 
-            "更新已完成！\n\n需要重启应用程序以应用更新。\n是否立即重启？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+        # 显示更新完成信息，然后关闭应用
+        QMessageBox.information(self, "更新完成", 
+                              "更新已完成！\n\n"
+                              "应用程序将关闭，请手动启动新版本。\n"
+                              "新版本位置：当前目录下的版本化exe文件\n"
+                              "（如：美术资源上传工具_v1.0.7.exe）")
         
-        if reply == QMessageBox.Yes:
-            self._restart_application()
+        # 直接退出应用程序
+        QApplication.quit()
     
     def _on_update_failed(self, error_msg):
         """更新失败"""
@@ -9220,24 +10553,179 @@ class ArtResourceManager(QMainWindow):
         QMessageBox.critical(self, "更新失败", f"更新过程中发生错误：\n{error_msg}")
     
     def _restart_application(self):
-        """重启应用程序"""
+        """重启应用程序（已弃用，保留兼容性）"""
+        # 这个方法已经不再使用，更新完成后直接退出应用
+        # 用户需要手动启动新版本
+        pass
+    
+    def _find_updated_exe(self):
+        """查找更新后的exe文件"""
         try:
-            # 保存当前配置
-            self.save_settings()
+            # 检查重启信息
+            restart_info_path = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else __file__), "restart_info.json")
+            print(f"🔍 查找重启信息: {restart_info_path}")
             
-            # 重启应用
-            if getattr(sys, 'frozen', False):
-                # 打包后的exe
-                subprocess.Popen([sys.executable])
+            if os.path.exists(restart_info_path):
+                print(f"📄 重启信息文件存在")
+                with open(restart_info_path, 'r', encoding='utf-8') as f:
+                    restart_info = json.load(f)
+                
+                print(f"📋 重启信息内容: {restart_info}")
+                
+                # 优先使用新的exe路径
+                new_exe_path = restart_info.get("new_exe_path", "")
+                print(f"🎯 新exe路径: {new_exe_path}")
+                
+                if new_exe_path:
+                    # 处理可能的编码问题
+                    if not os.path.exists(new_exe_path):
+                        # 尝试在当前目录查找相同名称的文件
+                        exe_name = os.path.basename(new_exe_path)
+                        current_dir_path = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else __file__), exe_name)
+                        print(f"🔄 尝试当前目录路径: {current_dir_path}")
+                        if os.path.exists(current_dir_path):
+                            print(f"✅ 在当前目录找到文件: {current_dir_path}")
+                            return current_dir_path
+                        
+                        # 尝试查找v1.0.7版本的exe文件
+                        v107_path = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else __file__), "美术资源上传工具_v1.0.7.exe")
+                        print(f"🔄 尝试v1.0.7路径: {v107_path}")
+                        if os.path.exists(v107_path):
+                            print(f"✅ 找到v1.0.7版本: {v107_path}")
+                            return v107_path
+                    else:
+                        print(f"✅ 新exe路径有效: {new_exe_path}")
+                        return new_exe_path
+                
+                # 兼容旧格式
+                exe_path = restart_info.get("exe_path", "")
+                if exe_path and os.path.exists(exe_path):
+                    print(f"✅ 使用旧格式exe路径: {exe_path}")
+                    return exe_path
             else:
-                # 开发环境
-                subprocess.Popen([sys.executable, __file__])
+                print(f"❌ 重启信息文件不存在")
             
-            # 退出当前应用
-            QApplication.quit()
+            return None
+        except Exception as e:
+            print(f"⚠️ 查找更新exe失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _cleanup_restart_info(self):
+        """清理重启信息"""
+        try:
+            restart_info_path = os.path.join(os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else __file__), "restart_info.json")
+            if os.path.exists(restart_info_path):
+                os.remove(restart_info_path)
+                print("🧹 清理重启信息")
+        except Exception as e:
+            print(f"⚠️ 清理重启信息失败: {e}")
+    
+    def _handle_delete_old_exe(self):
+        """处理删除旧exe的命令行参数"""
+        try:
+            # 检查命令行参数
+            import sys
+            if len(sys.argv) >= 3 and sys.argv[1] == "--delete-old-exe":
+                old_exe_path = sys.argv[2]
+                
+                if os.path.exists(old_exe_path):
+                    # 延迟删除，确保旧进程已经退出
+                    import time
+                    import threading
+                    
+                    def delayed_delete():
+                        time.sleep(2)  # 等待2秒确保旧进程退出
+                        try:
+                            os.remove(old_exe_path)
+                            print(f"✅ 已删除旧版本: {old_exe_path}")
+                        except Exception as e:
+                            print(f"⚠️ 删除旧版本失败: {e}")
+                    
+                    # 在后台线程中执行删除
+                    delete_thread = threading.Thread(target=delayed_delete)
+                    delete_thread.daemon = True
+                    delete_thread.start()
+                    
+                    print(f"🗑️ 计划删除旧版本: {old_exe_path}")
+                else:
+                    print(f"⚠️ 旧exe文件不存在: {old_exe_path}")
+                    
+        except Exception as e:
+            print(f"❌ 处理删除旧exe失败: {e}")
+    
+    def _suppress_pyinstaller_warnings(self):
+        """抑制PyInstaller临时目录警告"""
+        try:
+            import sys
+            import os
+            
+            # 检查是否在PyInstaller环境中
+            if getattr(sys, 'frozen', False):
+                # 设置环境变量来抑制警告
+                os.environ['PYINSTALLER_SUPPRESS_WARNINGS'] = '1'
+                
+                # 重定向stderr来抑制特定的警告消息
+                import io
+                from contextlib import redirect_stderr
+                
+                # 创建一个过滤器来忽略特定的警告
+                class WarningFilter:
+                    def __init__(self, original_stderr):
+                        self.original_stderr = original_stderr
+                    
+                    def write(self, text):
+                        # 过滤掉PyInstaller临时目录的警告
+                        if 'Failed to remove temporary directory' not in text and '_MEI' not in text:
+                            self.original_stderr.write(text)
+                    
+                    def flush(self):
+                        self.original_stderr.flush()
+                
+                # 应用过滤器
+                sys.stderr = WarningFilter(sys.stderr)
+                print("🔇 已启用PyInstaller警告过滤器")
+                
+        except Exception as e:
+            # 如果抑制失败，不影响程序运行
+            pass
+    
+    def _cleanup_old_versions(self, new_exe_path):
+        """清理旧版本exe文件"""
+        try:
+            import threading
+            import time
+            
+            def delayed_cleanup():
+                time.sleep(3)  # 等待3秒确保新版本启动
+                try:
+                    current_dir = os.path.dirname(new_exe_path)
+                    new_exe_name = os.path.basename(new_exe_path)
+                    
+                    # 查找并删除旧版本exe文件
+                    for filename in os.listdir(current_dir):
+                        if (filename.endswith('.exe') and 
+                            filename != new_exe_name and
+                            filename.startswith('美术资源上传工具')):
+                            
+                            old_file_path = os.path.join(current_dir, filename)
+                            try:
+                                os.remove(old_file_path)
+                                print(f"✅ 已删除旧版本: {filename}")
+                            except Exception as e:
+                                print(f"⚠️ 删除旧版本失败: {filename} - {e}")
+                                
+                except Exception as e:
+                    print(f"❌ 清理旧版本失败: {e}")
+            
+            # 在后台线程中执行清理
+            cleanup_thread = threading.Thread(target=delayed_cleanup)
+            cleanup_thread.daemon = True
+            cleanup_thread.start()
             
         except Exception as e:
-            QMessageBox.critical(self, "重启失败", f"无法重启应用程序：\n{e}")
+            print(f"❌ 启动清理线程失败: {e}")
     
     def load_settings(self):
         """加载配置"""
@@ -9446,6 +10934,12 @@ class ArtResourceManager(QMainWindow):
         self.pull_branch_btn = QPushButton("拉取分支")
         self.pull_branch_btn.clicked.connect(self.pull_current_branch)
         btn_layout.addWidget(self.pull_branch_btn)
+        
+        # 添加修复Git同步问题按钮
+        self.fix_sync_btn = QPushButton("修复同步问题")
+        self.fix_sync_btn.clicked.connect(self.fix_git_sync_issues)
+        self.fix_sync_btn.setToolTip("自动修复Git认证和同步问题")
+        btn_layout.addWidget(self.fix_sync_btn)
         
         self.update_new_btn = QPushButton("重置更新仓库")
         self.update_new_btn.clicked.connect(self.reset_update_merge)
@@ -10316,14 +11810,24 @@ class ArtResourceManager(QMainWindow):
             self, 
             "确认检查资源", 
             f"即将检查 {len(self.upload_files)} 个文件的资源依赖和GUID冲突，包括：\n\n"
+            "🔄 前置步骤（新增）：\n"
+            "• Git重置仓库 (git reset --hard)\n"
+            "• 清理未跟踪文件 (git clean -f)\n"
+            "• 拉取最新代码 (git pull)\n\n"
+            "🔍 检查项目：\n"
             "• Meta文件完整性检查\n"
             "• 中文字符检查\n"
             "• 图片尺寸检查\n"
+            "• 图片文件扩展名大小写检查\n"
             "• GUID一致性检查\n"
-            "• GUID引用检查\n"
-            f"• 目标仓库：{self.git_path_edit.text()}\n"
-            f"• 目标目录：CommonResource\n\n"
-            "⚠️ 注意：检查过程可能需要一些时间，确定要开始吗？",
+            "• GUID引用检查\n\n"
+            f"📁 目标仓库：{self.git_path_edit.text()}\n"
+            f"📁 目标目录：CommonResource\n\n"
+            "⚠️ 注意：\n"
+            "• 重置操作会丢失本地未提交的更改\n"
+            "• 检查过程可能需要一些时间\n"
+            "• 如果拉取失败，检查将停止\n\n"
+            "确定要开始吗？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -10520,6 +12024,15 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(success_msg)
                 self.result_text.append(success_msg)
                 
+                # 🔧 记录上传统计（成功）
+                if STATISTICS_AVAILABLE:
+                    record_successful_upload(
+                        file_count=len(self.upload_files),
+                        file_paths=self.upload_files,
+                        git_path=git_path,
+                        additional_info={"target_directory": "CommonResource"}
+                    )
+                
                 # 推送成功后恢复默认图标状态（绿色）
                 self.set_window_icon_status("default")
                 
@@ -10545,18 +12058,47 @@ class ArtResourceManager(QMainWindow):
                 error_msg = f"✗ 推送失败: {message}"
                 self.log_text.append(error_msg)
                 self.result_text.append(error_msg)
+                
+                # 🔧 记录上传统计（失败）
+                if STATISTICS_AVAILABLE:
+                    record_failed_upload(
+                        file_count=len(self.upload_files),
+                        file_paths=self.upload_files,
+                        error_message=message,
+                        git_path=git_path,
+                        additional_info={"target_directory": "CommonResource"}
+                    )
+                
                 # 推送失败设置错误图标状态（红色）
                 self.set_window_icon_status("error")
-                QMessageBox.critical(
-                    self, 
-                    "推送失败", 
-                    f"推送文件到Git仓库时失败：\n\n{message}\n\n"
-                    f"请检查：\n"
-                    f"• Git仓库路径是否正确\n"
-                    f"• 是否有网络连接\n"
-                    f"• 是否有推送权限\n"
-                    f"• 分支是否存在冲突"
+                
+                # 🚨 改进的错误提示消息
+                error_dialog = QMessageBox(self)
+                error_dialog.setIcon(QMessageBox.Critical)
+                error_dialog.setWindowTitle("❌ 推送失败")
+                error_dialog.setText(
+                    f"🚨 文件推送到Git远程仓库失败\n\n"
+                    f"💡 重要说明：\n"
+                    f"• 文件未成功上传到远程Git仓库\n"
+                    f"• 团队其他成员无法获取这些文件\n"
+                    f"• 如果开启了自动回滚，本地更改已被撤销\n\n"
+                    f"📊 失败详情：\n{message}"
                 )
+                error_dialog.setDetailedText(
+                    f"推送失败诊断信息：\n\n"
+                    f"请检查以下项目：\n"
+                    f"• Git仓库路径是否正确\n"
+                    f"• 网络连接是否正常\n"
+                    f"• 是否有推送权限\n"
+                    f"• 分支是否存在冲突\n"
+                    f"• Git认证是否配置正确\n\n"
+                    f"建议操作：\n"
+                    f"1. 检查网络连接和Git服务器状态\n"
+                    f"2. 尝试手动执行 'git pull' 同步远程更改\n"
+                    f"3. 解决可能的冲突后重新推送\n"
+                    f"4. 如需帮助，请联系技术支持"
+                )
+                error_dialog.exec_()
             
         except Exception as e:
             self.progress_bar.setVisible(False)
@@ -10658,6 +12200,78 @@ class ArtResourceManager(QMainWindow):
                 
         except Exception as e:
             error_msg = f"拉取操作发生异常: {str(e)}"
+            self.log_text.append(f"✗ {error_msg}")
+            self.result_text.append(f"✗ {error_msg}")
+            QMessageBox.critical(self, "操作异常", error_msg)
+        
+        finally:
+            self.progress_bar.setVisible(False)
+    
+    def fix_git_sync_issues(self):
+        """修复Git同步和认证问题"""
+        if not self.git_path_edit.text():
+            QMessageBox.warning(self, "警告", "请先设置Git仓库路径！")
+            return
+        
+        reply = QMessageBox.question(
+            self, 
+            "修复Git同步问题", 
+            "此功能将自动修复常见的Git同步和认证问题：\n\n"
+            "• 配置Git凭据存储（避免重复输入密码）\n"
+            "• 测试远程仓库连接\n"
+            "• 尝试同步远程更改\n"
+            "• 提供详细的解决方案指导\n\n"
+            "⚠️ 如果需要输入用户名密码，请按提示操作。\n\n"
+            "确定要开始修复吗？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply != QMessageBox.Yes:
+            self.log_text.append("用户取消了Git同步问题修复")
+            return
+        
+        self.log_text.append("🔧 开始修复Git同步和认证问题...")
+        self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
+        
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        
+        try:
+            self.progress_bar.setValue(20)
+            self.log_text.append("🔍 检查Git配置...")
+            
+            self.progress_bar.setValue(50)
+            success, message = self.git_manager.auto_fix_git_sync_issues()
+            self.progress_bar.setValue(100)
+            
+            if success:
+                self.log_text.append(f"✓ 修复成功: {message}")
+                self.result_text.append(f"✓ Git同步问题修复成功")
+                QMessageBox.information(
+                    self, 
+                    "修复成功", 
+                    f"{message}\n\n"
+                    "💡 现在您可以正常推送文件了！\n"
+                    "如果之前需要输入密码，现在密码已被保存。"
+                )
+            else:
+                self.log_text.append(f"⚠️ 修复提示: {message}")
+                self.result_text.append(f"⚠️ Git同步问题需要手动处理")
+                
+                # 显示详细的解决方案
+                if "认证失败" in message:
+                    QMessageBox.information(
+                        self, 
+                        "需要手动认证", 
+                        f"{message}\n\n"
+                        "💡 完成上述步骤后，Git认证问题将得到解决。"
+                    )
+                else:
+                    QMessageBox.warning(self, "修复提示", message)
+                
+        except Exception as e:
+            error_msg = f"修复过程发生异常: {str(e)}"
             self.log_text.append(f"✗ {error_msg}")
             self.result_text.append(f"✗ {error_msg}")
             QMessageBox.critical(self, "操作异常", error_msg)
@@ -12062,16 +13676,15 @@ class ArtResourceManager(QMainWindow):
         
         self.statusBar().showMessage("更新完成")
         
-        # 询问是否立即重启
-        reply = QMessageBox.question(
-            self, "更新完成", 
-            "更新已完成！\n\n需要重启应用程序以应用更新。\n是否立即重启？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+        # 显示更新完成信息，然后关闭应用
+        QMessageBox.information(self, "更新完成", 
+                              "更新已完成！\n\n"
+                              "应用程序将关闭，请手动启动新版本。\n"
+                              "新版本位置：当前目录下的版本化exe文件\n"
+                              "（如：美术资源上传工具_v1.0.7.exe）")
         
-        if reply == QMessageBox.Yes:
-            self.restart_application()
+        # 直接退出应用程序
+        QApplication.quit()
     
     def on_update_failed(self, error_msg):
         """更新失败"""
@@ -12103,23 +13716,23 @@ class ArtResourceManager(QMainWindow):
     
     def show_about_dialog(self):
         """显示关于对话框"""
-        version = "1.0.0"
+        version = self._read_current_version()  # 直接从文件读取，确保准确性
         if self.hot_updater:
             version = self.hot_updater.get_current_version()
         
         about_text = f"""
         <h3>美术资源管理工具</h3>
         <p><b>版本:</b> {version}</p>
-        <p><b>功能:</b> 专业的Unity资源上传和管理工具</p>
+        <p><b>功能:</b> 专业的MiniGame资源上传和管理工具</p>
         <p><b>特性:</b></p>
         <ul>
-            <li>🚨 远程资源引用检查</li>
+           
             <li>🌐 Avatar/MiniUniverse子目录支持</li>
             <li>🎨 材质模板验证</li>
             <li>🔄 热更新功能</li>
             <li>📊 完整的资源检查报告</li>
         </ul>
-        <p><b>作者:</b> 开发团队</p>
+        <p><b>作者:</b> TA团队</p>
         <p><b>更新时间:</b> {datetime.now().strftime('%Y-%m-%d')}</p>
         """
         
@@ -13097,18 +14710,12 @@ class UpdateCheckThread(QThread):
     
     def run(self):
         try:
-            print("🔍 [DEBUG] 开始检查更新...")
             has_update, update_info = self.hot_updater.check_for_updates()
-            print(f"🔍 [DEBUG] 检查结果: has_update={has_update}, update_info={update_info}")
-            
             if has_update:
-                print("✅ [DEBUG] 发现更新，发送update_found信号")
                 self.update_found.emit(update_info)
             else:
-                print("ℹ️ [DEBUG] 无更新，发送no_update信号")
                 self.no_update.emit()
         except Exception as e:
-            print(f"❌ [DEBUG] 检查更新失败: {e}")
             self.check_failed.emit(str(e))
 
 
@@ -13169,7 +14776,7 @@ class UpdateDialog(QDialog):
         layout.addWidget(current_label)
         
         # 更新说明
-        description = self.update_info.get('description', '无更新说明')
+        description = self.update_info.get('description') or self.update_info.get('release_notes', '无更新说明')
         desc_label = QLabel("更新说明:")
         desc_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         layout.addWidget(desc_label)
@@ -13206,6 +14813,24 @@ class UpdateDialog(QDialog):
 def main():
     """主函数"""
     debug_print("开始主函数...")
+    
+    # 🗑️ 处理删除旧版本exe的命令行参数
+    if len(sys.argv) >= 3 and sys.argv[1] == "--delete-old-exe":
+        old_exe_path = sys.argv[2]
+        debug_print(f"收到删除旧版本请求: {old_exe_path}")
+        
+        # 等待一段时间确保旧进程完全退出
+        import time
+        time.sleep(2)
+        
+        try:
+            if os.path.exists(old_exe_path):
+                os.remove(old_exe_path)
+                debug_print(f"✅ 成功删除旧版本: {old_exe_path}")
+            else:
+                debug_print(f"⚠️ 旧版本文件不存在: {old_exe_path}")
+        except Exception as e:
+            debug_print(f"❌ 删除旧版本失败: {e}")
     
     try:
         debug_print("创建QApplication...")

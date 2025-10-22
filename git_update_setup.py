@@ -162,3 +162,8 @@ self.hot_updater = HotUpdateManager(
 
 if __name__ == "__main__":
     create_git_based_update_config()
+
+
+
+
+
