@@ -6187,7 +6187,7 @@ class ResourceChecker(QThread):
             normalized_path = relative_resource_path.replace('\\', '/').lower()
             
             # 检查是否在 Assets/remotes/entity 目录下
-            if 'assets/remotes/entity' in normalized_path:
+            if '/remotes/entity' in normalized_path:
                 # 这是一个远程资源引用
                 resource_name = guid_info.get('resource_name', os.path.basename(relative_resource_path))
                 
@@ -6195,7 +6195,7 @@ class ResourceChecker(QThread):
                 referencing_file_normalized = referencing_file.replace('\\', '/').lower()
                 
                 # 如果引用文件本身就在remotes目录下，则允许引用
-                if 'assets/remotes/entity' in referencing_file_normalized or '/remotes/entity' in referencing_file_normalized:
+                if '/remotes/entity' in referencing_file_normalized or '/remotes/entity' in referencing_file_normalized:
                     return None
                 
                 # 本地资源引用远程资源，返回错误信息
