@@ -5,6 +5,47 @@
 
 ---
 
+## v1.0.22 - 2025年10月27日
+
+### ✨ Avatar特效预制体命名规范支持
+- **英文名特效预制体支持**
+  - 🎨 新增对英文命名特效预制体的支持
+  - 🎯 自动检测prefab文件名是否为英文（字母、数字、下划线组合）
+  - 🔍 智能识别ParticleSystem粒子系统组件
+  - ✅ 包含ParticleSystem的英文名prefab可豁免命名规范检查
+  
+### 🎮 功能特点
+- **智能检测机制**
+  - 📝 自动判断prefab文件名是否为纯英文名
+  - 🔎 深度扫描prefab文件内容，识别ParticleSystem组件
+  - 🎯 支持多种ParticleSystem标识符检测
+  - ⚡ ClassID: 198 组件精确识别
+  
+- **豁免规则**
+  - ✅ 英文名 + ParticleSystem组件 → 通过检测
+  - 📋 示例：`fire_effect.prefab`、`smoke_01.prefab` 等特效预制体
+  - 🎨 解决特效美术资源命名灵活性需求
+  
+### 🛠️ 技术改进
+- **代码优化**
+  - 🔧 合并英文名检测和粒子系统检测为统一函数
+  - 📊 增加异常处理和错误提示
+  - ⚠️ 检测失败时输出详细诊断信息
+  - 🎯 在有下划线和无下划线的avatar目录中均生效
+
+### 📝 适用场景
+```
+目录结构: Assets/avatar/1000_3512/
+- 3512.prefab ✅ （标准命名）
+- 3512_2.prefab ✅ （带序号）
+- fire_effect.prefab ✅ （英文名+ParticleSystem组件）
+- smoke_explosion.prefab ✅ （英文名+ParticleSystem组件）
+- 3217_2.prefab ❌ （ID不匹配）
+- effect特效.prefab ❌ （非英文名，即使有ParticleSystem也不通过）
+```
+
+---
+
 ## v1.0.18 - 2025年9月10日
 
 ### 🔄 Git仓库管理重大升级

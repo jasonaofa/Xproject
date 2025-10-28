@@ -7780,6 +7780,48 @@ class ResourceChecker(QThread):
         
         return issues
     
+    def _is_english_prefab_with_particle_system(self, file_name: str, prefab_path: str) -> bool:
+        """
+        检查prefab文件是否为英文名且包含ParticleSystem组件
+        
+        Args:
+            file_name: 文件名（不含扩展名）
+            prefab_path: prefab文件的完整路径
+            
+        Returns:
+            如果是英文名且包含ParticleSystem组件返回True，否则返回False
+        """
+        import re
+        
+        # 1. 检查是否为英文名（只包含英文字母、数字、下划线）
+        if not re.match(r'^[a-zA-Z0-9_]+$', file_name):
+            return False
+        
+        # 2. 检查是否包含ParticleSystem组件
+        try:
+            with open(prefab_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 检查是否包含ParticleSystem组件的标识
+            # Unity中ParticleSystem通常在JSON/YAML中有这些特征
+            particle_system_indicators = [
+                '"ParticleSystem"',
+                "'ParticleSystem'",
+                'ParticleSystem',
+                'm_ParticleSystem',
+            ]
+            
+            for indicator in particle_system_indicators:
+                if indicator in content:
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            # 如果读取失败，返回False
+            print(f"⚠️ 检查ParticleSystem组件失败: {os.path.basename(prefab_path)}, 错误: {str(e)}")
+            return False
+    
     def _validate_prefab_name(self, avatar_dir: str, file_name: str, full_path: str, is_miniuniverse: bool = False) -> str:
         """
         验证预制体文件名是否符合avatar目录命名规范（支持普通avatar和MiniUniverse子目录）
@@ -7815,6 +7857,9 @@ class ResourceChecker(QThread):
                             return (f"预制体文件名不符合规定，发现其文件名 {file_name}.prefab 不符合规定，"
                                   f"预期应为 {expected_base}.prefab 或 {expected_base}_数字.prefab "
                                   f"(位置: {location_prefix}目录下)")
+                    elif self._is_english_prefab_with_particle_system(file_name, full_path):
+                        # 英文名且包含ParticleSystem组件，检测通过 ✅
+                        return ""
                     else:
                         # 不匹配 ❌
                         location_prefix = "avatar/MiniUniverse" if is_miniuniverse else "avatar"
@@ -7826,6 +7871,9 @@ class ResourceChecker(QThread):
             else:
                 # 没有下划线的目录名，直接使用目录名作为期望文件名
                 if file_name == avatar_dir or file_name.startswith(avatar_dir + '_'):
+                    return ""
+                elif self._is_english_prefab_with_particle_system(file_name, full_path):
+                    # 英文名且包含ParticleSystem组件，检测通过 ✅
                     return ""
                 else:
                     location_prefix = "avatar/MiniUniverse" if is_miniuniverse else "avatar"
