@@ -4843,6 +4843,7 @@ class ResourceChecker(QThread):
     check_completed = pyqtSignal(bool, str)
     detailed_report = pyqtSignal(dict)
     git_sync_required = pyqtSignal(dict)  # 新增：Git同步需求信号
+    local_deleted_warning = pyqtSignal(list)  # 本地删除但Git存在的警告
     
     def __init__(self, upload_files, git_manager, target_directory, folder_upload_modes=None):
         super().__init__()
@@ -4865,6 +4866,9 @@ class ResourceChecker(QThread):
             "0000000000000000e000000000000000",  # Built-in Shader
             "0000000000000000f000000000000000",  # Built-in Extra
         }
+        
+        # 本地删除但Git存在的引用列表
+        self.local_deleted_but_git_exists = []
 
     def run(self):
         """运行检查任务"""
@@ -5771,26 +5775,63 @@ class ResourceChecker(QThread):
             
             self.status_updated.emit("✅ 方法验证通过")
             
-            # 收集本次推送文件的GUID
-            self.status_updated.emit("收集本次推送文件的GUID...")
-            local_guids = {}
+            # 收集SVN中所有资源的GUID
+            self.status_updated.emit("扫描SVN仓库收集所有资源GUID...")
+            local_guids = {}  # SVN所有文件的GUID
+            upload_guids = {}  # 本次上传文件的GUID
+            svn_root = None
             
+            # 先收集本次上传文件的GUID
+            self.status_updated.emit("收集本次上传文件的GUID...")
             for file_path in self.upload_files:
                 if file_path.endswith('.meta'):
                     guid = self.analyzer.parse_meta_file(file_path)
                     if guid:
-                        local_guids[guid] = file_path
-                        self.status_updated.emit(f"找到本地GUID: {guid} ({os.path.basename(file_path)})")
+                        upload_guids[guid] = file_path
                 else:
-                    # 检查对应的meta文件
                     meta_path = file_path + '.meta'
                     if os.path.exists(meta_path):
                         guid = self.analyzer.parse_meta_file(meta_path)
                         if guid:
-                            local_guids[guid] = meta_path
-                            self.status_updated.emit(f"找到本地GUID: {guid} ({os.path.basename(meta_path)})")
+                            upload_guids[guid] = meta_path
             
-            self.status_updated.emit(f"本次推送包含 {len(local_guids)} 个GUID")
+            self.status_updated.emit(f"✅ 收集到 {len(upload_guids)} 个上传文件GUID")
+            
+            # 获取SVN根目录
+            if hasattr(self, 'git_manager') and self.git_manager and self.git_manager.svn_path:
+                svn_root = self.git_manager.svn_path
+            
+            if svn_root and os.path.exists(svn_root):
+                self.status_updated.emit(f"SVN根目录: {svn_root}")
+                
+                # 扫描SVN目录
+                meta_count = 0
+                for root, dirs, files in os.walk(svn_root):
+                    # 跳过隐藏目录
+                    dirs[:] = [d for d in dirs if not d.startswith('.')]
+                    
+                    for file in files:
+                        if file.endswith('.meta'):
+                            meta_file = os.path.join(root, file)
+                            resource_file = meta_file[:-5]
+                            
+                            # 只收集有对应资源文件的meta
+                            if os.path.exists(resource_file):
+                                try:
+                                    guid = self.analyzer.parse_meta_file(meta_file)
+                                    if guid:
+                                        local_guids[guid] = meta_file
+                                        meta_count += 1
+                                        if meta_count % 500 == 0:
+                                            self.status_updated.emit(f"已扫描 {meta_count} 个meta文件...")
+                                except:
+                                    pass
+                
+                self.status_updated.emit(f"✅ SVN扫描完成，共找到 {len(local_guids)} 个本地资源GUID")
+            else:
+                # 降级方案：使用上传文件的GUID
+                self.status_updated.emit("⚠️ 无法获取SVN根目录，使用上传文件GUID")
+                local_guids = upload_guids.copy()
             
             # 获取Git仓库中的所有GUID
             self.status_updated.emit("开始扫描Git仓库GUID...")
@@ -5819,6 +5860,42 @@ class ResourceChecker(QThread):
                                 in_local = ref_guid in local_guids
                                 in_git = ref_guid in git_guids
                                 self.status_updated.emit(f"   🔍 检查GUID {ref_guid[:8]}...: 本地={in_local}, Git={in_git}")
+                                
+                                # 检查本地已删除但Git存在的情况
+                                if ref_guid not in local_guids and ref_guid in git_guids:
+                                    git_file_info = git_guids_dict.get(ref_guid, {})
+                                    git_resource_name = git_file_info.get('resource_name', 'unknown')
+                                    git_relative_path = git_file_info.get('relative_resource_path', '')
+                                    
+                                    # 材质模板文件允许只在Git中存在
+                                    if git_resource_name.lower().endswith('.templatemat'):
+                                        self.status_updated.emit(f"   ✅ 材质模板(Git): {git_resource_name}")
+                                        continue
+                                    
+                                    # 其他资源：本地删除但仍被引用，收集警告
+                                    resource_ext = os.path.splitext(git_resource_name.lower())[1]
+                                    if resource_ext in self.image_types:
+                                        resource_type = '贴图'
+                                    elif resource_ext == '.mat':
+                                        resource_type = '材质'
+                                    elif resource_ext == '.prefab':
+                                        resource_type = 'Prefab'
+                                    elif resource_ext in ['.mesh', '.skeleton']:
+                                        resource_type = '模型'
+                                    else:
+                                        resource_type = '资源'
+                                    
+                                    self.local_deleted_but_git_exists.append({
+                                        'referencing_file': os.path.basename(file_path),
+                                        'referencing_file_path': file_path,
+                                        'missing_file': git_resource_name,
+                                        'missing_file_path': git_relative_path,
+                                        'guid': ref_guid,
+                                        'resource_type': resource_type
+                                    })
+                                    
+                                    self.status_updated.emit(f"   ⚠️ 本地已删除但仍被引用: {git_resource_name}")
+                                    continue
                                 
                                 # 检查引用的GUID是否存在
                                 if ref_guid not in local_guids and ref_guid not in git_guids:
@@ -5967,10 +6044,17 @@ class ResourceChecker(QThread):
             debug_path_issues = self._check_debug_path_files()
             issues.extend(debug_path_issues)
             
-            # 检查内部依赖完整性
+            # 检查内部依赖完整性（使用上传文件的GUID）
             self.status_updated.emit("检查内部依赖完整性...")
-            internal_issues = self._check_internal_dependencies(local_guids)
+            internal_issues = self._check_internal_dependencies(upload_guids)
             issues.extend(internal_issues)
+            
+            # 处理本地删除但Git存在的情况
+            if self.local_deleted_but_git_exists:
+                self.status_updated.emit(f"⚠️ 发现 {len(self.local_deleted_but_git_exists)} 个本地删除但仍被引用的资源")
+                self.status_updated.emit("将在上传前请求用户确认...")
+                # 发送信号给主窗口，在上传前处理
+                self.local_deleted_warning.emit(self.local_deleted_but_git_exists)
             
             if issues:
                 self.status_updated.emit(f"GUID引用检查完成，发现 {len(issues)} 个问题")
@@ -10283,6 +10367,125 @@ class DragDropListWidget(QListWidget):
         self.addItem(self.placeholder_item)
 
 
+class LocalDeletedButGitExistsDialog(QDialog):
+    """本地删除但Git存在引用的警告对话框"""
+    
+    def __init__(self, deleted_references, parent=None):
+        super().__init__(parent)
+        self.deleted_references = deleted_references
+        self.user_choice = None
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化UI"""
+        self.setWindowTitle("⚠️ 本地资源已删除警告")
+        self.setMinimumWidth(800)
+        self.setMinimumHeight(600)
+        
+        # 移除问号按钮
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        
+        layout = QVBoxLayout()
+        
+        # 标题
+        title = QLabel("⚠️ 检测到本地资源已删除但仍被引用")
+        title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #d32f2f;")
+        layout.addWidget(title)
+        
+        # 说明文字（使用HTML加粗关键词）
+        description = QLabel(
+            "以下材质引用的资源在本地SVN中已被删除，但Git仓库中仍然存在。<br>"
+            "这可能导致其他使用者从Git获取后无法找到对应的本地资源。<br><br>"
+            "请选择：<br>"
+            "• <b>终止上传</b>：查看详细信息并修复问题后再上传<br>"
+            "• <b>继续上传</b>：忽略警告，继续上传（不推荐）"
+        )
+        description.setWordWrap(True)
+        description.setStyleSheet("font-size: 10pt; padding: 10px;")
+        layout.addWidget(description)
+        
+        # 创建表格显示问题
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["引用文件", "缺失资源", "资源类型", "GUID"])
+        table.horizontalHeader().setStretchLastSection(False)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        table.setRowCount(len(self.deleted_references))
+        
+        for row, ref_info in enumerate(self.deleted_references):
+            table.setItem(row, 0, QTableWidgetItem(ref_info['referencing_file']))
+            table.setItem(row, 1, QTableWidgetItem(ref_info['missing_file']))
+            table.setItem(row, 2, QTableWidgetItem(ref_info['resource_type']))
+            table.setItem(row, 3, QTableWidgetItem(ref_info['guid'][:16] + "..."))
+        
+        layout.addWidget(table)
+        
+        # 统计信息
+        stats = QLabel(f"共发现 {len(self.deleted_references)} 个问题")
+        stats.setStyleSheet("font-size: 10pt; font-weight: bold; color: #d32f2f;")
+        layout.addWidget(stats)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        abort_button = QPushButton("终止上传")
+        abort_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                font-size: 12pt;
+                font-weight: bold;
+                padding: 10px 20px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+        """)
+        abort_button.clicked.connect(self.on_abort)
+        button_layout.addWidget(abort_button)
+        
+        continue_button = QPushButton("继续上传")
+        continue_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff9800;
+                color: white;
+                font-size: 12pt;
+                font-weight: bold;
+                padding: 10px 20px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #f57c00;
+            }
+        """)
+        continue_button.clicked.connect(self.on_continue)
+        button_layout.addWidget(continue_button)
+        
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    def on_abort(self):
+        """用户选择终止"""
+        self.user_choice = 'abort'
+        self.accept()
+    
+    def on_continue(self):
+        """用户选择继续"""
+        self.user_choice = 'continue'
+        self.accept()
+    
+    def get_user_choice(self):
+        """获取用户选择"""
+        return self.user_choice
+
+
 class ArtResourceManager(QMainWindow):
     """美术资源管理器主窗口"""
     
@@ -10300,6 +10503,8 @@ class ArtResourceManager(QMainWindow):
         self.upload_files = []
         # 文件夹上传模式跟踪
         self.folder_upload_modes = {}  # 格式：{folder_path: {"mode": "replace", "target_path": "..."}}
+        # 本地删除但Git存在的引用列表
+        self.local_deleted_but_git_exists = []
         
         # 🆕 初始化热更新管理器
         self.hot_updater = None
@@ -11900,12 +12105,18 @@ class ArtResourceManager(QMainWindow):
         self.checker_thread.check_completed.connect(self.on_check_completed)
         self.checker_thread.detailed_report.connect(self.on_detailed_report_received)
         self.checker_thread.git_sync_required.connect(self.on_git_sync_required)
+        self.checker_thread.local_deleted_warning.connect(self.on_local_deleted_warning)
         
         # 设置运行中状态图标
         self.set_window_icon_status("success")  # 运行中使用绿色图标
         
         self.checker_thread.start()
         self.log_text.append("开始检查资源...")
+    
+    def on_local_deleted_warning(self, deleted_references):
+        """接收本地删除但Git存在的引用警告"""
+        self.local_deleted_but_git_exists = deleted_references
+        self.log_text.append(f"⚠️ 收到 {len(deleted_references)} 个本地删除警告")
     
     def on_git_sync_required(self, sync_info: dict):
         """处理Git同步需求"""
@@ -12004,6 +12215,46 @@ class ArtResourceManager(QMainWindow):
     
     def show_push_confirmation_dialog(self):
         """显示推送确认对话框"""
+        # 先检查是否有本地删除但仍被引用的资源
+        if self.local_deleted_but_git_exists:
+            self.log_text.append("⚠️ 发现本地删除但仍被引用的资源，请用户确认...")
+            
+            # 弹出警告对话框
+            dialog = LocalDeletedButGitExistsDialog(self.local_deleted_but_git_exists, self)
+            dialog.exec_()
+            user_choice = dialog.get_user_choice()
+            
+            if user_choice == 'abort':
+                # 用户选择终止
+                self.log_text.append("❌ 用户选择终止上传")
+                self.result_text.append("=" * 50)
+                self.result_text.append("⚠️ 本地资源已删除但仍被引用：")
+                self.result_text.append("=" * 50)
+                
+                for ref_info in self.local_deleted_but_git_exists:
+                    self.result_text.append(f"\n【引用文件】{ref_info['referencing_file']}")
+                    self.result_text.append(f"  缺失资源: {ref_info['missing_file']}")
+                    self.result_text.append(f"  资源类型: {ref_info['resource_type']}")
+                    self.result_text.append(f"  GUID: {ref_info['guid']}")
+                    self.result_text.append(f"  Git路径: {ref_info['missing_file_path']}")
+                    self.result_text.append(f"  说明: 该资源在本地SVN中已被删除，但材质仍在引用")
+                    self.result_text.append(f"  解决方案: 恢复被删除的资源，或更新材质移除对该资源的引用")
+                
+                self.result_text.append("\n" + "=" * 50)
+                self.result_text.append(f"共 {len(self.local_deleted_but_git_exists)} 个问题，上传已终止")
+                self.result_text.append("=" * 50)
+                
+                QMessageBox.warning(self, "上传终止", 
+                    f"检测到 {len(self.local_deleted_but_git_exists)} 个本地删除但仍被引用的资源。\n"
+                    "详细信息已显示在检查结果中。\n\n"
+                    "请修复这些问题后再次上传。")
+                return
+            else:
+                # 用户选择继续
+                self.log_text.append("✅ 用户选择继续上传")
+                self.local_deleted_but_git_exists = []  # 清空警告
+        
+        # 继续正常的推送确认流程
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("检查通过 - 确认推送")
         msg_box.setIcon(QMessageBox.Question)
