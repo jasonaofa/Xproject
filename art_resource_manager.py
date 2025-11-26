@@ -7284,6 +7284,12 @@ class ResourceChecker(QThread):
             'Scene_Prop_Tranclucent.templatemat',
             'Scene_Prop_Masked.templatemat',
             'Sight.templatemat',
+            'Character_PBR_Mask.templatemat',
+            'Character_PBR_Special_Mask.templatemat',
+            'Character_PBR_Special_Opaque.templatemat',
+            'Character_PBR_Special_Translucent.templatemat',
+
+
             
             # 🆕 通用模板 - DefaultToonMat可以在所有路径下使用
             'DefaultToonMat.templatemat',
@@ -10378,7 +10384,7 @@ class LocalDeletedButGitExistsDialog(QDialog):
     
     def init_ui(self):
         """初始化UI"""
-        self.setWindowTitle("⚠️ 本地资源已删除警告")
+        self.setWindowTitle("ℹ️ 本地资源已删除警告")
         self.setMinimumWidth(800)
         self.setMinimumHeight(600)
         
@@ -10388,14 +10394,14 @@ class LocalDeletedButGitExistsDialog(QDialog):
         layout = QVBoxLayout()
         
         # 标题
-        title = QLabel("⚠️ 检测到本地资源已删除但仍被引用")
-        title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #d32f2f;")
+        title = QLabel("ℹ️ 检测到本地资源已删除但仍被引用")
+        title.setStyleSheet("font-size: 16pt; font-weight: bold; color: #4eb150;")
         layout.addWidget(title)
         
         # 说明文字（使用HTML加粗关键词）
         description = QLabel(
             "以下材质引用的资源在本地SVN中已被删除，但Git仓库中仍然存在。<br>"
-            "这可能导致其他使用者从Git获取后无法找到对应的本地资源。<br><br>"
+            "请确认删除的贴图是否上传到Git仓库<br><br>"
             "请选择：<br>"
             "• <b>终止上传</b>：查看详细信息并修复问题后再上传<br>"
             "• <b>继续上传</b>：忽略警告，继续上传（不推荐）"
@@ -10425,7 +10431,7 @@ class LocalDeletedButGitExistsDialog(QDialog):
         
         # 统计信息
         stats = QLabel(f"共发现 {len(self.deleted_references)} 个问题")
-        stats.setStyleSheet("font-size: 10pt; font-weight: bold; color: #d32f2f;")
+        stats.setStyleSheet("font-size: 10pt; font-weight: bold; color: #4eb150;")
         layout.addWidget(stats)
         
         # 按钮
@@ -10435,7 +10441,7 @@ class LocalDeletedButGitExistsDialog(QDialog):
         abort_button = QPushButton("终止上传")
         abort_button.setStyleSheet("""
             QPushButton {
-                background-color: #f44336;
+                background-color: #4eb150;
                 color: white;
                 font-size: 12pt;
                 font-weight: bold;
@@ -10443,7 +10449,7 @@ class LocalDeletedButGitExistsDialog(QDialog):
                 border-radius: 5px;
             }
             QPushButton:hover {
-                background-color: #d32f2f;
+                background-color: #4eb150;
             }
         """)
         abort_button.clicked.connect(self.on_abort)
@@ -10452,7 +10458,7 @@ class LocalDeletedButGitExistsDialog(QDialog):
         continue_button = QPushButton("继续上传")
         continue_button.setStyleSheet("""
             QPushButton {
-                background-color: #ff9800;
+                background-color: #2196f3;
                 color: white;
                 font-size: 12pt;
                 font-weight: bold;
@@ -10460,7 +10466,7 @@ class LocalDeletedButGitExistsDialog(QDialog):
                 border-radius: 5px;
             }
             QPushButton:hover {
-                background-color: #f57c00;
+                background-color: #2196f3;
             }
         """)
         continue_button.clicked.connect(self.on_continue)
