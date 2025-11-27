@@ -5872,6 +5872,12 @@ class ResourceChecker(QThread):
                                         self.status_updated.emit(f"   ✅ 材质模板(Git): {git_resource_name}")
                                         continue
                                     
+                                    # 系统默认资源（EngineAssets/SystemDefault）允许只在Git中存在
+                                    git_path_lower = git_relative_path.lower().replace('\\', '/')
+                                    if  '/systemdefault/' in git_path_lower:
+                                        self.status_updated.emit(f"   ✅ 系统资源(Git): {git_resource_name}")
+                                        continue
+                                    
                                     # 其他资源：本地删除但仍被引用，收集警告
                                     resource_ext = os.path.splitext(git_resource_name.lower())[1]
                                     if resource_ext in self.image_types:
