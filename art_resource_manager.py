@@ -5225,58 +5225,19 @@ class ResourceChecker(QThread):
         return issues
 
     def _check_image_sizes(self) -> List[Dict[str, str]]:
-        """检查图片尺寸 - 支持Environment/Scenes特殊规则和DefaultToonMat.templatemat材质引用的贴图"""
+        """检查图片尺寸 - 仅检查尺寸是否过大"""
         issues = []
-        
-        # 🆕 首先找到所有使用DefaultToonMat.templatemat的材质文件引用的贴图
-        defaulttoon_referenced_images = self._find_defaulttoon_referenced_images()
         
         for file_path in self.upload_files:
             try:
                 _, ext = os.path.splitext(file_path.lower())
                 if ext in self.image_types:
-                    # 🆕 检查是否在Environment/Scenes路径下（跳过2的幂次检查）
-                    is_environment_scenes = self._is_environment_scenes_path(file_path)
-                    
-                    # 🆕 检查是否被DefaultToonMat.templatemat材质引用
-                    is_defaulttoon_referenced = file_path in defaulttoon_referenced_images
-                    
-                    # 如果满足任一条件，跳过2的次幂检查
-                    skip_power_of_2_check = is_environment_scenes or is_defaulttoon_referenced
-                    
-                    if skip_power_of_2_check:
-                        if is_environment_scenes:
-                            print(f"🔍 [DEBUG] 检测到Environment/Scenes贴图文件: {os.path.basename(file_path)}")
-                            print(f"   完整路径: {file_path}")
-                            print(f"   ✅ 跳过2的幂次检查（Environment/Scenes特殊规则）")
-                        if is_defaulttoon_referenced:
-                            print(f"🔍 [DEBUG] 检测到DefaultToonMat材质引用的贴图: {os.path.basename(file_path)}")
-                            print(f"   完整路径: {file_path}")
-                            print(f"   ✅ 跳过2的幂次检查（DefaultToonMat.templatemat特殊规则）")
-                    
                     try:
                         from PIL import Image
                         with Image.open(file_path) as img:
                             width, height = img.size
                             
-                            # 🆕 只有不满足特殊规则的贴图才检查2的幂次
-                            if not skip_power_of_2_check:
-                                # 检查是否为2的幂次
-                                if not (width & (width - 1) == 0 and width != 0):
-                                    issues.append({
-                                        'file': file_path,
-                                        'type': 'image_width_not_power_of_2',
-                                        'message': f'图片宽度({width})不是2的幂次'
-                                    })
-                                
-                                if not (height & (height - 1) == 0 and height != 0):
-                                    issues.append({
-                                        'file': file_path,
-                                        'type': 'image_height_not_power_of_2',
-                                        'message': f'图片高度({height})不是2的幂次'
-                                    })
-                            
-                            # 检查尺寸是否过大（这个检查对所有图片都适用）
+                            # 检查尺寸是否过大
                             if width > 2048 or height > 2048:
                                 issues.append({
                                     'file': file_path,
@@ -7535,103 +7496,6 @@ class ResourceChecker(QThread):
         
         return template_references
     
-    def _find_defaulttoon_referenced_images(self) -> Set[str]:
-        """找到所有使用DefaultToonMat.templatemat的材质文件引用的贴图文件"""
-        referenced_images = set()
-        
-        try:
-            # 找到所有使用DefaultToonMat.templatemat的材质文件
-            defaulttoon_materials = []
-            for file_path in self.upload_files:
-                if file_path.lower().endswith('.mat'):
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                        
-                        # 查找模板引用
-                        template_references = self._find_template_references(content)
-                        
-                        # 检查是否使用DefaultToonMat.templatemat
-                        if 'DefaultToonMat.templatemat' in template_references:
-                            defaulttoon_materials.append(file_path)
-                            print(f"🔍 [DEBUG] 找到使用DefaultToonMat.templatemat的材质: {os.path.basename(file_path)}")
-                    except Exception as e:
-                        debug_print(f"检查材质文件失败 {file_path}: {str(e)}")
-            
-            # 对每个DefaultToonMat材质文件，找到它引用的贴图
-            for mat_file in defaulttoon_materials:
-                try:
-                    with open(mat_file, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    # 使用ResourceDependencyAnalyzer来解析依赖
-                    dependencies = self.analyzer.parse_editor_asset(mat_file)
-                    
-                    # 找到对应的贴图文件
-                    for guid in dependencies:
-                        # 在上传文件中查找对应GUID的图片文件
-                        for upload_file in self.upload_files:
-                            _, ext = os.path.splitext(upload_file.lower())
-                            if ext in self.image_types:
-                                meta_file = upload_file + '.meta'
-                                if os.path.exists(meta_file):
-                                    try:
-                                        file_guid = self.analyzer.parse_meta_file(meta_file)
-                                        if file_guid == guid:
-                                            referenced_images.add(upload_file)
-                                            print(f"🔍 [DEBUG] DefaultToonMat材质 {os.path.basename(mat_file)} 引用贴图: {os.path.basename(upload_file)}")
-                                            break
-                                    except Exception as e:
-                                        debug_print(f"解析meta文件失败 {meta_file}: {str(e)}")
-                        
-                except Exception as e:
-                    debug_print(f"分析材质依赖失败 {mat_file}: {str(e)}")
-                    
-        except Exception as e:
-            debug_print(f"查找DefaultToonMat引用的贴图失败: {str(e)}")
-        
-        print(f"🔍 [DEBUG] 总共找到 {len(referenced_images)} 个被DefaultToonMat.templatemat引用的贴图文件")
-        return referenced_images
-    
-    def _is_environment_scenes_path(self, file_path: str) -> bool:
-        """检查文件是否在Assets/entity/Environment/Scenes路径下"""
-        try:
-            # 🚨 路径分隔符统一处理：将所有路径统一为正斜杠格式进行比较
-            normalized_path = os.path.normpath(file_path).replace('\\', '/')
-            path_parts = normalized_path.split('/')
-            
-            # 查找entity目录
-            entity_index = -1
-            for i, part in enumerate(path_parts):
-                if part.lower() == 'entity':
-                    entity_index = i
-                    break
-            
-            if entity_index == -1:
-                return False
-            
-            # 检查是否在entity/Environment/Scenes路径下
-            remaining_parts = path_parts[entity_index + 1:]
-            print(f"🔍 [DEBUG] _is_environment_scenes_path 检查:")
-            print(f"   文件: {os.path.basename(file_path)}")
-            print(f"   标准化路径: {normalized_path}")
-            print(f"   entity后的路径部分: {remaining_parts}")
-            print(f"   检查条件: len >= 2? {len(remaining_parts) >= 2}")
-            if len(remaining_parts) >= 2:
-                print(f"   第1部分: '{remaining_parts[0]}' == 'environment'? {remaining_parts[0].lower() == 'environment'}")
-                print(f"   第2部分: '{remaining_parts[1]}' == 'scenes'? {remaining_parts[1].lower() == 'scenes'}")
-            
-            if (len(remaining_parts) >= 2 and 
-                remaining_parts[0].lower() == 'environment' and 
-                remaining_parts[1].lower() == 'scenes'):
-                print(f"   ✅ 匹配Environment/Scenes路径")
-                return True
-            
-            print(f"   ❌ 不匹配Environment/Scenes路径")
-            return False
-            
-        except Exception:
-            return False
 
     def _check_folder_filelist(self, folder_type: str) -> List[Dict[str, str]]:
         """检查指定文件夹中的all.filelist文件完整性
@@ -8503,8 +8367,7 @@ class ResourceChecker(QThread):
             }
             
             warning_types = {
-                'chinese_filename', 'image_width_not_power_of_2', 'image_height_not_power_of_2',
-                'image_too_large', 'guid_parse_error', 'template_check_error', 
+                'chinese_filename', 'image_too_large', 'guid_parse_error', 'template_check_error', 
                 'prefab_naming_check_error', 'extension_case_check_error',
                 'override_controller_parse_error', 'override_controller_check_error'
             }
@@ -8870,20 +8733,6 @@ class ResourceChecker(QThread):
                         'description': '中文字符检查过程中发生异常',
                         'impact': '无法确认文件名规范性',
                         'solution': '重新检查，或联系技术支持'
-                    },
-                    'image_width_not_power_of_2': {
-                        'icon': '🟡',
-                        'title': '贴图宽度不是2的幂',
-                        'description': '贴图宽度不是2的幂次方(如256, 512, 1024)',
-                        'impact': '可能影响渲染性能和内存占用',
-                        'solution': '调整为2的幂次方尺寸'
-                    },
-                    'image_height_not_power_of_2': {
-                        'icon': '🟡',
-                        'title': '贴图高度不是2的幂',
-                        'description': '贴图高度不是2的幂次方(如256, 512, 1024)',
-                        'impact': '可能影响渲染性能和内存占用',
-                        'solution': '调整为2的幂次方尺寸'
                     },
                     'image_too_large': {
                         'icon': '🟡',
@@ -9595,13 +9444,6 @@ class ResourceChecker(QThread):
                 report_lines.append("   2. 使用英文名称，可以用拼音")
                 report_lines.append("   3. 在编辑器中刷新(Ctrl+R)")
                 report_lines.append("   4. 检查引用是否正常")
-            
-            elif issue_type in ['image_width_not_power_of_2', 'image_height_not_power_of_2']:
-                report_lines.append("   📋 **操作步骤:**")
-                report_lines.append("   1. 使用图像编辑软件(如Photoshop)")
-                report_lines.append("   2. 调整图像尺寸为2的幂次方")
-                report_lines.append("   3. 推荐尺寸: 256, 512, 1024, 2048")
-                report_lines.append("   4. 重新导入到编辑器")
             
             elif issue_type == 'image_too_large':
                 report_lines.append("   📋 **操作步骤:**")
