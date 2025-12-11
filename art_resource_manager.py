@@ -5959,39 +5959,40 @@ class ResourceChecker(QThread):
                                         
                                         self.status_updated.emit(f"⚠️ 缺失GUID引用: {ref_guid} 在文件 {os.path.basename(file_path)}")
                                 else:
-                                    # 找到引用，记录来源
+                                    # 找到引用，先检查是否引用了远程资源
+                                    # 🚨 重要：远程资源检测必须优先于其他检查，不管资源在不在本地
+                                    remote_reference_check = self._check_remote_resource_reference(ref_guid, file_path, git_guids_dict)
+                                    if remote_reference_check:
+                                        # 发现引用了远程资源，添加错误
+                                        referencing_file_name = os.path.basename(file_path)
+                                        remote_file_info = remote_reference_check
+                                        
+                                        issues.append({
+                                            'type': 'remote_resource_reference',
+                                            'file': file_path,
+                                            'description': f'【禁止引用远程资源】\n' +
+                                                         f'问题文件: {referencing_file_name}\n' +
+                                                         f'引用GUID: {ref_guid}\n' +
+                                                         f'远程资源: {remote_file_info["resource_name"]}\n' +
+                                                         f'远程路径: {remote_file_info["remote_path"]}\n' +
+                                                         f'规则说明: 本地资源不允许引用Assets\\remotes\\entity目录下的文件\n' +
+                                                         f'解决方案: 将远程资源复制到本地目录，或移除对远程资源的引用',
+                                            'guid': ref_guid,
+                                            'remote_resource_path': remote_file_info['remote_path'],
+                                            'remote_resource_name': remote_file_info['resource_name'],
+                                            'solution': '将远程资源复制到本地目录，或移除对远程资源的引用',
+                                            'message': f'{referencing_file_name} 引用了禁止的远程资源 {remote_file_info["resource_name"]} (GUID: {ref_guid[:8]}...)'
+                                        })
+                                        self.status_updated.emit(f"🚨 禁止引用远程资源: {ref_guid}")
+                                        self.status_updated.emit(f"   问题文件: {referencing_file_name}")
+                                        self.status_updated.emit(f"   远程资源: {remote_file_info['remote_path']}")
+                                        continue
+                                    
+                                    # 记录引用来源
                                     if ref_guid in local_guids:
                                         source = f"本地文件: {os.path.basename(local_guids[ref_guid])}"
                                     else:
                                         source = "Git仓库"
-                                        
-                                        # 🚨 新增：检查是否引用了远程资源（Assets\remotes\entity）
-                                        remote_reference_check = self._check_remote_resource_reference(ref_guid, file_path, git_guids_dict)
-                                        if remote_reference_check:
-                                            # 发现引用了远程资源，添加错误
-                                            referencing_file_name = os.path.basename(file_path)
-                                            remote_file_info = remote_reference_check
-                                            
-                                            issues.append({
-                                                'type': 'remote_resource_reference',
-                                                'file': file_path,
-                                                'description': f'【禁止引用远程资源】\n' +
-                                                             f'问题文件: {referencing_file_name}\n' +
-                                                             f'引用GUID: {ref_guid}\n' +
-                                                             f'远程资源: {remote_file_info["resource_name"]}\n' +
-                                                             f'远程路径: {remote_file_info["remote_path"]}\n' +
-                                                             f'规则说明: 本地资源不允许引用Assets\\remotes\\entity目录下的文件\n' +
-                                                             f'解决方案: 将远程资源复制到本地目录，或移除对远程资源的引用',
-                                                'guid': ref_guid,
-                                                'remote_resource_path': remote_file_info['remote_path'],
-                                                'remote_resource_name': remote_file_info['resource_name'],
-                                                'solution': '将远程资源复制到本地目录，或移除对远程资源的引用',
-                                                'message': f'{referencing_file_name} 引用了禁止的远程资源 {remote_file_info["resource_name"]} (GUID: {ref_guid[:8]}...)'
-                                            })
-                                            self.status_updated.emit(f"🚨 禁止引用远程资源: {ref_guid}")
-                                            self.status_updated.emit(f"   问题文件: {referencing_file_name}")
-                                            self.status_updated.emit(f"   远程资源: {remote_file_info['remote_path']}")
-                                            continue
                                     
                                     self.status_updated.emit(f"✅ GUID引用正常: {ref_guid} -> {source}")
                         else:
@@ -6246,7 +6247,7 @@ class ResourceChecker(QThread):
                 referencing_file_normalized = referencing_file.replace('\\', '/').lower()
                 
                 # 如果引用文件本身就在remotes目录下，则允许引用
-                if '/remotes/entity' in referencing_file_normalized or '/remotes/entity' in referencing_file_normalized:
+                if '/remotes/entity' in referencing_file_normalized:
                     return None
                 
                 # 本地资源引用远程资源，返回错误信息
