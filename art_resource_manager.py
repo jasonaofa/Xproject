@@ -4981,6 +4981,12 @@ class ResourceChecker(QThread):
             override_controller_issues = self._check_override_controller_cache()
             all_issues.extend(override_controller_issues)
             
+            # 13. Timeline prefab动画组件归一化检查
+            self.status_updated.emit("检查Timeline prefab动画组件归一化...")
+            self.progress_updated.emit(96)
+            prefab_animation_normalization_issues = self._check_timeline_prefab_animation_normalization()
+            all_issues.extend(prefab_animation_normalization_issues)
+            
             # 生成详细报告
             report = self._generate_detailed_report(all_issues, len(self.upload_files))
             self.detailed_report.emit(report)
@@ -4989,7 +4995,7 @@ class ResourceChecker(QThread):
             
             # 区分阻塞性错误和警告/信息
             # meta_missing_git 和 guid_file_update 类型的问题是警告/信息，不阻塞推送操作
-            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'no_template_found'}
+            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'no_template_found', 'prefab_animation_normalized'}
             blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
             warning_issues = [issue for issue in all_issues if issue.get('type') in non_blocking_types]
             
@@ -7450,6 +7456,130 @@ class ResourceChecker(QThread):
         
         return issues
 
+    def _check_timeline_prefab_animation_normalization(self) -> List[Dict[str, str]]:
+        """检测Timeline中1.prefab的动画组件归一化（只检测不修复）
+        
+        规则说明：
+        - 只检测Timeline文件夹下的1.prefab文件
+        - 如果SkeletonAnimation组件的Animations数组Size>1，报错阻止上传
+        - 检测标志：m_IdentifierMap中有多个相同GUID但不同PersistentID的条目
+        - 不修改文件，需要用户手动在Unity中归一化
+        """
+        issues = []
+        
+        try:
+            self.status_updated.emit("🔍 开始Timeline/1.prefab动画组件归一化检查...")
+            
+            # 筛选出Timeline文件夹下的1.prefab文件
+            timeline_prefabs = []
+            for file_path in self.upload_files:
+                if not file_path.lower().endswith('.prefab'):
+                    continue
+                
+                # 检查文件名是否为1.prefab
+                file_name = os.path.basename(file_path)
+                if file_name != '1.prefab':
+                    continue
+                
+                # 检查是否在Timeline目录下
+                normalized_path = os.path.normpath(file_path)
+                path_parts = normalized_path.split(os.sep)
+                
+                # 查找Timeline目录
+                is_timeline = False
+                for part in path_parts:
+                    if part.lower() == 'timeline':
+                        is_timeline = True
+                        break
+                
+                if is_timeline:
+                    timeline_prefabs.append(file_path)
+            
+            if not timeline_prefabs:
+                self.status_updated.emit("✅ 没有找到Timeline/1.prefab文件，跳过检查")
+                return issues
+            
+            self.status_updated.emit(f"找到 {len(timeline_prefabs)} 个Timeline/1.prefab文件需要检查")
+            
+            # 检查每个prefab文件
+            for file_path in timeline_prefabs:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 解析JSON结构
+                    import json
+                    try:
+                        prefab_data = json.loads(content)
+                    except json.JSONDecodeError:
+                        # 如果不是有效的JSON，跳过
+                        continue
+                    
+                    # 检查m_IdentifierMap中是否有未归一化的动画组件
+                    identifier_map = prefab_data.get('m_IdentifierMap', [])
+                    if not identifier_map:
+                        continue
+                    
+                    # 统计每个GUID的PersistentID数量
+                    guid_persistent_ids = {}
+                    for item in identifier_map:
+                        first = item.get('first', {})
+                        guid = first.get('m_GUID', '')
+                        persistent_id = first.get('m_PersistentID', 0)
+                        
+                        if guid and persistent_id:
+                            if guid not in guid_persistent_ids:
+                                guid_persistent_ids[guid] = []
+                            guid_persistent_ids[guid].append(persistent_id)
+                    
+                    # 查找有多个PersistentID的GUID（未归一化）
+                    unnormalized_guids = []
+                    for guid, persistent_ids in guid_persistent_ids.items():
+                        if len(persistent_ids) > 1:
+                            unnormalized_guids.append({
+                                'guid': guid,
+                                'count': len(persistent_ids)
+                            })
+                    
+                    # 检查m_ObjectList是否有多余的对象
+                    object_list = prefab_data.get('m_ObjectList', [])
+                    total_objects = len(object_list)
+                    total_identifiers = len(identifier_map)
+                    
+                    # 如果发现未归一化的情况，报错
+                    if unnormalized_guids:
+                        issues.append({
+                            'file': file_path,
+                            'type': 'prefab_animation_not_normalized',
+                            'message': f'prefab动画组件未归一化：发现 {len(unnormalized_guids)} 个GUID有多个PersistentID，需要手动归一化后才能上传'
+                        })
+                        self.status_updated.emit(f"❌ 发现未归一化的prefab: {os.path.basename(file_path)}")
+                    
+                except Exception as e:
+                    issues.append({
+                        'file': file_path,
+                        'type': 'prefab_normalization_check_error',
+                        'message': f'prefab归一化检查失败: {str(e)}'
+                    })
+            
+            if issues:
+                error_count = len([i for i in issues if i['type'] == 'prefab_animation_not_normalized'])
+                if error_count > 0:
+                    self.status_updated.emit(f"❌ Timeline/1.prefab检查失败，发现 {error_count} 个未归一化的文件")
+                else:
+                    self.status_updated.emit(f"⚠️ Timeline/1.prefab检查出现 {len(issues)} 个问题")
+            else:
+                self.status_updated.emit("✅ Timeline/1.prefab检查通过，所有动画组件已归一化")
+                
+        except Exception as e:
+            issues.append({
+                'file': 'SYSTEM',
+                'type': 'prefab_normalization_system_error',
+                'message': f'prefab归一化检查系统错误: {str(e)}'
+            })
+        
+        return issues
+
     def _find_template_references(self, content: str) -> List[str]:
         """查找材质文件中的模板引用"""
         template_references = []
@@ -8346,7 +8476,7 @@ class ResourceChecker(QThread):
         blocking_issues = []  # 初始化阻塞性错误列表
         try:
             # 区分阻塞性错误和警告/信息
-            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'potentially_orphaned_file', 'no_template_found'}
+            non_blocking_types = {'meta_missing_git', 'guid_file_update', 'potentially_orphaned_file', 'no_template_found', 'prefab_animation_normalized'}
             blocking_issues = [issue for issue in all_issues if issue.get('type') not in non_blocking_types]
             
             # 按严重程度分类
@@ -8783,6 +8913,42 @@ class ResourceChecker(QThread):
                         'description': '检查过程中发生系统错误',
                         'impact': '无法完成完整检查',
                         'solution': '重新检查，或联系技术支持'
+                    },
+                    # Timeline prefab动画组件归一化检查
+                    'prefab_animation_normalized': {
+                        'icon': '✅',
+                        'title': 'prefab动画组件已自动归一化',
+                        'description': '系统已自动将Timeline/1.prefab的动画组件归一化，删除了多余的动画Element',
+                        'impact': '优化了文件结构，减少了数据冗余',
+                        'solution': '无需操作，系统已自动完成修复'
+                    },
+                    'prefab_animation_not_normalized': {
+                        'icon': '🔴',
+                        'title': 'prefab动画组件未归一化',
+                        'description': 'Timeline/1.prefab的动画组件Animations数组未归一化（Size>1）',
+                        'impact': '必须归一化才能上传，否则会导致动画数据冗余和文件结构混乱',
+                        'solution': '请在Unity中手动将SkeletonAnimation组件的Animations数组Size设置为1，只保留第一个Element，然后重新上传'
+                    },
+                    'prefab_normalization_save_error': {
+                        'icon': '🔴',
+                        'title': 'prefab归一化保存失败',
+                        'description': '归一化处理完成但无法保存修改后的文件',
+                        'impact': '文件仍然未归一化',
+                        'solution': '检查文件权限，确保文件未被锁定，然后重试'
+                    },
+                    'prefab_normalization_check_error': {
+                        'icon': '🟡',
+                        'title': 'prefab归一化处理失败',
+                        'description': 'Timeline/1.prefab归一化处理过程中发生异常',
+                        'impact': '无法自动完成归一化',
+                        'solution': '检查prefab文件格式是否正确，或手动在Unity中处理'
+                    },
+                    'prefab_normalization_system_error': {
+                        'icon': '🔴',
+                        'title': 'prefab归一化系统错误',
+                        'description': 'prefab归一化系统发生严重错误',
+                        'impact': '无法进行prefab归一化处理',
+                        'solution': '联系技术支持'
                     }
                 }
                 
@@ -14680,11 +14846,11 @@ class PathMappingRuleDialog(QDialog):
         help_text = QTextEdit()
         help_text.setMaximumHeight(120)
         help_text.setReadOnly(True)
-        help_text.setHtml("""
+        help_text.setHtml(r"""
         <b>正则表达式帮助:</b><br>
-        • <code>^Assets[\\\\\/]entity[\\\\\/]</code> - 匹配以 Assets\\entity\\ 或 Assets/entity/ 开头的路径<br>
-        • <code>^Assets[\\\\\/]ui[\\\\\/]</code> - 匹配以 Assets\\ui\\ 或 Assets/ui/ 开头的路径<br>
-        • 目标模式示例: <code>Assets\\\\Resources\\\\minigame\\\\entity\\\\</code><br>
+        • <code>^Assets[\\\/]entity[\\\/]</code> - 匹配以 Assets\entity\ 或 Assets/entity/ 开头的路径<br>
+        • <code>^Assets[\\\/]ui[\\\/]</code> - 匹配以 Assets\ui\ 或 Assets/ui/ 开头的路径<br>
+        • 目标模式示例: <code>Assets\\Resources\\minigame\\entity\\</code><br>
         • 优先级数字越小优先级越高
         """)
         layout.addWidget(help_text)

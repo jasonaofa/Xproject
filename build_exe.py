@@ -213,16 +213,27 @@ def main():
     return True
 
 if __name__ == "__main__":
-    # 将输出同时写入文件和控制台
+    # 设置控制台编码为UTF-8
     import sys
+    import io
+    
+    # 修复Windows控制台的UTF-8编码问题
+    if sys.platform == 'win32':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
     
     class TeeOutput:
         def __init__(self, *files):
             self.files = files
         def write(self, obj):
             for f in self.files:
-                f.write(obj)
-                f.flush()
+                try:
+                    f.write(obj)
+                    f.flush()
+                except UnicodeEncodeError:
+                    # 如果遇到编码错误，尝试用ASCII替换
+                    f.write(obj.encode('ascii', 'replace').decode('ascii'))
+                    f.flush()
         def flush(self):
             for f in self.files:
                 f.flush()
