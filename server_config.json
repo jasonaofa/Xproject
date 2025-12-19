@@ -6,7 +6,7 @@
   "endpoints": {
     "local": "http://localhost:8002/api",
     "lan": "http://AUTO_DETECT:8002/api",
-    "manual_lan": "http://10.0.6.167:8002/api"
+    "manual_lan": "http://10.0.4.77:8002/api"
   },
   "instructions": {
     "setup": [

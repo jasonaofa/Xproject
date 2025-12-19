@@ -252,18 +252,28 @@ if __name__ == "__main__":
             if success:
                 print("\n✅ 打包成功完成！")
                 print("日志文件已保存到: build_log.txt")
-                input("\n按Enter键退出...")
+                # 尝试等待用户输入，如果在后台运行则跳过
+                try:
+                    input("\n按Enter键退出...")
+                except (EOFError, OSError):
+                    pass  # 后台运行时跳过
             else:
                 print("\n❌ 打包失败！")
                 print("详细信息请查看: build_log.txt")
-                input("\n按Enter键退出...")
+                try:
+                    input("\n按Enter键退出...")
+                except (EOFError, OSError):
+                    pass
         except KeyboardInterrupt:
             print("\n\n用户取消操作")
         except Exception as e:
             print(f"\n❌ 发生未预期的错误: {str(e)}")
             import traceback
             traceback.print_exc()
-            input("按Enter键退出...")
+            try:
+                input("按Enter键退出...")
+            except (EOFError, OSError):
+                pass
         finally:
             # 恢复原始输出
             sys.stdout = original_stdout
