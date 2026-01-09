@@ -7263,7 +7263,9 @@ class ResourceChecker(QThread):
             'Character_PBR_Special_Opaque.templatemat',
             'Character_PBR_Special_Translucent.templatemat',
 
-
+            'pbr_entity_mask.templatemat',
+            'pbr_entity_opaque.templatemat',
+            'pbr_entity_translucent.templatemat',
             
             # 🆕 通用模板 - DefaultToonMat可以在所有路径下使用
             'DefaultToonMat.templatemat',
@@ -10579,19 +10581,9 @@ class ArtResourceManager(QMainWindow):
         self.load_settings()
     
     def _read_current_version(self):
-        """从version.json文件读取当前版本"""
-        try:
-            version_file = os.path.join(os.path.dirname(__file__), "version.json")
-            if os.path.exists(version_file):
-                with open(version_file, 'r', encoding='utf-8') as f:
-                    version_data = json.load(f)
-                    return version_data.get('version', '1.0.0')
-            else:
-                print("⚠️ version.json文件不存在，使用默认版本")
-                return '1.0.0'
-        except Exception as e:
-            print(f"⚠️ 读取版本文件失败: {e}")
-            return '1.0.0'
+        """获取当前版本号（硬编码在程序中）"""
+        # 版本号硬编码在程序中，不依赖外部配置文件
+        return '1.0.27'
     
     def _get_lan_server_url(self):
         """获取局域网服务器地址"""
