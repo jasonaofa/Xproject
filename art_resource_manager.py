@@ -7463,8 +7463,9 @@ class ResourceChecker(QThread):
         
         规则说明：
         - 只检测Timeline文件夹下的1.prefab文件
-        - 如果SkeletonAnimation组件的Animations数组Size>1，报错阻止上传
-        - 检测标志：m_IdentifierMap中有多个相同GUID但不同PersistentID的条目
+        - 检查m_Modifications中是否存在m_AnimationClips数组大小>1的修改
+        - 检测标志：m_Modifications中存在m_AnimationClips.Array.size > 1 或 m_AnimationClips.Array.data[1+]的修改
+        - 归一化的prefab不应该有这些修改（数组大小应为默认的1）
         - 不修改文件，需要用户手动在Unity中归一化
         """
         issues = []
@@ -7517,45 +7518,70 @@ class ResourceChecker(QThread):
                         # 如果不是有效的JSON，跳过
                         continue
                     
-                    # 检查m_IdentifierMap中是否有未归一化的动画组件
-                    identifier_map = prefab_data.get('m_IdentifierMap', [])
-                    if not identifier_map:
-                        continue
+                    # 检查所有PrefabInstance的m_Modifications
+                    unnormalized_found = False
+                    animation_clip_size = None
+                    animation_clip_data_indices = []
                     
-                    # 统计每个GUID的PersistentID数量
-                    guid_persistent_ids = {}
-                    for item in identifier_map:
-                        first = item.get('first', {})
-                        guid = first.get('m_GUID', '')
-                        persistent_id = first.get('m_PersistentID', 0)
+                    # 遍历所有对象，查找PrefabInstance
+                    for key, obj_data in prefab_data.items():
+                        if not key.startswith('m_Object_'):
+                            continue
                         
-                        if guid and persistent_id:
-                            if guid not in guid_persistent_ids:
-                                guid_persistent_ids[guid] = []
-                            guid_persistent_ids[guid].append(persistent_id)
-                    
-                    # 查找有多个PersistentID的GUID（未归一化）
-                    unnormalized_guids = []
-                    for guid, persistent_ids in guid_persistent_ids.items():
-                        if len(persistent_ids) > 1:
-                            unnormalized_guids.append({
-                                'guid': guid,
-                                'count': len(persistent_ids)
-                            })
-                    
-                    # 检查m_ObjectList是否有多余的对象
-                    object_list = prefab_data.get('m_ObjectList', [])
-                    total_objects = len(object_list)
-                    total_identifiers = len(identifier_map)
+                        prefab_instance = obj_data.get('PrefabInstance', {})
+                        if not prefab_instance:
+                            continue
+                        
+                        modification_container = prefab_instance.get('m_ModificationContianer', {})
+                        if not modification_container:
+                            continue
+                        
+                        modifications = modification_container.get('m_Modifications', [])
+                        if not modifications:
+                            continue
+                        
+                        # 检查每个修改项
+                        for mod in modifications:
+                            property_path = mod.get('propertyPath', '')
+                            
+                            # 检查m_AnimationClips.Array.size
+                            if property_path == 'm_AnimationClips.Array.size':
+                                size_value = mod.get('value', '')
+                                try:
+                                    size = int(size_value)
+                                    if size > 1:
+                                        unnormalized_found = True
+                                        animation_clip_size = size
+                                except (ValueError, TypeError):
+                                    pass
+                            
+                            # 检查m_AnimationClips.Array.data[1]或更高索引
+                            elif property_path.startswith('m_AnimationClips.Array.data['):
+                                # 提取索引，例如 "m_AnimationClips.Array.data[1]" -> 1
+                                import re
+                                match = re.search(r'\[(\d+)\]', property_path)
+                                if match:
+                                    index = int(match.group(1))
+                                    if index >= 1:  # data[1]或更高索引表示未归一化
+                                        unnormalized_found = True
+                                        animation_clip_data_indices.append(index)
                     
                     # 如果发现未归一化的情况，报错
-                    if unnormalized_guids:
+                    if unnormalized_found:
+                        details = []
+                        if animation_clip_size is not None:
+                            details.append(f"数组大小={animation_clip_size}")
+                        if animation_clip_data_indices:
+                            indices_str = ', '.join(map(str, sorted(animation_clip_data_indices)))
+                            details.append(f"存在data[{indices_str}]")
+                        
+                        detail_msg = '，'.join(details) if details else '存在m_AnimationClips数组修改'
                         issues.append({
                             'file': file_path,
                             'type': 'prefab_animation_not_normalized',
-                            'message': f'prefab动画组件未归一化：发现 {len(unnormalized_guids)} 个GUID有多个PersistentID，需要手动归一化后才能上传'
+                            'message': f'prefab动画组件未归一化：{detail_msg}，需要手动归一化后才能上传'
                         })
-                        self.status_updated.emit(f"❌ 发现未归一化的prefab: {os.path.basename(file_path)}")
+                        self.status_updated.emit(f"❌ 发现未归一化的prefab: {os.path.basename(file_path)} ({detail_msg})")
                     
                 except Exception as e:
                     issues.append({
