@@ -10605,11 +10605,16 @@ class ArtResourceManager(QMainWindow):
         
         self.init_ui()
         self.load_settings()
+        
+        # 🆕 启动时自动检查更新（延迟执行，确保UI完全初始化）
+        self.auto_checking_update = True  # 标记为自动检查模式
+        if self.hot_updater:
+            QTimer.singleShot(1000, lambda: self.check_for_updates(silent=True))  # 延迟1秒后静默检查更新
     
     def _read_current_version(self):
         """获取当前版本号（硬编码在程序中）"""
         # 版本号硬编码在程序中，不依赖外部配置文件
-        return '1.0.27'
+        return '1.0.28'
     
     def _get_lan_server_url(self):
         """获取局域网服务器地址"""
@@ -13953,10 +13958,15 @@ class ArtResourceManager(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"智能修复异常：{str(e)}")
     
-    def check_for_updates(self):
-        """检查更新"""
+    def check_for_updates(self, silent=False):
+        """检查更新
+        
+        Args:
+            silent: 是否为静默检查（不显示状态消息）
+        """
         if not self.hot_updater:
-            QMessageBox.information(self, "提示", "热更新功能不可用")
+            if not silent:
+                QMessageBox.information(self, "提示", "热更新功能不可用")
             return
         
         # 在单独线程中检查更新，避免阻塞UI
@@ -13966,12 +13976,20 @@ class ArtResourceManager(QMainWindow):
         self.update_thread.check_failed.connect(self.on_update_check_failed)
         self.update_thread.start()
         
-        # 显示检查中的状态
-        self.statusBar().showMessage("正在检查更新...")
+        # 显示检查中的状态（静默模式下不显示）
+        if not silent:
+            self.statusBar().showMessage("正在检查更新...")
+        else:
+            # 静默模式下只在控制台输出
+            print("🔍 正在后台检查更新...")
     
     def on_update_found(self, update_info):
         """发现更新时的处理"""
         self.statusBar().showMessage("发现新版本!")
+        
+        # 重置自动检查标志
+        if hasattr(self, 'auto_checking_update'):
+            self.auto_checking_update = False
         
         # 显示更新对话框
         dialog = UpdateDialog(update_info, self)
@@ -13980,13 +13998,27 @@ class ArtResourceManager(QMainWindow):
     
     def on_no_update(self):
         """没有更新时的处理"""
-        self.statusBar().showMessage("当前已是最新版本")
-        QMessageBox.information(self, "检查更新", "当前已是最新版本！")
+        # 如果是自动检查模式，不显示消息框，只更新状态栏
+        if hasattr(self, 'auto_checking_update') and self.auto_checking_update:
+            self.statusBar().showMessage("当前已是最新版本", 3000)  # 显示3秒后消失
+            print("✅ 当前已是最新版本")
+            self.auto_checking_update = False  # 重置标志
+        else:
+            # 手动检查时显示消息框
+            self.statusBar().showMessage("当前已是最新版本")
+            QMessageBox.information(self, "检查更新", "当前已是最新版本！")
     
     def on_update_check_failed(self, error_msg):
         """更新检查失败时的处理"""
-        self.statusBar().showMessage("更新检查失败")
-        QMessageBox.warning(self, "更新检查失败", f"无法检查更新：\n{error_msg}")
+        # 如果是自动检查模式，不显示错误对话框，只记录日志
+        if hasattr(self, 'auto_checking_update') and self.auto_checking_update:
+            self.statusBar().showMessage("更新检查失败", 3000)  # 显示3秒后消失
+            print(f"⚠️ 更新检查失败: {error_msg}")
+            self.auto_checking_update = False  # 重置标志
+        else:
+            # 手动检查时显示错误对话框
+            self.statusBar().showMessage("更新检查失败")
+            QMessageBox.warning(self, "更新检查失败", f"无法检查更新：\n{error_msg}")
     
     def start_update(self, update_info):
         """开始更新"""
