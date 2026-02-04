@@ -13,6 +13,7 @@ import platform
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Set, Tuple, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 添加Windows特定的subprocess标志
 if platform.system() == 'Windows':
@@ -1294,146 +1295,122 @@ class GitGuidCacheManager:
         
         return meta_files
     
-    def _process_meta_files(self, meta_files: List[str], progress_callback=None) -> Dict[str, Dict[str, str]]:
-        """处理meta文件列表，提取GUID信息"""
-        if progress_callback:
-            progress_callback(f"🔍 [DEBUG] 开始处理 {len(meta_files)} 个meta文件")
-            # 显示前几个文件样本
-            progress_callback(f"🔍 [DEBUG] 前5个待处理文件:")
-            for i, file in enumerate(meta_files[:5]):
-                progress_callback(f"   {i+1}. {file}")
+    def _process_single_meta_file(self, rel_meta_path: str) -> Tuple[str, Dict[str, str], str]:
+        """处理单个meta文件（用于多线程）
         
-        guid_mapping = {}
-        total_files = len(meta_files)
-        parse_success = 0
-        parse_failed = 0
-        file_not_found = 0
+        Returns:
+            Tuple[状态, GUID映射数据, 错误信息]
+            状态: 'success', 'not_found', 'parse_failed', 'orphan', 'error'
+        """
+        meta_path = os.path.join(self.git_path, rel_meta_path)
         
-        # 记录样本
-        not_found_samples = []
-        parse_failed_samples = []
+        # 检查文件是否存在
+        if not os.path.exists(meta_path):
+            return ('not_found', {}, rel_meta_path)
         
-        for i, rel_meta_path in enumerate(meta_files):
-            if progress_callback and i % 100 == 0:
-                progress = int((i / total_files) * 100)
-                progress_callback(f"处理meta文件: {i}/{total_files} ({progress}%)")
+        try:
+            guid = self.analyzer.parse_meta_file(meta_path)
             
-            meta_path = os.path.join(self.git_path, rel_meta_path)
-            
-            # 检查文件是否存在
-            if not os.path.exists(meta_path):
-                file_not_found += 1
-                if len(not_found_samples) < 5:  # 记录前5个不存在的文件
-                    not_found_samples.append(rel_meta_path)
-                if file_not_found <= 3 and progress_callback:  # 只显示前3个不存在的文件
-                    progress_callback(f"⚠️ [DEBUG] 文件不存在: {meta_path}")
-                continue
+            if guid and len(guid) == 32:
+                # 计算资源文件路径
+                if rel_meta_path.endswith('.meta'):
+                    rel_resource_path = rel_meta_path[:-5]
+                else:
+                    rel_resource_path = rel_meta_path
                 
-            try:
-                guid = self.analyzer.parse_meta_file(meta_path)
+                # 标准化路径
+                rel_resource_path = rel_resource_path.replace('\\', '/')
+                rel_meta_path = rel_meta_path.replace('\\', '/')
                 
-                if guid and len(guid) == 32:
-                    parse_success += 1
-                    
-                    # 记录前几个成功解析的GUID
-                    if parse_success <= 5 and progress_callback:
-                        progress_callback(f"✅ [DEBUG] 成功解析GUID: {guid} <- {rel_meta_path}")
-                    
-                    # 计算资源文件路径
-                    if rel_meta_path.endswith('.meta'):
-                        rel_resource_path = rel_meta_path[:-5]
-                    else:
-                        rel_resource_path = rel_meta_path
-                    
-                    # 标准化路径
-                    rel_resource_path = rel_resource_path.replace('\\', '/')
-                    rel_meta_path = rel_meta_path.replace('\\', '/')
-                    
-                    # 🚨 关键修复：检查对应的资源文件是否存在
-                    resource_path = os.path.join(self.git_path, rel_resource_path)
-                    if os.path.exists(resource_path):
-                        guid_mapping[guid] = {
+                # 检查对应的资源文件是否存在
+                resource_path = os.path.join(self.git_path, rel_resource_path)
+                if os.path.exists(resource_path):
+                    result = {
+                        guid: {
                             'meta_path': meta_path,
                             'relative_meta_path': rel_meta_path,
                             'relative_resource_path': rel_resource_path,
                             'resource_name': os.path.basename(rel_resource_path)
                         }
-                    else:
-                        if progress_callback and parse_success <= 10:  # 只显示前10个孤儿文件
-                            progress_callback(f"⚠️ [GUID] 发现孤儿meta文件: {rel_meta_path}")
-                            progress_callback(f"   对应资源文件不存在: {rel_resource_path}")
-                            progress_callback(f"   跳过GUID: {guid}")
-                        # 🚨 增强调试：记录被跳过的孤儿GUID
-                        if not hasattr(self, '_orphan_guids_cache'):
-                            self._orphan_guids_cache = set()
-                        self._orphan_guids_cache.add(guid)
-                        # 不添加到guid_mapping中
+                    }
+                    return ('success', result, '')
                 else:
-                    parse_failed += 1
-                    if len(parse_failed_samples) < 5:  # 记录前5个解析失败的文件
-                        parse_failed_samples.append((rel_meta_path, guid))
-                    if parse_failed <= 3 and progress_callback:  # 只显示前3个解析失败的文件
-                        progress_callback(f"❌ [DEBUG] GUID解析失败: {rel_meta_path} -> '{guid}'")
-                        
-                        # 使用调试版本分析前几个失败的文件
-                        if parse_failed <= 2:
-                            progress_callback(f"🔍 [DEBUG] 详细分析第{parse_failed}个失败文件:")
-                            debug_guid = self.analyzer.parse_meta_file_debug(meta_path, show_content=(parse_failed == 1))
-                            if progress_callback and parse_failed == 1:
-                                progress_callback(f"📄 [DEBUG] 如需查看详细内容，请检查控制台输出")
-                    
-            except Exception as e:
-                parse_failed += 1
-                if len(parse_failed_samples) < 5:  # 记录前5个异常文件
-                    parse_failed_samples.append((rel_meta_path, f"异常: {e}"))
-                if parse_failed <= 3 and progress_callback:  # 只显示前3个异常
-                    progress_callback(f"❌ [DEBUG] 解析meta文件异常: {rel_meta_path} - {e}")
-                if progress_callback:
-                    progress_callback(f"解析meta文件失败: {rel_meta_path} - {e}")
+                    return ('orphan', {}, f"{rel_meta_path}|{guid}")
+            else:
+                return ('parse_failed', {}, f"{rel_meta_path}|{guid}")
+                
+        except Exception as e:
+            return ('error', {}, f"{rel_meta_path}|{str(e)}")
+    
+    def _process_meta_files(self, meta_files: List[str], progress_callback=None) -> Dict[str, Dict[str, str]]:
+        """处理meta文件列表，提取GUID信息（多线程优化版本）"""
+        if progress_callback:
+            progress_callback(f"🔍 开始处理 {len(meta_files)} 个meta文件（多线程加速）")
+        
+        guid_mapping = {}
+        total_files = len(meta_files)
+        processed = 0
+        parse_success = 0
+        parse_failed = 0
+        file_not_found = 0
+        orphan_count = 0
+        error_count = 0
+        
+        # 使用线程池处理文件（根据CPU核心数自动调整线程数）
+        max_workers = min(32, (os.cpu_count() or 4) * 4)  # 最多32个线程
         
         if progress_callback:
-            progress_callback(f"🔍 [DEBUG] 处理完成统计:")
+            progress_callback(f"🚀 使用 {max_workers} 个线程并行处理...")
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_file = {executor.submit(self._process_single_meta_file, meta_file): meta_file 
+                             for meta_file in meta_files}
+            
+            # 处理完成的任务
+            for future in as_completed(future_to_file):
+                processed += 1
+                
+                # 更新进度（每100个文件报告一次）
+                if progress_callback and processed % 100 == 0:
+                    progress = int((processed / total_files) * 100)
+                    progress_callback(f"处理meta文件: {processed}/{total_files} ({progress}%) - 成功: {parse_success}")
+                
+                try:
+                    status, result, info = future.result()
+                    
+                    if status == 'success':
+                        parse_success += 1
+                        guid_mapping.update(result)
+                    elif status == 'not_found':
+                        file_not_found += 1
+                    elif status == 'parse_failed':
+                        parse_failed += 1
+                    elif status == 'orphan':
+                        orphan_count += 1
+                        # 记录孤儿GUID
+                        if '|' in info:
+                            _, guid = info.split('|', 1)
+                            if not hasattr(self, '_orphan_guids_cache'):
+                                self._orphan_guids_cache = set()
+                            self._orphan_guids_cache.add(guid)
+                    elif status == 'error':
+                        error_count += 1
+                        
+                except Exception as e:
+                    error_count += 1
+                    if progress_callback and error_count <= 3:
+                        progress_callback(f"❌ 处理任务异常: {e}")
+        
+        if progress_callback:
+            progress_callback(f"✅ 处理完成统计:")
             progress_callback(f"   📄 总文件数: {total_files}")
             progress_callback(f"   ✅ 解析成功: {parse_success}")
             progress_callback(f"   ❌ 解析失败: {parse_failed}")
             progress_callback(f"   🚫 文件不存在: {file_not_found}")
-            progress_callback(f"   🔑 提取GUID数: {len(guid_mapping)}")
-            
-            # 显示文件不存在的样本 - 已禁用此检测
-            # if not_found_samples:
-            #     progress_callback(f"🚫 [DEBUG] 文件不存在样本:")
-            #     for i, sample in enumerate(not_found_samples):
-            #         full_path = os.path.join(self.git_path, sample)
-            #         progress_callback(f"   {i+1}. {sample}")
-            #         progress_callback(f"      完整路径: {full_path}")
-            #         progress_callback(f"      父目录存在: {os.path.exists(os.path.dirname(full_path))}")
-            
-            # 显示解析失败的样本
-            if parse_failed_samples:
-                progress_callback(f"❌ [DEBUG] 解析失败样本:")
-                for i, (sample_path, reason) in enumerate(parse_failed_samples):
-                    progress_callback(f"   {i+1}. {sample_path} -> {reason}")
-                    
-                    # 对第一个失败文件进行深度分析
-                    if i == 0:
-                        progress_callback(f"🔍 [DEBUG] 第一个失败文件深度分析:")
-                        full_path = os.path.join(self.git_path, sample_path)
-                        if os.path.exists(full_path):
-                            try:
-                                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                    content = f.read()
-                                    progress_callback(f"   文件大小: {len(content)} 字符")
-                                    progress_callback(f"   前200字符: {repr(content[:200])}")
-                                    # 查找包含guid的行
-                                    lines = content.split('\n')
-                                    guid_lines = [line.strip() for line in lines if 'guid' in line.lower()]
-                                    if guid_lines:
-                                        progress_callback(f"   包含'guid'的行数: {len(guid_lines)}")
-                                        progress_callback(f"   第一行: {repr(guid_lines[0])}")
-                                    else:
-                                        progress_callback(f"   未找到包含'guid'的行")
-                            except Exception as e:
-                                progress_callback(f"   读取文件异常: {e}")
+            progress_callback(f"   👻 孤儿meta文件: {orphan_count}")
+            progress_callback(f"   ⚠️ 处理异常: {error_count}")
+            progress_callback(f"   🔑 有效GUID数: {len(guid_mapping)}")
         
         return guid_mapping
     
@@ -1603,6 +1580,456 @@ class GitGuidCacheManager:
             "last_commit_hash": cache_data.get("last_commit_hash", "")[:8] + "..." if cache_data.get("last_commit_hash") else "",
             "total_guids": cache_data.get("total_guids", 0),
             "cache_file_size": os.path.getsize(self.cache_file) if os.path.exists(self.cache_file) else 0
+        }
+
+
+class SvnGuidCacheManager:
+    """SVN仓库GUID缓存管理器 - 用于优化本地SVN仓库GUID扫描性能"""
+    
+    def __init__(self, svn_path: str):
+        self.svn_path = svn_path
+        # 将缓存文件放在.svn目录下，避免被SVN追踪
+        svn_meta_dir = os.path.join(svn_path, '.svn')
+        if os.path.exists(svn_meta_dir):
+            self.cache_file = os.path.join(svn_meta_dir, 'guid_cache.json')
+            self.cache_dir = svn_meta_dir  # 设置cache_dir为.svn目录
+        else:
+            # 如果.svn目录不存在，回退到.guid_cache目录
+            self.cache_dir = os.path.join(svn_path, '.guid_cache')
+            self.cache_file = os.path.join(self.cache_dir, 'guid_cache.json')
+            try:
+                os.makedirs(self.cache_dir, exist_ok=True)
+            except:
+                pass
+        
+        self.cache_data = None
+        self.analyzer = ResourceDependencyAnalyzer()
+    
+    def get_svn_guids(self, progress_callback=None) -> Dict[str, str]:
+        """获取SVN仓库GUID映射，支持增量更新
+        
+        Returns:
+            Dict[str, str]: {guid: meta_file_path}
+        """
+        if progress_callback:
+            progress_callback("🔍 检查SVN GUID缓存状态...")
+        
+        # 加载缓存
+        cache_data = self._load_cache()
+        cached_guids = cache_data.get('guid_mapping', {})
+        last_scan_time = cache_data.get('last_scan_time', 0)
+        
+        if progress_callback:
+            if last_scan_time > 0:
+                readable_time = cache_data.get('last_scan_time_readable', 
+                                               time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_scan_time)))
+                progress_callback(f"📊 缓存信息: 上次扫描={readable_time}, 缓存GUID数={len(cached_guids)}")
+            else:
+                progress_callback(f"📊 缓存信息: 首次扫描, 缓存GUID数={len(cached_guids)}")
+        
+        # 检查是否需要更新（基于文件修改时间）
+        needs_update, reason = self._should_update_cache(last_scan_time)
+        
+        if needs_update:
+            if progress_callback:
+                progress_callback(f"🔄 {reason}，开始增量更新...")
+            
+            # 增量扫描：只检查修改时间晚于上次扫描的文件
+            updated_guids, removed_guids = self._incremental_scan(last_scan_time, cached_guids, progress_callback)
+            
+            # 移除已删除的GUID
+            for guid in removed_guids:
+                if guid in cached_guids:
+                    del cached_guids[guid]
+            
+            # 合并更新的GUID
+            cached_guids.update(updated_guids)
+            
+            # 保存缓存
+            current_timestamp = time.time()
+            new_cache_data = {
+                'version': '1.0',
+                'last_scan_time': current_timestamp,
+                'last_scan_time_readable': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_timestamp)),
+                'svn_path': self.svn_path,
+                'total_guids': len(cached_guids),
+                'guid_mapping': cached_guids
+            }
+            
+            if progress_callback:
+                progress_callback(f"📅 缓存时间戳: {new_cache_data['last_scan_time_readable']}")
+            
+            if self._save_cache(new_cache_data):
+                if progress_callback:
+                    progress_callback(f"💾 SVN GUID缓存已更新，共 {len(cached_guids)} 个GUID")
+            else:
+                if progress_callback:
+                    progress_callback("⚠️ SVN GUID缓存保存失败")
+        else:
+            if progress_callback:
+                progress_callback(f"✅ 使用SVN GUID缓存，共 {len(cached_guids)} 个GUID")
+        
+        return cached_guids
+    
+    def _should_update_cache(self, last_scan_time: float) -> tuple:
+        """检查是否需要更新缓存（智能检测 + 并行遍历）
+        
+        Returns:
+            tuple: (needs_update: bool, reason: str)
+        """
+        # 首次扫描
+        if not last_scan_time or last_scan_time == 0:
+            return True, "首次扫描"
+        
+        # 检查缓存文件是否存在
+        if not os.path.exists(self.cache_file):
+            return True, "缓存文件不存在"
+        
+        # 检查SVN根目录是否存在
+        if not os.path.exists(self.svn_path):
+            return False, "SVN路径不存在"
+        
+        # 检查缓存年龄
+        current_time = time.time()
+        cache_age_hours = (current_time - last_scan_time) / 3600
+        
+        # 检查时间戳是否异常
+        if cache_age_hours < -1:
+            print(f"⚠️ [CACHE] 检测到异常时间戳：缓存时间在未来 {abs(cache_age_hours):.1f} 小时")
+            print(f"   当前时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(current_time))}")
+            print(f"   缓存时间: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_scan_time))}")
+            return True, f"缓存时间戳异常（在未来 {abs(cache_age_hours):.1f} 小时）"
+        
+        # 缓存过期检查（超过24小时）
+        if cache_age_hours > 24:
+            return True, f"缓存已过期（{cache_age_hours:.1f}小时）"
+        
+        # 🚀 策略1: 检查 SVN 版本号（最快最准）
+        try:
+            current_revision = self._get_svn_revision()
+            if current_revision is not None:
+                cache_data = self._load_cache()
+                cached_revision = cache_data.get('svn_revision', None)
+                
+                if cached_revision is None:
+                    print(f"🔍 [CACHE] 缓存中无版本号记录，需要更新")
+                    return True, "缓存中无 SVN 版本号"
+                
+                if current_revision != cached_revision:
+                    print(f"🔍 [CACHE] SVN 版本号已变化:")
+                    print(f"   当前版本: {current_revision}")
+                    print(f"   缓存版本: {cached_revision}")
+                    return True, f"SVN 版本号已变化（{cached_revision} → {current_revision}）"
+                
+                print(f"✅ [CACHE] SVN 版本号未变化（{current_revision}）")
+        except Exception as e:
+            print(f"⚠️ [CACHE] SVN 版本号检查失败: {e}")
+        
+        # 🚀 策略2: 检查 SVN 元数据文件
+        try:
+            svn_meta_dir = os.path.join(self.svn_path, '.svn')
+            if os.path.exists(svn_meta_dir):
+                wc_db = os.path.join(svn_meta_dir, 'wc.db')
+                if os.path.exists(wc_db):
+                    wc_db_mtime = os.path.getmtime(wc_db)
+                    if wc_db_mtime > last_scan_time:
+                        wc_db_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(wc_db_mtime))
+                        cache_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_scan_time))
+                        print(f"🔍 [CACHE] SVN 元数据已更新:")
+                        print(f"   wc.db 修改时间: {wc_db_time}")
+                        print(f"   缓存扫描时间: {cache_time}")
+                        return True, "检测到 SVN 仓库更新（wc.db 已变更）"
+                
+                entries_file = os.path.join(svn_meta_dir, 'entries')
+                if os.path.exists(entries_file):
+                    entries_mtime = os.path.getmtime(entries_file)
+                    if entries_mtime > last_scan_time:
+                        entries_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(entries_mtime))
+                        cache_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(last_scan_time))
+                        print(f"🔍 [CACHE] SVN 元数据已更新:")
+                        print(f"   entries 修改时间: {entries_time}")
+                        print(f"   缓存扫描时间: {cache_time}")
+                        return True, "检测到 SVN 仓库更新（entries 已变更）"
+                
+                print(f"✅ [CACHE] SVN 元数据未变更")
+        except Exception as e:
+            print(f"⚠️ [CACHE] SVN 元数据检查失败: {e}")
+        
+        # 🚀 策略3: 并行遍历检测所有文件变更
+        print(f"🔍 [CACHE] 开始并行遍历检测文件变更...")
+        
+        try:
+            has_changes, changed_count, total_checked, elapsed = self._parallel_scan_for_changes(last_scan_time)
+            
+            print(f"✅ [CACHE] 遍历完成: 检查了 {total_checked} 个文件，耗时 {elapsed:.1f} 秒")
+            
+            if has_changes:
+                print(f"🔍 [CACHE] 发现 {changed_count} 个文件已变更")
+                return True, f"检测到 {changed_count} 个文件变更"
+            
+            print(f"✅ [CACHE] 所有文件未变更")
+            
+        except Exception as e:
+            print(f"⚠️ [CACHE] 并行遍历检测失败: {e}")
+            import traceback
+            traceback.print_exc()
+            # 为了安全起见，建议更新缓存
+            return True, f"文件遍历检测失败: {e}"
+        
+        return False, "缓存有效"
+    
+    def _parallel_scan_for_changes(self, last_scan_time: float) -> tuple:
+        """并行遍历检测文件变更
+        
+        Args:
+            last_scan_time: 上次扫描时间戳
+            
+        Returns:
+            tuple: (has_changes: bool, changed_count: int, total_checked: int, elapsed: float)
+        """
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        start_time = time.time()
+        
+        # 步骤1: 收集所有需要检查的 meta 文件
+        meta_files = []
+        try:
+            for root, dirs, files in os.walk(self.svn_path):
+                # 跳过隐藏目录和缓存目录
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d != '.guid_cache']
+                
+                for file in files:
+                    if file.endswith('.meta'):
+                        meta_files.append(os.path.join(root, file))
+        except Exception as e:
+            print(f"⚠️ [CACHE] 收集文件列表失败: {e}")
+            return True, 0, 0, 0.0
+        
+        total_files = len(meta_files)
+        if total_files == 0:
+            return False, 0, 0, time.time() - start_time
+        
+        print(f"📋 [CACHE] 找到 {total_files} 个 meta 文件，开始并行检测...")
+        
+        # 步骤2: 并行检查文件修改时间
+        changed_count = 0
+        checked_count = 0
+        has_changes = False
+        
+        def check_file_mtime(file_path):
+            """检查单个文件的修改时间"""
+            try:
+                mtime = os.path.getmtime(file_path)
+                return mtime > last_scan_time
+            except:
+                return False
+        
+        # 使用线程池并行检查
+        max_workers = min(32, os.cpu_count() * 4)  # 线程数：CPU核心数的4倍，最多32个
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_file = {executor.submit(check_file_mtime, f): f for f in meta_files}
+            
+            # 收集结果
+            for future in as_completed(future_to_file):
+                checked_count += 1
+                
+                try:
+                    is_changed = future.result()
+                    if is_changed:
+                        changed_count += 1
+                        has_changes = True
+                except Exception as e:
+                    # 单个文件检查失败，为安全起见认为有变更
+                    changed_count += 1
+                    has_changes = True
+                
+                # 每检查 1000 个文件输出一次进度
+                if checked_count % 1000 == 0:
+                    elapsed = time.time() - start_time
+                    speed = checked_count / elapsed if elapsed > 0 else 0
+                    print(f"   已检查 {checked_count}/{total_files} 个文件 ({speed:.0f} 文件/秒)，发现 {changed_count} 个变更")
+        
+        elapsed = time.time() - start_time
+        return has_changes, changed_count, checked_count, elapsed
+    
+    def _incremental_scan(self, last_scan_time: float, cached_guids: dict, progress_callback=None) -> tuple:
+        """增量扫描：只扫描修改过的文件
+        
+        Returns:
+            tuple: (updated_guids: dict, removed_guids: set)
+        """
+        updated_guids = {}
+        removed_guids = set()
+        scan_count = 0
+        update_count = 0
+        skip_count = 0
+        
+        if progress_callback:
+            progress_callback("🔍 开始增量扫描SVN仓库...")
+        
+        # 记录缓存中的所有meta文件路径
+        cached_meta_files = set(cached_guids.values())
+        found_meta_files = set()
+        
+        try:
+            for root, dirs, files in os.walk(self.svn_path):
+                # 跳过隐藏目录和缓存目录
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d != '.guid_cache']
+                
+                for file in files:
+                    if file.endswith('.meta'):
+                        meta_file = os.path.join(root, file)
+                        found_meta_files.add(meta_file)
+                        scan_count += 1
+                        
+                        try:
+                            # 检查文件修改时间
+                            file_mtime = os.path.getmtime(meta_file)
+                            
+                            # 检查对应的资源文件是否存在
+                            resource_file = meta_file[:-5]
+                            if not os.path.exists(resource_file):
+                                skip_count += 1
+                                continue
+                            
+                            # 如果文件是新的或已修改
+                            if file_mtime > last_scan_time:
+                                # 解析GUID
+                                guid = self.analyzer.parse_meta_file(meta_file)
+                                if guid:
+                                    updated_guids[guid] = meta_file
+                                    update_count += 1
+                                    
+                                    if update_count % 100 == 0 and progress_callback:
+                                        progress_callback(f"  已更新 {update_count} 个GUID...")
+                            else:
+                                # 文件未修改，但需要确保在缓存中
+                                # 查找该meta文件对应的GUID
+                                found_in_cache = False
+                                for cached_guid, cached_path in cached_guids.items():
+                                    if cached_path == meta_file:
+                                        found_in_cache = True
+                                        break
+                                
+                                if not found_in_cache:
+                                    # 缓存中没有这个文件，需要解析
+                                    guid = self.analyzer.parse_meta_file(meta_file)
+                                    if guid:
+                                        updated_guids[guid] = meta_file
+                                        update_count += 1
+                        
+                        except Exception as e:
+                            if progress_callback and scan_count <= 3:
+                                progress_callback(f"  ⚠️ 处理文件失败: {os.path.basename(meta_file)} - {e}")
+                
+                # 每扫描1000个文件输出一次进度
+                if scan_count % 1000 == 0 and progress_callback:
+                    progress_callback(f"  已扫描 {scan_count} 个meta文件...")
+        
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"❌ 增量扫描异常: {e}")
+        
+        # 检查已删除的文件
+        removed_meta_files = cached_meta_files - found_meta_files
+        if removed_meta_files:
+            # 找出这些文件对应的GUID
+            for guid, meta_path in cached_guids.items():
+                if meta_path in removed_meta_files:
+                    removed_guids.add(guid)
+            
+            if progress_callback:
+                progress_callback(f"🗑️ 检测到 {len(removed_guids)} 个已删除的GUID")
+        
+        if progress_callback:
+            progress_callback(f"✅ 增量扫描完成:")
+            progress_callback(f"   📊 扫描文件: {scan_count} 个")
+            progress_callback(f"   🔄 更新GUID: {update_count} 个")
+            progress_callback(f"   🗑️ 删除GUID: {len(removed_guids)} 个")
+            progress_callback(f"   ⏭️ 跳过孤儿meta: {skip_count} 个")
+        
+        return updated_guids, removed_guids
+    
+    def _load_cache(self) -> dict:
+        """加载缓存"""
+        if self.cache_data is not None:
+            return self.cache_data
+        
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    self.cache_data = json.load(f)
+                return self.cache_data
+            except Exception as e:
+                print(f"加载SVN GUID缓存失败: {e}")
+        
+        # 返回空缓存结构
+        self.cache_data = {
+            'version': '1.0',
+            'last_scan_time': 0,
+            'svn_path': self.svn_path,
+            'total_guids': 0,
+            'guid_mapping': {}
+        }
+        return self.cache_data
+    
+    def _save_cache(self, cache_data: dict) -> bool:
+        """保存缓存"""
+        try:
+            # 确保缓存目录存在
+            cache_dir = os.path.dirname(self.cache_file)
+            if not os.path.exists(cache_dir):
+                print(f"🔧 [CACHE] 创建缓存目录: {cache_dir}")
+                os.makedirs(cache_dir, exist_ok=True)
+            
+            # 检查目录是否可写
+            if not os.access(cache_dir, os.W_OK):
+                print(f"❌ [CACHE] 缓存目录不可写: {cache_dir}")
+                return False
+            
+            # 保存缓存
+            print(f"💾 [CACHE] 保存SVN GUID缓存到: {self.cache_file}")
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+            self.cache_data = cache_data
+            print(f"✅ [CACHE] SVN GUID缓存保存成功，共 {cache_data.get('total_guids', 0)} 个GUID")
+            return True
+        except PermissionError as e:
+            print(f"❌ [CACHE] 保存SVN GUID缓存失败 - 权限不足: {e}")
+            print(f"   缓存文件路径: {self.cache_file}")
+            return False
+        except Exception as e:
+            print(f"❌ [CACHE] 保存SVN GUID缓存失败: {e}")
+            print(f"   缓存文件路径: {self.cache_file}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def clear_cache(self) -> bool:
+        """清除缓存"""
+        try:
+            if os.path.exists(self.cache_file):
+                os.remove(self.cache_file)
+            self.cache_data = None
+            print(f"✅ SVN GUID缓存已清除")
+            return True
+        except Exception as e:
+            print(f"❌ 清除SVN GUID缓存失败: {e}")
+            return False
+    
+    def get_cache_info(self) -> dict:
+        """获取缓存信息"""
+        cache_data = self._load_cache()
+        return {
+            'cache_exists': os.path.exists(self.cache_file),
+            'last_scan_time': cache_data.get('last_scan_time', 0),
+            'total_guids': cache_data.get('total_guids', 0),
+            'cache_file_size': os.path.getsize(self.cache_file) if os.path.exists(self.cache_file) else 0,
+            'svn_path': cache_data.get('svn_path', '')
         }
 
 
@@ -4845,13 +5272,16 @@ class ResourceChecker(QThread):
     git_sync_required = pyqtSignal(dict)  # 新增：Git同步需求信号
     local_deleted_warning = pyqtSignal(list)  # 本地删除但Git存在的警告
     
-    def __init__(self, upload_files, git_manager, target_directory, folder_upload_modes=None):
+    def __init__(self, upload_files, git_manager, target_directory, folder_upload_modes=None, svn_guid_cache=None):
         super().__init__()
         self.upload_files = upload_files
         self.git_manager = git_manager
         self.target_directory = target_directory
         self.folder_upload_modes = folder_upload_modes or {}
         self.analyzer = ResourceDependencyAnalyzer()
+        
+        # 🆕 接收传入的 SVN GUID 缓存
+        self.svn_guid_cache = svn_guid_cache or {}
         
         # 需要检查GUID引用的文件类型（按优先级排序）
         self.high_priority_types = {'.mat', '.controller', '.prefab'}  # 复杂GUID引用
@@ -5742,7 +6172,7 @@ class ResourceChecker(QThread):
             
             self.status_updated.emit("✅ 方法验证通过")
             
-            # 收集SVN中所有资源的GUID
+            # 收集SVN中所有资源的GUID - 使用缓存优化
             self.status_updated.emit("扫描SVN仓库收集所有资源GUID...")
             local_guids = {}  # SVN所有文件的GUID
             upload_guids = {}  # 本次上传文件的GUID
@@ -5768,33 +6198,60 @@ class ResourceChecker(QThread):
             if hasattr(self, 'git_manager') and self.git_manager and self.git_manager.svn_path:
                 svn_root = self.git_manager.svn_path
             
-            if svn_root and os.path.exists(svn_root):
+            # 🚀 使用传入的缓存，而不是重新创建 SvnGuidCacheManager
+            if self.svn_guid_cache:
+                self.status_updated.emit(f"⚡ 使用缓存的 SVN GUID（{len(self.svn_guid_cache)} 个）")
+                local_guids = self.svn_guid_cache
+            elif svn_root and os.path.exists(svn_root):
+                # 回退方案：如果没有传入缓存，则创建新的
+                self.status_updated.emit(f"🔄 未提供缓存，创建新的 SVN GUID 缓存...")
                 self.status_updated.emit(f"SVN根目录: {svn_root}")
                 
-                # 扫描SVN目录
-                meta_count = 0
-                for root, dirs, files in os.walk(svn_root):
-                    # 跳过隐藏目录
-                    dirs[:] = [d for d in dirs if not d.startswith('.')]
+                try:
+                    svn_cache_manager = SvnGuidCacheManager(svn_root)
+                    local_guids = svn_cache_manager.get_svn_guids(
+                        progress_callback=lambda msg: self.status_updated.emit(msg)
+                    )
                     
-                    for file in files:
-                        if file.endswith('.meta'):
-                            meta_file = os.path.join(root, file)
-                            resource_file = meta_file[:-5]
-                            
-                            # 只收集有对应资源文件的meta
-                            if os.path.exists(resource_file):
-                                try:
-                                    guid = self.analyzer.parse_meta_file(meta_file)
-                                    if guid:
-                                        local_guids[guid] = meta_file
-                                        meta_count += 1
-                                        if meta_count % 500 == 0:
-                                            self.status_updated.emit(f"已扫描 {meta_count} 个meta文件...")
-                                except:
-                                    pass
-                
-                self.status_updated.emit(f"✅ SVN扫描完成，共找到 {len(local_guids)} 个本地资源GUID")
+                    # 输出缓存信息
+                    cache_info = svn_cache_manager.get_cache_info()
+                    if cache_info['cache_exists']:
+                        cache_size_kb = cache_info['cache_file_size'] / 1024
+                        self.status_updated.emit(f"📊 SVN缓存信息:")
+                        self.status_updated.emit(f"   📅 上次扫描: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(cache_info['last_scan_time']))}")
+                        self.status_updated.emit(f"   📁 缓存大小: {cache_size_kb:.1f} KB")
+                    
+                    self.status_updated.emit(f"✅ SVN扫描完成，共找到 {len(local_guids)} 个本地资源GUID")
+                    
+                except Exception as e:
+                    # 缓存失败，回退到传统扫描方式
+                    self.status_updated.emit(f"⚠️ SVN缓存系统异常: {e}")
+                    self.status_updated.emit("🔄 回退到传统扫描方式...")
+                    
+                    # 传统扫描方式
+                    meta_count = 0
+                    for root, dirs, files in os.walk(svn_root):
+                        # 跳过隐藏目录
+                        dirs[:] = [d for d in dirs if not d.startswith('.')]
+                        
+                        for file in files:
+                            if file.endswith('.meta'):
+                                meta_file = os.path.join(root, file)
+                                resource_file = meta_file[:-5]
+                                
+                                # 只收集有对应资源文件的meta
+                                if os.path.exists(resource_file):
+                                    try:
+                                        guid = self.analyzer.parse_meta_file(meta_file)
+                                        if guid:
+                                            local_guids[guid] = meta_file
+                                            meta_count += 1
+                                            if meta_count % 500 == 0:
+                                                self.status_updated.emit(f"已扫描 {meta_count} 个meta文件...")
+                                    except:
+                                        pass
+                    
+                    self.status_updated.emit(f"✅ SVN扫描完成，共找到 {len(local_guids)} 个本地资源GUID")
             else:
                 # 降级方案：使用上传文件的GUID
                 self.status_updated.emit("⚠️ 无法获取SVN根目录，使用上传文件GUID")
@@ -7527,7 +7984,7 @@ class ResourceChecker(QThread):
                     for key, obj_data in prefab_data.items():
                         if not key.startswith('m_Object_'):
                             continue
-                        
+                    
                         prefab_instance = obj_data.get('PrefabInstance', {})
                         if not prefab_instance:
                             continue
@@ -8092,7 +8549,7 @@ class ResourceChecker(QThread):
         
         # 检查Git仓库中的GUID
         try:
-            git_guids = self.analyzer._get_git_repository_guids(self.git_manager.repo_path)
+            git_guids = self.analyzer._get_git_repository_guids(self.git_manager.git_path)
             available_guids.update(guid.lower() for guid in git_guids.keys())
         except Exception as e:
             self.status_updated.emit(f"⚠️ 获取Git仓库GUID失败: {str(e)}")
@@ -10555,6 +11012,11 @@ class ArtResourceManager(QMainWindow):
         # 本地删除但Git存在的引用列表
         self.local_deleted_but_git_exists = []
         
+        # 🆕 统一的 SVN GUID 缓存管理
+        self.svn_guid_cache_manager = None  # 缓存管理器实例
+        self.svn_guid_cache = {}            # 缓存的 GUID 映射 {guid: file_path}
+        self.svn_cache_last_update = 0      # 上次更新时间戳
+        
         # 🆕 初始化热更新管理器
         self.hot_updater = None
         if HOT_UPDATE_AVAILABLE:
@@ -10614,7 +11076,7 @@ class ArtResourceManager(QMainWindow):
     def _read_current_version(self):
         """获取当前版本号（硬编码在程序中）"""
         # 版本号硬编码在程序中，不依赖外部配置文件
-        return '1.0.28'
+        return '1.0.33'
     
     def _get_lan_server_url(self):
         """获取局域网服务器地址"""
@@ -10754,6 +11216,14 @@ class ArtResourceManager(QMainWindow):
             help_menu.addAction(check_update_action)
             
             help_menu.addSeparator()
+        
+        # 清除缓存菜单项
+        clear_cache_action = QAction('清除GUID缓存(&C)', self)
+        clear_cache_action.setStatusTip('清除Git和SVN的GUID缓存，下次检查时重新扫描')
+        clear_cache_action.triggered.connect(self.clear_guid_caches)
+        help_menu.addAction(clear_cache_action)
+        
+        help_menu.addSeparator()
         
         # 关于菜单项
         about_action = QAction('关于(&A)', self)
@@ -10952,6 +11422,86 @@ class ArtResourceManager(QMainWindow):
                     
         except Exception as e:
             print(f"❌ 处理删除旧exe失败: {e}")
+    
+    def _ensure_svn_guid_cache(self, force_update=False) -> bool:
+        """
+        确保 SVN GUID 缓存可用（智能更新）
+        
+        Args:
+            force_update: 是否强制更新缓存
+            
+        Returns:
+            bool: 缓存是否可用
+        """
+        svn_path = self.svn_path_edit.text()
+        
+        # 检查 SVN 路径
+        if not svn_path or not os.path.exists(svn_path):
+            self.log_text.append("⚠️ SVN 路径未设置或不存在")
+            return False
+        
+        try:
+            # 检查是否需要重新创建管理器（SVN 路径改变）
+            if self.svn_guid_cache_manager is None or \
+               self.svn_guid_cache_manager.svn_path != svn_path:
+                self.log_text.append(f"🔄 初始化 SVN GUID 缓存管理器...")
+                self.svn_guid_cache_manager = SvnGuidCacheManager(svn_path)
+                force_update = True  # 新管理器需要加载缓存
+            
+            # 检查是否需要更新缓存
+            if force_update or not self.svn_guid_cache:
+                self.log_text.append("🔍 检查 SVN GUID 缓存状态...")
+                
+                # 定义进度回调
+                def progress_callback(msg):
+                    self.log_text.append(msg)
+                    QApplication.processEvents()  # 保持 UI 响应
+                
+                # 加载/更新缓存（内部会自动判断是否需要增量更新）
+                self.svn_guid_cache = self.svn_guid_cache_manager.get_svn_guids(
+                    progress_callback=progress_callback
+                )
+                self.svn_cache_last_update = time.time()
+                
+                self.log_text.append(f"✅ SVN GUID 缓存已就绪，共 {len(self.svn_guid_cache)} 个GUID")
+                return True
+            else:
+                # 缓存已存在，检查是否需要更新（基于时间或文件变化）
+                cache_data = self.svn_guid_cache_manager._load_cache()
+                last_scan_time = cache_data.get('last_scan_time', 0)
+                
+                needs_update, reason = self.svn_guid_cache_manager._should_update_cache(last_scan_time)
+                
+                if needs_update:
+                    self.log_text.append(f"🔄 检测到缓存需要更新: {reason}")
+                    
+                    def progress_callback(msg):
+                        self.log_text.append(msg)
+                        QApplication.processEvents()
+                    
+                    self.svn_guid_cache = self.svn_guid_cache_manager.get_svn_guids(
+                        progress_callback=progress_callback
+                    )
+                    self.svn_cache_last_update = time.time()
+                    
+                    self.log_text.append(f"✅ SVN GUID 缓存已更新，共 {len(self.svn_guid_cache)} 个GUID")
+                else:
+                    self.log_text.append(f"✅ 使用现有 SVN GUID 缓存（{len(self.svn_guid_cache)} 个GUID）")
+                
+                return True
+                
+        except Exception as e:
+            self.log_text.append(f"❌ SVN GUID 缓存初始化失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _invalidate_svn_cache(self):
+        """使 SVN 缓存失效（当 SVN 路径改变时调用）"""
+        self.svn_guid_cache = {}
+        self.svn_guid_cache_manager = None
+        self.svn_cache_last_update = 0
+        self.log_text.append("🔄 SVN GUID 缓存已清空")
     
     def _suppress_pyinstaller_warnings(self):
         """抑制PyInstaller临时目录警告"""
@@ -11718,6 +12268,12 @@ class ArtResourceManager(QMainWindow):
             else:
                 self.log_text.append(f"✅ SVN根目录校验通过: {path}")
             
+            # 🆕 如果路径改变，使缓存失效
+            old_path = self.svn_path_edit.text()
+            if old_path != path:
+                self._invalidate_svn_cache()
+                self.log_text.append(f"🔄 SVN路径已更改，缓存已清空")
+            
             self.svn_path_edit.setText(path)
             self.config_manager.set_svn_path(path)
     
@@ -12095,7 +12651,7 @@ class ArtResourceManager(QMainWindow):
         self.set_window_icon_status("default")
     
     def check_and_push(self):
-        """检查资源（不自动推送）"""
+        """检查资源（集成依赖分析和统一缓存）"""
         if not self.upload_files:
             QMessageBox.warning(self, "警告", "请先选择要上传的文件！")
             return
@@ -12104,45 +12660,120 @@ class ArtResourceManager(QMainWindow):
             QMessageBox.warning(self, "警告", "请先设置Git仓库路径！")
             return
         
+        if not self.svn_path_edit.text():
+            QMessageBox.warning(self, "警告", "请先设置SVN仓库路径！")
+            return
+        
+        self.log_text.append("=" * 60)
+        self.log_text.append("🚀 开始资源检查流程...")
+        self.log_text.append("=" * 60)
+        
+        try:
+            # 🆕 步骤1：确保 SVN GUID 缓存可用
+            self.log_text.append("")
+            self.log_text.append("📦 步骤 1/4：准备 SVN GUID 缓存...")
+            self.log_text.append("-" * 60)
+            
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            
+            if not self._ensure_svn_guid_cache():
+                QMessageBox.warning(
+                    self,
+                    "缓存加载失败",
+                    "SVN GUID 缓存加载失败，无法继续检查"
+                )
+                self.progress_bar.setVisible(False)
+                return
+            
+            # 🆕 步骤2：自动分析并添加依赖文件
+            self.log_text.append("")
+            self.log_text.append("🔍 步骤 2/4：分析文件依赖...")
+            self.log_text.append("-" * 60)
+            
+            dependency_result = self._analyze_dependencies_for_check()
+            
+            if dependency_result is None:
+                # 用户取消了依赖分析
+                self.log_text.append("❌ 用户取消了依赖分析，检查已停止")
+                self.progress_bar.setVisible(False)
+                return
+            
+            # 显示依赖分析结果
+            added_count = dependency_result['added_count']
+            if added_count > 0:
+                self.log_text.append(f"✅ 已自动添加 {added_count} 个依赖文件")
+                self.log_text.append(f"📋 当前上传列表: {len(self.upload_files)} 个文件")
+            else:
+                self.log_text.append(f"✅ 依赖分析完成，无需添加新文件")
+            
+        except Exception as e:
+            self.log_text.append(f"⚠️ 依赖分析失败: {e}")
+            reply = QMessageBox.question(
+                self,
+                "依赖分析失败",
+                f"依赖分析过程中发生错误：\n{str(e)}\n\n是否继续检查资源？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                self.progress_bar.setVisible(False)
+                return
+        
+        # 🆕 步骤3：确认检查参数
+        self.log_text.append("")
+        self.log_text.append("📋 步骤 3/4：确认检查参数...")
+        self.log_text.append("-" * 60)
+        
         reply = QMessageBox.question(
             self, 
             "确认检查资源", 
-            f"即将检查 {len(self.upload_files)} 个文件的资源依赖和GUID冲突，包括：\n\n"
-            "🔄 前置步骤（新增）：\n"
-            "• Git重置仓库 (git reset --hard)\n"
-            "• 清理未跟踪文件 (git clean -f)\n"
-            "• 拉取最新代码 (git pull)\n\n"
-            "🔍 检查项目：\n"
-            "• Meta文件完整性检查\n"
-            "• 中文字符检查\n"
-            "• 图片尺寸检查\n"
-            "• 图片文件扩展名大小写检查\n"
-            "• GUID一致性检查\n"
-            "• GUID引用检查\n\n"
-            f"📁 目标仓库：{self.git_path_edit.text()}\n"
-            f"📁 目标目录：CommonResource\n\n"
-            "⚠️ 注意：\n"
-            "• 重置操作会丢失本地未提交的更改\n"
-            "• 检查过程可能需要一些时间\n"
-            "• 如果拉取失败，检查将停止\n\n"
-            "确定要开始吗？",
+            f"📊 **准备就绪**\n\n"
+            f"• 当前上传列表: {len(self.upload_files)} 个文件\n"
+            f"• SVN GUID 缓存: {len(self.svn_guid_cache)} 个GUID\n\n"
+            f"即将开始资源检查，包括：\n\n"
+            f"🔄 **前置步骤**：\n"
+            f"• Git重置仓库 (git reset --hard)\n"
+            f"• 清理未跟踪文件 (git clean -f)\n"
+            f"• 拉取最新代码 (git pull)\n\n"
+            f"🔍 **检查项目** (13项)：\n"
+            f"• Meta文件完整性\n"
+            f"• 中文字符检查\n"
+            f"• 图片尺寸检查\n"
+            f"• GUID一致性/唯一性/引用检查\n"
+            f"• 材质模板检查\n"
+            f"• 文件命名规范检查\n"
+            f"• 其他专项检查\n\n"
+            f"📁 **目标仓库**：{self.git_path_edit.text()}\n"
+            f"📁 **目标目录**：CommonResource\n\n"
+            f"⚠️ **注意**：\n"
+            f"• 重置操作会丢失本地未提交的更改\n"
+            f"• 检查过程可能需要一些时间\n\n"
+            f"确定要开始吗？",
             QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.Yes
         )
         
         if reply != QMessageBox.Yes:
-            self.log_text.append("用户取消了检查操作")
+            self.log_text.append("❌ 用户取消了检查操作")
+            self.progress_bar.setVisible(False)
             return
         
+        # 🆕 步骤4：启动资源检查线程
+        self.log_text.append("")
+        self.log_text.append("🔍 步骤 4/4：开始资源检查...")
+        self.log_text.append("-" * 60)
+        
         self.git_manager.set_paths(self.git_path_edit.text(), self.svn_path_edit.text())
-        self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
         
+        # 🚀 创建检查线程，传入缓存的 GUID 映射
         self.checker_thread = ResourceChecker(
             self.upload_files, 
             self.git_manager, 
             "CommonResource",
-            self.folder_upload_modes
+            self.folder_upload_modes,
+            svn_guid_cache=self.svn_guid_cache  # 🆕 传入缓存
         )
         
         self.checker_thread.progress_updated.connect(self.progress_bar.setValue)
@@ -12153,10 +12784,10 @@ class ArtResourceManager(QMainWindow):
         self.checker_thread.local_deleted_warning.connect(self.on_local_deleted_warning)
         
         # 设置运行中状态图标
-        self.set_window_icon_status("success")  # 运行中使用绿色图标
+        self.set_window_icon_status("success")
         
         self.checker_thread.start()
-        self.log_text.append("开始检查资源...")
+        self.log_text.append("✅ 资源检查已启动...")
     
     def on_local_deleted_warning(self, deleted_references):
         """接收本地删除但Git存在的引用警告"""
@@ -13186,7 +13817,7 @@ class ArtResourceManager(QMainWindow):
             self.progress_bar.setVisible(False)
 
     def add_dependency_files(self):
-        """增加依赖文件功能"""
+        """增加依赖文件功能（使用统一缓存）"""
         if not self.upload_files:
             QMessageBox.warning(self, "警告", "请先选择要上传的文件！")
             return
@@ -13204,23 +13835,28 @@ class ArtResourceManager(QMainWindow):
             self.progress_bar.setVisible(True)
             self.progress_bar.setValue(0)
             
-            # 创建依赖分析器
-            analyzer = ResourceDependencyAnalyzer()
+            self.log_text.append("=" * 50)
+            self.log_text.append("🔍 开始依赖文件分析...")
+            self.log_text.append("=" * 50)
             
-            # 设置搜索目录（SVN仓库路径）
-            search_directories = [self.svn_path_edit.text()]
+            # 🚀 步骤1：确保 SVN GUID 缓存可用
+            if not self._ensure_svn_guid_cache():
+                QMessageBox.warning(
+                    self,
+                    "缓存加载失败",
+                    "SVN GUID 缓存加载失败，无法进行依赖分析"
+                )
+                self.progress_bar.setVisible(False)
+                return
             
-            self.log_text.append("🔍 开始分析文件依赖...")
-            self.log_text.append(f"📁 搜索目录: {self.svn_path_edit.text()}")
-            self.log_text.append(f"📄 分析文件数: {len(self.upload_files)}")
-            
-            # 执行依赖分析
-            result = analyzer.find_dependency_files(self.upload_files, search_directories)
+            # 🚀 步骤2：使用缓存快速分析依赖
+            self.log_text.append(f"⚡ 使用缓存快速分析（{len(self.svn_guid_cache)} 个GUID）")
+            result = self._analyze_dependencies_with_cache(self.upload_files)
             
             # 隐藏进度条
             self.progress_bar.setVisible(False)
             
-            # 处理分析结果
+            # 🚀 步骤3：处理分析结果
             self._process_dependency_analysis_result(result)
             
         except Exception as e:
@@ -13233,6 +13869,146 @@ class ArtResourceManager(QMainWindow):
             # 恢复按钮状态
             self.add_dependencies_btn.setEnabled(True)
             self.add_dependencies_btn.setText("增加依赖文件")
+    
+    def _analyze_dependencies_with_cache(self, file_paths: List[str]) -> Dict[str, Any]:
+        """使用缓存的 GUID 映射快速分析依赖"""
+        result = {
+            'original_files': file_paths,
+            'dependency_files': [],
+            'meta_files': [],
+            'guid_to_file_map': self.svn_guid_cache,  # 🚀 使用统一缓存
+            'file_to_guid_map': {},
+            'missing_dependencies': [],
+            'analysis_stats': {
+                'total_original': len(file_paths),
+                'total_dependencies': 0,
+                'total_meta_files': 0,
+                'total_missing': 0
+            }
+        }
+        
+        # 创建分析器（只用于解析文件，不用于扫描）
+        analyzer = ResourceDependencyAnalyzer()
+        
+        # 分析每个文件的依赖
+        self.log_text.append(f"🔍 分析 {len(file_paths)} 个文件的依赖关系...")
+        analyzed_files = set()
+        
+        for i, file_path in enumerate(file_paths):
+            if os.path.exists(file_path):
+                analyzer._analyze_file_dependencies(file_path, result, analyzed_files)
+            
+            # 更新进度
+            if len(file_paths) > 10 and (i + 1) % 5 == 0:
+                progress = int((i + 1) / len(file_paths) * 100)
+                self.progress_bar.setValue(progress)
+                QApplication.processEvents()
+        
+        # 去重并统计
+        result['dependency_files'] = list(set(result['dependency_files']))
+        result['meta_files'] = list(set(result['meta_files']))
+        result['analysis_stats']['total_dependencies'] = len(result['dependency_files'])
+        result['analysis_stats']['total_meta_files'] = len(result['meta_files'])
+        result['analysis_stats']['total_missing'] = len(result['missing_dependencies'])
+        
+        self.log_text.append(f"📊 分析完成:")
+        self.log_text.append(f"   原始文件: {result['analysis_stats']['total_original']}")
+        self.log_text.append(f"   依赖文件: {result['analysis_stats']['total_dependencies']}")
+        self.log_text.append(f"   Meta文件: {result['analysis_stats']['total_meta_files']}")
+        self.log_text.append(f"   缺失依赖: {result['analysis_stats']['total_missing']}")
+        
+        return result
+    
+    def _analyze_dependencies_for_check(self) -> dict:
+        """
+        为检查资源自动分析依赖文件（使用已有缓存）
+        
+        Returns:
+            dict: {'added_count': int, 'skipped_count': int, 'total_found': int}
+            None: 用户取消操作
+        """
+        try:
+            self.log_text.append("🔍 正在分析文件依赖...")
+            
+            # 🚀 使用已经加载的缓存
+            self.log_text.append(f"⚡ 使用缓存快速分析（{len(self.svn_guid_cache)} 个GUID）")
+            result = self._analyze_dependencies_with_cache(self.upload_files)
+            
+            # 处理分析结果
+            stats = result['analysis_stats']
+            files_to_add = []
+            
+            # 收集需要添加的文件
+            normalized_upload_files = set()
+            for upload_file in self.upload_files:
+                normalized_upload_files.add(os.path.normpath(os.path.abspath(upload_file)))
+            
+            # 添加依赖文件和 meta 文件
+            for dep_file in result['dependency_files'] + result['meta_files']:
+                normalized_dep_file = os.path.normpath(os.path.abspath(dep_file))
+                if normalized_dep_file not in normalized_upload_files:
+                    files_to_add.append(dep_file)
+            
+            # 如果没有新文件需要添加
+            if not files_to_add:
+                self.log_text.append("✅ 所有依赖文件已在上传列表中")
+                return {
+                    'added_count': 0,
+                    'skipped_count': 0,
+                    'total_found': stats['total_dependencies']
+                }
+            
+            # 询问用户是否添加
+            reply = QMessageBox.question(
+                self,
+                "发现依赖文件",
+                f"📊 **依赖分析结果**\n\n"
+                f"• 原始文件: {stats['total_original']} 个\n"
+                f"• 找到依赖: {stats['total_dependencies']} 个\n"
+                f"• 找到Meta: {stats['total_meta_files']} 个\n"
+                f"• 需要添加: {len(files_to_add)} 个\n"
+                f"• 缺失依赖: {stats['total_missing']} 个\n\n"
+                f"📋 **当前**: {len(self.upload_files)} 个文件\n"
+                f"📋 **添加后**: {len(self.upload_files) + len(files_to_add)} 个文件\n\n"
+                f"是否自动添加这些依赖文件？\n\n"
+                f"💡 提示：添加依赖文件可以确保资源完整性",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            
+            if reply != QMessageBox.Yes:
+                continue_reply = QMessageBox.question(
+                    self,
+                    "继续检查？",
+                    f"您选择不添加依赖文件。\n\n"
+                    f"⚠️ 缺少依赖可能导致检查失败\n\n"
+                    f"是否继续检查资源？",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if continue_reply != QMessageBox.Yes:
+                    return None
+                
+                return {'added_count': 0, 'skipped_count': len(files_to_add), 'total_found': stats['total_dependencies']}
+            
+            # 添加文件
+            added_count = 0
+            for file_path in files_to_add:
+                if os.path.exists(file_path):
+                    normalized_file_path = os.path.normpath(os.path.abspath(file_path))
+                    existing_normalized = [os.path.normpath(os.path.abspath(f)) for f in self.upload_files]
+                    
+                    if normalized_file_path not in existing_normalized:
+                        self.upload_files.append(file_path)
+                        added_count += 1
+                        self.file_list.add_file_item(file_path)
+            
+            return {'added_count': added_count, 'skipped_count': 0, 'total_found': stats['total_dependencies']}
+            
+        except Exception as e:
+            self.log_text.append(f"❌ 依赖分析失败: {e}")
+            raise
     
     def _process_dependency_analysis_result(self, result: Dict[str, Any]):
         """处理依赖分析结果"""
@@ -13957,6 +14733,56 @@ class ArtResourceManager(QMainWindow):
                 
         except Exception as e:
             QMessageBox.critical(self, "错误", f"智能修复异常：{str(e)}")
+    
+    def clear_guid_caches(self):
+        """清除Git和SVN的GUID缓存"""
+        try:
+            reply = QMessageBox.question(
+                self, 
+                '确认清除缓存', 
+                '确定要清除所有GUID缓存吗？\n\n'
+                '清除后下次检查时会重新扫描所有文件，\n'
+                '首次扫描可能需要较长时间。',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                cleared_count = 0
+                messages = []
+                
+                # 清除Git缓存
+                if self.git_manager.git_path:
+                    try:
+                        git_cache = GitGuidCacheManager(self.git_manager.git_path)
+                        if git_cache.clear_cache():
+                            cleared_count += 1
+                            messages.append("✅ Git GUID缓存已清除")
+                    except Exception as e:
+                        messages.append(f"⚠️ Git缓存清除失败: {e}")
+                
+                # 清除SVN缓存
+                if self.git_manager.svn_path:
+                    try:
+                        svn_cache = SvnGuidCacheManager(self.git_manager.svn_path)
+                        if svn_cache.clear_cache():
+                            cleared_count += 1
+                            messages.append("✅ SVN GUID缓存已清除")
+                    except Exception as e:
+                        messages.append(f"⚠️ SVN缓存清除失败: {e}")
+                
+                if cleared_count > 0:
+                    QMessageBox.information(
+                        self,
+                        '缓存已清除',
+                        '\n'.join(messages) + f'\n\n共清除 {cleared_count} 个缓存'
+                    )
+                    self.statusBar().showMessage(f"已清除 {cleared_count} 个GUID缓存", 5000)
+                else:
+                    QMessageBox.warning(self, '清除失败', '未能清除任何缓存')
+        
+        except Exception as e:
+            QMessageBox.critical(self, '错误', f'清除缓存时发生错误：\n{str(e)}')
     
     def check_for_updates(self, silent=False):
         """检查更新
