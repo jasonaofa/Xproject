@@ -195,7 +195,7 @@ class SimpleUpdateHandler(BaseHTTPRequestHandler):
             self.send_json_response(500, {'error': str(e)})
     
     def find_latest_exe(self):
-        """查找最新的exe文件"""
+        """查找最新的exe文件（按版本号排序）"""
         if not os.path.exists(self.UPDATE_DIR):
             os.makedirs(self.UPDATE_DIR)
             return None
@@ -204,8 +204,23 @@ class SimpleUpdateHandler(BaseHTTPRequestHandler):
         if not exe_files:
             return None
         
-        # 按修改时间排序，最新的在前
-        exe_files.sort(key=lambda x: os.path.getmtime(os.path.join(self.UPDATE_DIR, x)), reverse=True)
+        # 按版本号排序，而不是按修改时间
+        def get_version_tuple(filename):
+            """获取版本号元组用于排序"""
+            version_str = self.extract_version_from_filename(filename)
+            try:
+                # 将版本号转换为元组，例如 "1.0.30" -> (1, 0, 30)
+                parts = version_str.split('.')
+                # 确保是3部分，不足的补0
+                while len(parts) < 3:
+                    parts.append('0')
+                return tuple(map(int, parts))
+            except:
+                # 如果解析失败，返回(0, 0, 0)，这样会被排到最后
+                return (0, 0, 0)
+        
+        # 按版本号从高到低排序
+        exe_files.sort(key=get_version_tuple, reverse=True)
         return exe_files[0]
     
     def extract_version_from_filename(self, filename):
