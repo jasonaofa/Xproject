@@ -11355,7 +11355,7 @@ class ArtResourceManager(QMainWindow):
     def _read_current_version(self):
         """获取当前版本号（硬编码在程序中）"""
         # 版本号硬编码在程序中，不依赖外部配置文件
-        return '1.0.30'
+        return '1.0.29'
     
     def _get_lan_server_url(self):
         """获取局域网服务器地址"""
