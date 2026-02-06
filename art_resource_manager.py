@@ -7003,8 +7003,17 @@ class ResourceChecker(QThread):
                 try:
                     self.status_updated.emit(f"🔍 检查prefab文件: {os.path.basename(file_path)}")
                     
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
+                    # 🚨 修复：使用容错的文件读取方式，避免编码错误
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except UnicodeDecodeError as ude:
+                        # 如果UTF-8解码失败，使用errors='ignore'忽略无效字符
+                        self.status_updated.emit(f"   ⚠️ 文件包含非UTF-8字符，使用容错模式读取")
+                        self.status_updated.emit(f"   📍 编码错误位置: 字节 {ude.start} (0x{ude.object[ude.start]:02x})")
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                        self.status_updated.emit(f"   ✅ 已使用容错模式成功读取文件")
                     
                     # 提取所有Debug_Path记录
                     import re
@@ -9674,6 +9683,36 @@ class ResourceChecker(QThread):
                         'description': 'prefab归一化系统发生严重错误',
                         'impact': '无法进行prefab归一化处理',
                         'solution': '联系技术支持'
+                    },
+                    
+                    # Debug_Path检查相关错误
+                    'debug_path_check_error': {
+                        'icon': '🟡',
+                        'title': 'prefab Debug_Path检查异常',
+                        'description': '检查prefab文件的Debug_Path记录时发生异常',
+                        'impact': '无法确认prefab引用的资源文件是否完整',
+                        'solution': '检查prefab文件格式是否正确，或联系技术支持查看具体错误信息'
+                    },
+                    'debug_path_resource_missing': {
+                        'icon': '🔴',
+                        'title': 'prefab引用的资源文件缺失',
+                        'description': 'prefab引用的资源文件不存在，但meta文件存在',
+                        'impact': '材质会显示为粉色，预制体可能显示异常',
+                        'solution': '恢复缺失的资源文件'
+                    },
+                    'debug_path_completely_missing': {
+                        'icon': '🔴',
+                        'title': 'prefab引用的文件完全缺失',
+                        'description': 'prefab的Debug_Path记录指向的文件和meta文件都不存在',
+                        'impact': '材质会显示为粉色，预制体可能显示异常',
+                        'solution': '创建缺失的文件及其meta文件'
+                    },
+                    'debug_path_system_error': {
+                        'icon': '🔴',
+                        'title': 'Debug_Path检查系统错误',
+                        'description': 'Debug_Path检查系统发生严重错误',
+                        'impact': '无法进行Debug_Path完整性检查',
+                        'solution': '联系技术支持'
                     }
                 }
                 
@@ -11316,7 +11355,7 @@ class ArtResourceManager(QMainWindow):
     def _read_current_version(self):
         """获取当前版本号（硬编码在程序中）"""
         # 版本号硬编码在程序中，不依赖外部配置文件
-        return '1.0.29'
+        return '1.0.30'
     
     def _get_lan_server_url(self):
         """获取局域网服务器地址"""
@@ -14074,11 +14113,24 @@ class ArtResourceManager(QMainWindow):
     
     def _analyze_dependencies_with_cache(self, file_paths: List[str]) -> Dict[str, Any]:
         """使用缓存的 GUID 映射快速分析依赖"""
+        # 🔧 将 SVN GUID 缓存中的 meta 文件路径转换为资源文件路径
+        # SVN 缓存格式：{guid: "path/to/file.mat.meta"}
+        # 需要转换为：{guid: "path/to/file.mat"}
+        resource_file_map = {}
+        for guid, meta_path in self.svn_guid_cache.items():
+            if meta_path.endswith('.meta'):
+                # 去掉 .meta 后缀，得到资源文件路径
+                resource_path = meta_path[:-5]
+                resource_file_map[guid] = resource_path
+            else:
+                # 如果不是 .meta 结尾（虽然不应该发生），直接使用
+                resource_file_map[guid] = meta_path
+        
         result = {
             'original_files': file_paths,
             'dependency_files': [],
             'meta_files': [],
-            'guid_to_file_map': self.svn_guid_cache,  # 🚀 使用统一缓存
+            'guid_to_file_map': resource_file_map,  # 🚀 使用转换后的资源文件路径
             'file_to_guid_map': {},
             'missing_dependencies': [],
             'analysis_stats': {
