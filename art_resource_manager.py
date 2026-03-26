@@ -548,19 +548,24 @@ class ResourceDependencyAnalyzer:
                             # 检查依赖文件是否已经在原始文件列表中
                             normalized_dep_file = os.path.normpath(os.path.abspath(dep_file))
                             if normalized_dep_file not in normalized_original_files:
-                                result['dependency_files'].append(dep_file)
-                                print(f"🔍 [DEBUG] 添加依赖文件: {os.path.basename(dep_file)}")
-                                
-                                # 添加对应的meta文件
-                                dep_meta = dep_file + '.meta'
-                                if os.path.exists(dep_meta):
-                                    result['meta_files'].append(dep_meta)
-                                    print(f"🔍 [DEBUG] 添加依赖meta文件: {os.path.basename(dep_meta)}")
-                                
-                                # 如果是材质文件，添加到递归分析列表
-                                if dep_file.lower().endswith('.mat'):
-                                    recursive_deps.append(dep_file)
-                                    print(f"🔍 [DEBUG] 添加到递归分析: {os.path.basename(dep_file)}")
+                                # 🚫 跳过.controller后缀的依赖文件（但保留用户手动添加的）
+                                if dep_file.lower().endswith('.controller'):
+                                    print(f"🔍 [DEBUG] 跳过.controller依赖文件: {os.path.basename(dep_file)}")
+                                else:
+                                    result['dependency_files'].append(dep_file)
+                                    print(f"🔍 [DEBUG] 添加依赖文件: {os.path.basename(dep_file)}")
+                                    
+                                    # 添加对应的meta文件（如果文件不是.controller）
+                                    if not dep_file.lower().endswith('.controller'):
+                                        dep_meta = dep_file + '.meta'
+                                        if os.path.exists(dep_meta):
+                                            result['meta_files'].append(dep_meta)
+                                            print(f"🔍 [DEBUG] 添加依赖meta文件: {os.path.basename(dep_meta)}")
+                                    
+                                    # 如果是材质文件，添加到递归分析列表
+                                    if dep_file.lower().endswith('.mat'):
+                                        recursive_deps.append(dep_file)
+                                        print(f"🔍 [DEBUG] 添加到递归分析: {os.path.basename(dep_file)}")
                             else:
                                 print(f"🔍 [DEBUG] 跳过重复的原始文件: {os.path.basename(dep_file)}")
                         else:
