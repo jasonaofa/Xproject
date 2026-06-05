@@ -41,6 +41,66 @@ except ImportError:
 def debug_print(msg):
     print(f"DEBUG: {msg}")
 
+AVATAR_MASK_TEXTURE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.tga', '.bmp'}
+AVATAR_MASK_TEXTURE_FORMATS = {
+    'winFormat': 3,
+    'androidFormat': 3,
+    'iosFormat': 3,
+}
+
+def is_avatar_mask_texture_file(file_path: str) -> bool:
+    """判断是否是 avatar 目录下 mask 开头的贴图资源。"""
+    asset_path = file_path[:-5] if file_path.lower().endswith('.meta') else file_path
+    normalized_path = asset_path.replace('\\', '/').lower()
+    file_name = os.path.basename(asset_path).lower()
+    _, ext = os.path.splitext(file_name)
+    return '/avatar/' in normalized_path and file_name.startswith('mask') and ext in AVATAR_MASK_TEXTURE_EXTENSIONS
+
+def update_avatar_mask_texture_meta(meta_path: str) -> Tuple[bool, str]:
+    """把 avatar mask 贴图 meta 的平台格式修成 RGB24。"""
+    if not meta_path or not os.path.exists(meta_path):
+        return False, "meta文件不存在"
+
+    path = Path(meta_path)
+    try:
+        original_text = path.read_text(encoding='utf-8-sig')
+    except UnicodeDecodeError:
+        original_text = path.read_text(encoding='utf-8', errors='ignore')
+
+    if not original_text.strip():
+        return False, "meta文件为空"
+
+    try:
+        meta_data = json.loads(original_text)
+        import_desc = meta_data.setdefault('m_AssetImport', {}).setdefault('importDesc', {})
+        changed = False
+        for field, value in AVATAR_MASK_TEXTURE_FORMATS.items():
+            if import_desc.get(field) != value:
+                import_desc[field] = value
+                changed = True
+
+        if not changed:
+            return False, "已是RGB24格式"
+
+        path.write_text(json.dumps(meta_data, ensure_ascii=False, indent=4) + '\n', encoding='utf-8')
+        return True, "已修正为RGB24格式"
+    except json.JSONDecodeError:
+        # 兼容非 JSON meta：只替换已有字段，不重排文件内容。
+        updated_text = original_text
+        total_replacements = 0
+        for field, value in AVATAR_MASK_TEXTURE_FORMATS.items():
+            pattern = re.compile(rf'(^\s*"?{re.escape(field)}"?\s*:\s*)-?\d+', re.MULTILINE)
+            updated_text, count = pattern.subn(lambda match: f"{match.group(1)}{value}", updated_text)
+            total_replacements += count
+
+        if total_replacements == 0:
+            return False, "未找到平台格式字段"
+        if updated_text == original_text:
+            return False, "已是RGB24格式"
+
+        path.write_text(updated_text, encoding='utf-8')
+        return True, "已修正为RGB24格式"
+
 try:
     debug_print("开始导入PyQt5...")
     from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, 
@@ -3687,6 +3747,42 @@ class GitSvnManager:
                     error_msg = f"{os.path.basename(source_file)}: {str(e)}"
                     failed_files.append(error_msg)
                     print(f"   ❌ 复制失败: {error_msg}")
+
+            # avatar 目录下 mask 开头的贴图 meta 必须在 Git 目标侧也保持 RGB24。
+            fixed_git_mask_meta = 0
+            staged_extra_meta_paths = set(os.path.normpath(os.path.abspath(path)) for path in copied_files)
+            processed_mask_meta_paths = set()
+            for source_file in source_files:
+                source_asset_path = source_file[:-5] if source_file.lower().endswith('.meta') else source_file
+                if not is_avatar_mask_texture_file(source_asset_path):
+                    continue
+
+                target_asset_path = self._calculate_target_path(source_asset_path, target_base_path)
+                if not target_asset_path:
+                    continue
+
+                target_meta_path = target_asset_path + '.meta'
+                normalized_target_asset = os.path.normpath(os.path.abspath(target_asset_path))
+                normalized_target_meta = os.path.normpath(os.path.abspath(target_meta_path))
+                if normalized_target_asset not in staged_extra_meta_paths and normalized_target_meta not in staged_extra_meta_paths:
+                    continue
+
+                if normalized_target_meta in processed_mask_meta_paths:
+                    continue
+                processed_mask_meta_paths.add(normalized_target_meta)
+
+                changed, message = update_avatar_mask_texture_meta(target_meta_path)
+                if changed:
+                    fixed_git_mask_meta += 1
+                    print(f"   ✅ Git目标侧avatar mask贴图meta已修正为RGB24: {target_meta_path}")
+                    if normalized_target_meta not in staged_extra_meta_paths:
+                        copied_files.append(target_meta_path)
+                        staged_extra_meta_paths.add(normalized_target_meta)
+                elif message not in ("已是RGB24格式", "meta文件不存在"):
+                    print(f"   ⚠️ Git目标侧avatar mask贴图meta检查跳过: {target_meta_path} - {message}")
+
+            if fixed_git_mask_meta:
+                print(f"   🎯 Git目标侧已修正 {fixed_git_mask_meta} 个avatar mask贴图meta")
             
             copy_time = time.time() - copy_start_time
             print(f"   📊 文件复制耗时: {copy_time:.2f}秒")
@@ -11325,7 +11421,7 @@ class ArtResourceManager(QMainWindow):
                     "local_test": "http://localhost:8000/api"  # 本地测试服务器
                 }
                 
-                # 从version.json文件读取当前版本
+                # 从程序内硬编码读取当前版本，不依赖外部版本配置
                 current_version = self._read_current_version()
                 self.hot_updater = HotUpdateManager(
                     current_version=current_version,
@@ -11360,7 +11456,7 @@ class ArtResourceManager(QMainWindow):
     def _read_current_version(self):
         """获取当前版本号（硬编码在程序中）"""
         # 版本号硬编码在程序中，不依赖外部配置文件
-        return '1.0.29'
+        return '1.0.31'
     
     def _get_lan_server_url(self):
         """获取局域网服务器地址"""
@@ -11408,7 +11504,7 @@ class ArtResourceManager(QMainWindow):
     def init_ui(self):
         """初始化用户界面"""
         # 动态获取当前版本号
-        current_version = self._read_current_version()  # 直接从文件读取，确保准确性
+        current_version = self._read_current_version()  # 从程序内硬编码读取，确保准确性
         if self.hot_updater:
             current_version = self.hot_updater.get_current_version()
         self.setWindowTitle(f"美术资源管理工具 v{current_version}")
@@ -12903,6 +12999,57 @@ class ArtResourceManager(QMainWindow):
         # 重置图标状态到默认状态
         self.set_window_icon_status("default")
     
+    def _ensure_avatar_mask_meta_in_upload_list(self, meta_path: str) -> bool:
+        """确保修正后的 mask 贴图 meta 会随本次上传进入 Git。"""
+        if not os.path.exists(meta_path):
+            return False
+
+        normalized_meta_path = os.path.normpath(os.path.abspath(meta_path))
+        existing_normalized = {
+            os.path.normpath(os.path.abspath(file_path))
+            for file_path in self.upload_files
+        }
+        if normalized_meta_path in existing_normalized:
+            return False
+
+        self.upload_files.append(meta_path)
+        self.file_list.add_file_item(meta_path)
+        return True
+
+    def _fix_avatar_mask_texture_meta_in_svn(self, file_paths: List[str]) -> int:
+        """修正本次上传中 avatar/mask 贴图的 SVN meta 平台格式。"""
+        fixed_count = 0
+        added_meta_count = 0
+        seen_meta_paths = set()
+
+        for file_path in list(file_paths):
+            asset_path = file_path[:-5] if file_path.lower().endswith('.meta') else file_path
+            if not is_avatar_mask_texture_file(asset_path):
+                continue
+
+            meta_path = asset_path + '.meta'
+            normalized_meta_path = os.path.normpath(os.path.abspath(meta_path))
+            if normalized_meta_path in seen_meta_paths:
+                continue
+            seen_meta_paths.add(normalized_meta_path)
+
+            changed, message = update_avatar_mask_texture_meta(meta_path)
+            if changed:
+                fixed_count += 1
+                self.log_text.append(f"✅ 已修正 avatar mask 贴图压缩: {os.path.basename(meta_path)}")
+            elif message not in ("已是RGB24格式", "meta文件不存在"):
+                self.log_text.append(f"⚠️ avatar mask 贴图压缩检查跳过: {os.path.basename(meta_path)} - {message}")
+
+            if self._ensure_avatar_mask_meta_in_upload_list(meta_path):
+                added_meta_count += 1
+
+        if fixed_count > 0:
+            self.log_text.append(f"🎯 已将 {fixed_count} 个 avatar mask 贴图 meta 修正为RGB24")
+        if added_meta_count > 0:
+            self.log_text.append(f"📋 已自动加入 {added_meta_count} 个 avatar mask 贴图 meta 到上传列表")
+
+        return fixed_count
+
     def check_and_push(self):
         """检查资源（自动添加依赖，一次确认完成所有操作）"""
         if not self.upload_files:
@@ -12916,6 +13063,8 @@ class ArtResourceManager(QMainWindow):
         if not self.svn_path_edit.text():
             QMessageBox.warning(self, "警告", "请先设置SVN仓库路径！")
             return
+
+        self.local_deleted_but_git_exists = []
         
         # 🎯 唯一的确认框：一次性确认所有操作
         reply = QMessageBox.question(
@@ -12989,6 +13138,9 @@ class ArtResourceManager(QMainWindow):
                 self.log_text.append(f"📋 当前上传列表: {len(self.upload_files)} 个文件")
             else:
                 self.log_text.append(f"✅ 依赖分析完成，无需添加新文件")
+
+            # 上传 avatar 资源时，mask 开头的贴图必须关闭各平台压缩。
+            self._fix_avatar_mask_texture_meta_in_svn(self.upload_files)
             
         except Exception as e:
             self.log_text.append(f"⚠️ 依赖分析失败: {e}")
@@ -13129,7 +13281,8 @@ class ArtResourceManager(QMainWindow):
         
         if success:
             self.result_text.append(f"✓ 检查通过: {message}")
-            self.log_text.append("✅ 所有检查通过！准备推送...")
+            self.log_text.append("✅ 所有检查通过！")
+            self.log_text.append("准备推送...")
             self.show_push_confirmation_dialog()
         else:
             self.result_text.append(f"✗ 检查失败: {message}")
@@ -14604,28 +14757,57 @@ class ArtResourceManager(QMainWindow):
         """处理文件夹拖拽的主方法"""
         total_added = 0
         
-        for folder_path in folder_paths:
-            folder_name = os.path.basename(folder_path)
+        # 如果有多个文件夹，只询问一次模式
+        if len(folder_paths) > 1:
+            folder_names = [os.path.basename(path) for path in folder_paths]
             
-            # 为每个文件夹显示模式选择对话框
-            dialog = FolderUploadModeDialog([folder_name], self)
+            # 显示批量模式选择对话框
+            dialog = FolderUploadModeDialog(folder_names, self)
             
             if dialog.exec_() == QDialog.Accepted:
                 selected_mode = dialog.get_selected_mode()
                 
-                print(f"DEBUG: 用户为文件夹 {folder_name} 选择了模式: {selected_mode}")
+                print(f"DEBUG: 用户为 {len(folder_paths)} 个文件夹选择了模式: {selected_mode}")
                 
-                if selected_mode == FolderUploadModeDialog.REPLACE_MODE:
-                    added_count = self._handle_replace_mode(folder_path)
-                    total_added += added_count
-                elif selected_mode == FolderUploadModeDialog.MERGE_MODE:
-                    added_count = self._handle_merge_mode(folder_path)
-                    total_added += added_count
+                # 为所有文件夹应用相同的模式
+                for folder_path in folder_paths:
+                    folder_name = os.path.basename(folder_path)
                 
-                self._log_folder_mode_selection(folder_path, selected_mode)
+                    if selected_mode == FolderUploadModeDialog.REPLACE_MODE:
+                        added_count = self._handle_replace_mode(folder_path)
+                        total_added += added_count
+                    elif selected_mode == FolderUploadModeDialog.MERGE_MODE:
+                        added_count = self._handle_merge_mode(folder_path)
+                        total_added += added_count
+
+                    self._log_folder_mode_selection(folder_path, selected_mode)
             else:
                 # 用户取消了文件夹的上传
-                self.log_text.append(f"❌ 用户取消了文件夹 {folder_name} 的上传")
+                self.log_text.append(f"❌ 用户取消了 {len(folder_paths)} 个文件夹的上传")
+        else:
+            # 单个文件夹，保持原有逻辑
+            for folder_path in folder_paths:
+                folder_name = os.path.basename(folder_path)
+
+                # 为每个文件夹显示模式选择对话框
+                dialog = FolderUploadModeDialog([folder_name], self)
+
+                if dialog.exec_() == QDialog.Accepted:
+                    selected_mode = dialog.get_selected_mode()
+
+                    print(f"DEBUG: 用户为文件夹 {folder_name} 选择了模式: {selected_mode}")
+
+                    if selected_mode == FolderUploadModeDialog.REPLACE_MODE:
+                        added_count = self._handle_replace_mode(folder_path)
+                        total_added += added_count
+                    elif selected_mode == FolderUploadModeDialog.MERGE_MODE:
+                        added_count = self._handle_merge_mode(folder_path)
+                        total_added += added_count
+
+                    self._log_folder_mode_selection(folder_path, selected_mode)
+                else:
+                    # 用户取消了文件夹的上传
+                    self.log_text.append(f"❌ 用户取消了文件夹 {folder_name} 的上传")
         
         return total_added
     
@@ -15240,7 +15422,7 @@ class ArtResourceManager(QMainWindow):
     
     def show_about_dialog(self):
         """显示关于对话框"""
-        version = self._read_current_version()  # 直接从文件读取，确保准确性
+        version = self._read_current_version()  # 从程序内硬编码读取，确保准确性
         if self.hot_updater:
             version = self.hot_updater.get_current_version()
         
