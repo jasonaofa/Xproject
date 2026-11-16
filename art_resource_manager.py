@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Set, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from character_anchor_check import check_uploaded_character_skeletons, ISSUE_TYPES as ANCHOR_ISSUE_TYPES
 
 # 添加Windows特定的subprocess标志
 if platform.system() == 'Windows':
@@ -3557,6 +3558,12 @@ class GitSvnManager:
         
         if not source_files:
             return False, "没有要推送的文件"
+
+        # 上传前重新读取，避免检查通过后修改文件或绕过检查直接推送。
+        anchor_issues = check_uploaded_character_skeletons(source_files)
+        if anchor_issues:
+            return False, "角色骨骼挂点检查失败，停止上传：\n" + "\n".join(
+                f"{issue['file']}\n{issue['message']}" for issue in anchor_issues)
         
         try:
             start_time = time.time()
@@ -5624,6 +5631,14 @@ class ResourceChecker(QThread):
         
         try:
             self.status_updated.emit("开始检查资源...")
+
+            # 只读前置校验：失败时不重置 Git，也不进入后续上传流程。
+            self.status_updated.emit("检查角色骨骼六个挂点（140620 基准，局部旋转 ≤ 0.1°）...")
+            anchor_issues = check_uploaded_character_skeletons(self.upload_files)
+            if anchor_issues:
+                self.detailed_report.emit(self._generate_detailed_report(anchor_issues, len(self.upload_files)))
+                self.check_completed.emit(False, f"角色骨骼挂点检查失败：{len(anchor_issues)} 个问题，停止上传，请查看详细报告。")
+                return
             
             # 🔄 新增步骤：重置和拉取仓库
             self.status_updated.emit("🔄 重置Git仓库并拉取最新代码...")
@@ -9331,6 +9346,7 @@ class ResourceChecker(QThread):
                 'prefab_naming_violation', 'file_extension_case_violation',
                 'override_controller_missing_references', 'remote_resource_reference'
             }
+            critical_types.update(ANCHOR_ISSUE_TYPES)
             
             warning_types = {
                 'chinese_filename', 'image_too_large', 'guid_parse_error', 'template_check_error', 
@@ -9392,6 +9408,21 @@ class ResourceChecker(QThread):
                 
                 # 美术友好的问题类型说明
                 type_explanations = {
+                    'character_anchor_count': {
+                        'icon': '🔴', 'title': '角色骨骼挂点缺失或重复',
+                        'description': '106、105、101、102、103、109 必须各存在一个',
+                        'impact': '停止上传', 'solution': '在源资源中恢复六个唯一挂点后重新导出骨骼'
+                    },
+                    'character_anchor_rotation': {
+                        'icon': '🔴', 'title': '角色挂点局部旋转超出 0.1°',
+                        'description': '挂点相对父骨骼的旋转必须与 140620 基准一致，容差 0.1°，覆盖 XYZ 轴',
+                        'impact': '停止上传', 'solution': '对照 140620 修正挂点局部旋转后重新导出骨骼'
+                    },
+                    'character_anchor_invalid': {
+                        'icon': '🔴', 'title': '角色骨骼挂点无法校验',
+                        'description': '骨骼、引用或旋转数据不可读取，无法证明符合挂点规范',
+                        'impact': '停止上传', 'solution': '修复骨骼文件及 Prefab 骨骼引用后重新检查'
+                    },
                     # 严重错误 - 用通俗语言解释
                     'meta_missing_both': {
                         'icon': '🔴',
@@ -13079,7 +13110,8 @@ class ArtResourceManager(QMainWindow):
             f"• Git重置仓库 (git reset --hard)\n"
             f"• 清理未跟踪文件 (git clean -f)\n"
             f"• 拉取最新代码 (git pull)\n\n"
-            f"🔍 **检查项目** (13项)：\n"
+            f"🔍 **检查项目** (14项)：\n"
+            f"• 角色骨骼六个挂点完整、唯一，局部旋转与140620偏差 ≤ 0.1°（XYZ）\n"
             f"• Meta文件完整性\n"
             f"• 中文字符检查\n"
             f"• 图片尺寸检查\n"
