@@ -444,22 +444,7 @@ class HotUpdateManager:
             print(f"⚠️ 清理临时文件失败: {e}")
     
     def get_current_version(self) -> str:
-        """获取当前版本"""
-        # 优先从version.json文件读取版本号
-        try:
-            version_file = os.path.join(self.app_path, "version.json")
-            if os.path.exists(version_file):
-                with open(version_file, 'r', encoding='utf-8') as f:
-                    version_data = json.load(f)
-                    file_version = version_data.get("version", "")
-                    if file_version:
-                        # 更新内存中的版本号
-                        self.current_version = file_version
-                        return file_version
-        except Exception as e:
-            print(f"⚠️ 读取版本文件失败: {e}")
-        
-        # 如果读取失败，返回内存中的版本号
+        """使用运行程序传入的版本，避免旧版外部JSON覆盖新版EXE版本。"""
         return self.current_version
     
     def set_update_server_url(self, url: str):

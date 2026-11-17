@@ -3,6 +3,12 @@
 
 import sys
 import os
+
+# Windows 重定向日志时默认可能为 GBK，避免诊断文本中的图标导致启动失败。
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None and hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', errors='backslashreplace')
+
 import json
 import yaml
 import re
@@ -15,6 +21,8 @@ from datetime import datetime
 from typing import List, Dict, Set, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from character_anchor_check import check_uploaded_character_skeletons, ISSUE_TYPES as ANCHOR_ISSUE_TYPES
+
+APP_VERSION = '1.0.32'
 
 # 添加Windows特定的subprocess标志
 if platform.system() == 'Windows':
@@ -5633,7 +5641,7 @@ class ResourceChecker(QThread):
             self.status_updated.emit("开始检查资源...")
 
             # 只读前置校验：失败时不重置 Git，也不进入后续上传流程。
-            self.status_updated.emit("检查角色骨骼六个挂点（140620 基准，局部旋转 ≤ 0.1°）...")
+            self.status_updated.emit("检查角色骨骼六个挂点（140620 基准，骨架空间绝对旋转 ≤ 0.1°）...")
             anchor_issues = check_uploaded_character_skeletons(self.upload_files)
             if anchor_issues:
                 self.detailed_report.emit(self._generate_detailed_report(anchor_issues, len(self.upload_files)))
@@ -9414,9 +9422,9 @@ class ResourceChecker(QThread):
                         'impact': '停止上传', 'solution': '在源资源中恢复六个唯一挂点后重新导出骨骼'
                     },
                     'character_anchor_rotation': {
-                        'icon': '🔴', 'title': '角色挂点局部旋转超出 0.1°',
-                        'description': '挂点相对父骨骼的旋转必须与 140620 基准一致，容差 0.1°，覆盖 XYZ 轴',
-                        'impact': '停止上传', 'solution': '对照 140620 修正挂点局部旋转后重新导出骨骼'
+                        'icon': '🔴', 'title': '角色挂点绝对旋转超出 0.1°',
+                        'description': '累乘完整父链（含根节点）后，在骨架空间比较挂点绝对方向与 140620 的差异，容差 0.1°，覆盖 XYZ 轴',
+                        'impact': '停止上传', 'solution': '对照 140620 修正挂点绝对方向后重新导出骨骼'
                     },
                     'character_anchor_invalid': {
                         'icon': '🔴', 'title': '角色骨骼挂点无法校验',
@@ -11487,7 +11495,7 @@ class ArtResourceManager(QMainWindow):
     def _read_current_version(self):
         """获取当前版本号（硬编码在程序中）"""
         # 版本号硬编码在程序中，不依赖外部配置文件
-        return '1.0.31'
+        return APP_VERSION
     
     def _get_lan_server_url(self):
         """获取局域网服务器地址"""
@@ -13111,7 +13119,7 @@ class ArtResourceManager(QMainWindow):
             f"• 清理未跟踪文件 (git clean -f)\n"
             f"• 拉取最新代码 (git pull)\n\n"
             f"🔍 **检查项目** (14项)：\n"
-            f"• 角色骨骼六个挂点完整、唯一，局部旋转与140620偏差 ≤ 0.1°（XYZ）\n"
+            f"• 角色骨骼六个挂点完整、唯一，骨架空间绝对旋转与140620偏差 ≤ 0.1°（XYZ）\n"
             f"• Meta文件完整性\n"
             f"• 中文字符检查\n"
             f"• 图片尺寸检查\n"
@@ -16548,9 +16556,26 @@ class UpdateDialog(QDialog):
         self.setLayout(layout)
 
 
+def run_anchor_check_cli(arguments):
+    """只读命令行检查，便于验证发行版中的真实检测逻辑。"""
+    import argparse
+    parser = argparse.ArgumentParser(description='角色骨骼挂点只读检查（骨架空间绝对旋转）')
+    parser.add_argument('--report', required=True, help='JSON报告保存路径')
+    parser.add_argument('paths', nargs='+', help='角色Prefab、骨架或角色目录')
+    args = parser.parse_args(arguments)
+    issues = check_uploaded_character_skeletons(args.paths)
+    report = dict(version=APP_VERSION, rotation_space='skeleton', max_angle_degrees=0.1,
+                  checked_inputs=args.paths, passed=not issues, issues=issues)
+    Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    return 0 if not issues else 1
+
+
 def main():
     """主函数"""
     debug_print("开始主函数...")
+
+    if len(sys.argv) > 1 and sys.argv[1] == '--check-character-anchors':
+        sys.exit(run_anchor_check_cli(sys.argv[2:]))
     
     # 🗑️ 处理删除旧版本exe的命令行参数
     if len(sys.argv) >= 3 and sys.argv[1] == "--delete-old-exe":

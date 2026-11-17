@@ -8,15 +8,15 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from character_anchor_baseline import BASELINE_ROTATIONS
+from character_anchor_baseline import BASELINE_ABSOLUTE_ROTATIONS
 from character_anchor_check import (
-    ANCHORS, check_skeleton_data, check_uploaded_character_skeletons, rotation_difference,
+    ANCHORS, absolute_rotation, check_skeleton_data, check_uploaded_character_skeletons, rotation_difference,
 )
 
 
 def baseline():
     return {'Skeleton': {'nodes': [dict(name=name, index=i, parentIndex=-1,
-        rotation=copy.deepcopy(BASELINE_ROTATIONS[name])) for i, name in enumerate(ANCHORS)]}}
+        rotation=copy.deepcopy(BASELINE_ABSOLUTE_ROTATIONS[name])) for i, name in enumerate(ANCHORS)]}}
 
 
 def rotated(rotation, axis, degrees):
@@ -59,7 +59,9 @@ class AnchorRulesTest(unittest.TestCase):
                     data = baseline()
                     node = next(n for n in data['Skeleton']['nodes'] if n['name'] == name)
                     if duplicate:
-                        data['Skeleton']['nodes'].append(copy.deepcopy(node))
+                        duplicate_node = copy.deepcopy(node)
+                        duplicate_node['index'] = 1000
+                        data['Skeleton']['nodes'].append(duplicate_node)
                     else:
                         data['Skeleton']['nodes'].remove(node)
                     issues = check_skeleton_data(data)
@@ -74,13 +76,61 @@ class AnchorRulesTest(unittest.TestCase):
             data['Skeleton']['nodes'][0]['rotation'] = rotation
             self.assertEqual('character_anchor_invalid', check_skeleton_data(data)[0]['type'])
 
-    def test_parent_position_scale_order_and_indices_do_not_add_rules(self):
+    def test_position_scale_order_and_indices_do_not_add_rules(self):
         data = baseline()
         for node in data['Skeleton']['nodes']:
-            node.update(index=999, parentIndex=123, position=dict(x=100, y=100, z=100),
+            node.update(index=node['index']+100, position=dict(x=100, y=100, z=100),
                         scale=dict(x=2, y=2, z=2))
         data['Skeleton']['nodes'].reverse()
         self.assertEqual([], check_skeleton_data(data))
+
+    def test_parent_rotation_with_compensation_preserves_absolute_direction(self):
+        data = baseline()
+        node = data['Skeleton']['nodes'][0]
+        # 单独构造 Z=180° 的父旋转 (0,0,1,0)，子旋转补偿其逆。
+        x, y, z, w = (node['rotation'][k] for k in 'xyzw')
+        node['rotation'] = dict(x=y, y=-x, z=-w, w=z)
+        node['parentIndex'] = 1000
+        data['Skeleton']['nodes'].append(dict(name='different-parent-name', index=1000,
+            parentIndex=-1, rotation=dict(x=0, y=0, z=1, w=0)))
+        self.assertEqual([], check_skeleton_data(data))
+
+    def test_root_rotation_is_included_and_parent_change_is_detected(self):
+        data = baseline()
+        data['Skeleton']['nodes'][0]['parentIndex'] = 1000
+        data['Skeleton']['nodes'].append(dict(name='Root', index=1000, parentIndex=-1,
+            rotation=dict(x=0, y=0, z=1, w=0)))
+        issues = check_skeleton_data(data)
+        self.assertEqual(['106'], [i['anchor'] for i in issues])
+        self.assertAlmostEqual(180, issues[0]['angle_degrees'], places=7)
+
+    def test_known_parent_child_order_uses_indices_not_list_offsets(self):
+        # Rz(90) * Rx(90) 把 X 轴转向 Y，Y 轴转向 Z，Z 轴转向 X。
+        half = math.sqrt(0.5)
+        child = dict(name='child', index=900, parentIndex=400,
+                     rotation=dict(x=half, y=0, z=0, w=half))
+        root = dict(name='root', index=400, parentIndex=-1,
+                    rotation=dict(x=0, y=0, z=half, w=half))
+        result = absolute_rotation(child, {900: child, 400: root})
+        angle, _ = rotation_difference(dict(x=0.5, y=0.5, z=0.5, w=0.5), result)
+        self.assertAlmostEqual(0, angle, places=7)
+
+    def test_invalid_parent_chain_fails_closed(self):
+        for kind in ('missing', 'cycle', 'duplicate_index', 'invalid_ancestor_rotation'):
+            data = baseline()
+            node = data['Skeleton']['nodes'][0]
+            if kind == 'missing':
+                node['parentIndex'] = 999
+            elif kind == 'cycle':
+                node['parentIndex'] = node['index']
+            elif kind == 'duplicate_index':
+                data['Skeleton']['nodes'][1]['index'] = node['index']
+            else:
+                node['parentIndex'] = 999
+                data['Skeleton']['nodes'].append(dict(name='root', index=999, parentIndex=-1,
+                    rotation=dict(x=0, y=0, z=0, w=0)))
+            with self.subTest(kind=kind):
+                self.assertEqual('character_anchor_invalid', check_skeleton_data(data)[0]['type'])
 
     def test_actual_problem_commit(self):
         fixture = json.loads((Path(__file__).parent/'fixtures/140616_c84d00e62e12.json').read_text(encoding='utf-8'))
@@ -89,8 +139,8 @@ class AnchorRulesTest(unittest.TestCase):
         # 严格基准下提交前也不合格，不能伪造一个通过的历史版本。
         self.assertGreater(before['105']['angle_degrees'], 0.1)
         self.assertGreater(before['106']['angle_degrees'], 0.1)
-        self.assertAlmostEqual(89.749635, after['106']['angle_degrees'], places=5)
-        self.assertAlmostEqual(90.000140, after['105']['angle_degrees'], places=5)
+        self.assertAlmostEqual(89.438673, after['106']['angle_degrees'], places=5)
+        self.assertAlmostEqual(89.682185, after['105']['angle_degrees'], places=5)
         a = {n['name']: n for n in fixture['before']['Skeleton']['nodes']}
         b = {n['name']: n for n in fixture['after']['Skeleton']['nodes']}
         self.assertAlmostEqual(89.9905, rotation_difference(a['106']['rotation'], b['106']['rotation'])[0], places=4)
@@ -153,7 +203,7 @@ class UploadGateTest(unittest.TestCase):
         manager.reset_and_pull_repository.assert_not_called()
         self.assertTrue(reports[0]['has_errors'])
         self.assertEqual(1, reports[0]['critical_issues'])
-        self.assertIn('局部旋转', reports[0]['report_text'])
+        self.assertIn('绝对旋转', reports[0]['report_text'])
         self.assertIn('XYZ', reports[0]['report_text'])
 
     def test_real_push_rechecks_changed_file_before_any_mutation(self):
@@ -176,6 +226,27 @@ class UploadGateTest(unittest.TestCase):
         copy_file.assert_not_called()
         delete.assert_not_called()
         self.assertEqual([], list(target.iterdir()))
+
+    def test_readonly_cli_writes_versioned_report(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            from art_resource_manager import APP_VERSION, run_anchor_check_cli
+        report = self.root/'cli-report.json'
+        arguments = ['--report', str(report), str(self.skeleton)]
+        self.assertEqual(0, run_anchor_check_cli(arguments))
+        result = json.loads(report.read_text(encoding='utf-8'))
+        self.assertTrue(result['passed'])
+        self.assertEqual(APP_VERSION, result['version'])
+        self.assertEqual('skeleton', result['rotation_space'])
+        self.write_invalid()
+        self.assertEqual(1, run_anchor_check_cli(arguments))
+        self.assertFalse(json.loads(report.read_text(encoding='utf-8'))['passed'])
+
+    def test_old_version_json_does_not_override_running_program(self):
+        from hot_update_manager import HotUpdateManager
+        (self.root/'version.json').write_text('{"version": "1.0.23"}', encoding='utf-8')
+        updater = HotUpdateManager.__new__(HotUpdateManager)
+        updater.current_version, updater.app_path = '1.0.32', str(self.root)
+        self.assertEqual('1.0.32', updater.get_current_version())
 
 
 if __name__ == '__main__':

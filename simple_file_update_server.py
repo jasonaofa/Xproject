@@ -50,6 +50,14 @@ class SimpleUpdateHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Not Found")
     
+    def get_release_notes(self, version):
+        path = os.path.join(self.UPDATE_DIR, f"release_notes_v{version}.md")
+        try:
+            with open(path, 'r', encoding='utf-8') as stream:
+                return stream.read()
+        except OSError:
+            return f"发现新版本 {version}，请更新工具。"
+
     def handle_check_update(self, query_params):
         """检查更新请求"""
         try:
@@ -80,26 +88,7 @@ class SimpleUpdateHandler(BaseHTTPRequestHandler):
                     'has_update': True,
                     'latest_version': latest_version,
                     'current_version': current_version,
-                    'release_notes': f"""🎉 发现新版本 {latest_version}!
-
-🔄 **远程资源引用检查功能升级**:
-• 完善本地prefab引用远程skeleton/mesh文件的检测
-• 增强远程资源引用检查的错误分类和阻塞机制
-• 新增详细的调试日志，帮助快速定位问题
-• 完善GUID提取和路径判断逻辑
-
-🔍 **增强调试功能**:
-• 详细的文件扫描和GUID提取日志
-• 完整的远程引用检查过程显示
-• 明确的违规引用错误提示
-• 精确的违规引用检测机制
-
-✨ **用户体验提升**:
-• 更准确的远程资源引用检测
-• 更详细的问题定位信息
-• 更完善的检查过程可视化
-
-建议立即更新，享受更安全的美术资源管理体验！""",
+                    'release_notes': self.get_release_notes(latest_version),
                     'download_url': f'http://{self.SERVER_IP}:8002/api/download/{latest_version}/{latest_exe}',
                     'file_size': file_size,
                     'file_hash': file_hash,

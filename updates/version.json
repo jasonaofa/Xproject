@@ -1,18 +1,9 @@
 {
-    "version": "1.0.21",
-    "update_time": "2025-09-26T16:35:00.000000",
-    "release_notes": "🔧 v1.0.21 PBR材质模板支持更新！\n\n🎨 PBR材质模板完整支持:\n• 新增 Character_PBR_Masked.templatemat 支持\n• 新增 Scene_PBR_Masked.templatemat 支持\n• 完善所有PBR材质模板验证规则\n• 修复PBR材质上传被错误拒绝的问题\n\n✅ 现在支持的PBR模板:\n• Character_PBR_Opaque.templatemat\n• Character_PBR_Masked.templatemat\n• Character_PBR_Translucent.templatemat\n• Scene_PBR_Opaque.templatemat\n• Scene_PBR_Masked.templatemat\n• Scene_PBR_Translucent.templatemat\n\n🚨 完全兼容v1.0.20所有功能\n\n专门解决PBR材质模板使用限制问题！",
-    "download_url": "美术资源上传工具_v1.0.21.exe",
-    "file_size": 43327000,
-    "features": [
-        "🎨 完整的PBR材质模板支持",
-        "🚨 完善的远程资源引用检查",
-        "🔍 详细的调试日志和问题定位",
-        "📊 增强的文件扫描和GUID提取",
-        "🎯 精确的违规引用检测",
-        "📋 完整的检查过程可视化",
-        "🌐 保留MiniUniverse命名规范支持",
-        "📏 保留统一的avatar命名规范管理",
-        "✅ 保留所有v1.0.20现有功能"
-    ]
+  "version": "1.0.32",
+  "update_time": "2026-11-17T17:14:57.897790+08:00",
+  "release_notes": "# v1.0.32 — 2026-11-17\n\n- 新增140系列角色骨骼挂点检查：106、105、101、102、103、109必须各存在一次。\n- 以140620为基准，累乘完整骨骼父链（含根节点），比较骨架空间绝对旋转；角度偏差超过0.1°停止上传，报告XYZ方向偏差。\n- 资源检查及实际上传入口均执行校验，避免检查后文件被修改绕过规则。\n- 修复旧version.json覆盖当前EXE版本显示的问题；补齐热更新所需requests依赖；修复Windows重定向日志时表情符号导致的GBK编码异常。\n\n验证：当前SVN r18308主角色140600～140626中，140620通过，其余26角色仍存在绝对旋转超限。\n\n已知限制：整目录上传时，140603的Timeline建筑Prefab跨目录骨架引用、140609的建筑骨架可能触发角色规则误拦截。主角色骨架检测结果不受这两项影响。\n\n只读命令行检查：`美术资源上传工具_v1.0.32.exe --check-character-anchors --report 报告.json 资源路径`。\n\n发行验证：17项自动化测试通过；真实EXE的27角色、历史提交前后、缺失/重复共31个用例通过；窗口版本与控件验证通过；更新接口下载文件SHA256校验通过。\n",
+  "download_url": "美术资源上传工具_v1.0.32.exe",
+  "file_size": 49156662,
+  "file_hash": "de27dbb0f00255ba3fa4f88f895836b151b06dc1be24c662126f122926cb0193",
+  "sha256": "de27dbb0f00255ba3fa4f88f895836b151b06dc1be24c662126f122926cb0193"
 }

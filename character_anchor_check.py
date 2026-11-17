@@ -1,11 +1,11 @@
-"""只读检查 140 系列角色骨骼挂点，相对父节点的局部旋转以 140620 为准。"""
+"""只读检查 140 系列角色挂点在骨架空间中的绝对旋转，以 140620 为准。"""
 
 import json
 import math
 import re
 from pathlib import Path
 
-from character_anchor_baseline import BASELINE_ROTATIONS
+from character_anchor_baseline import BASELINE_ABSOLUTE_ROTATIONS
 
 
 ANCHORS = ('106', '105', '101', '102', '103', '109')
@@ -24,7 +24,7 @@ def _quaternion(rotation):
 
 
 def rotation_difference(reference, current):
-    """返回最短旋转角，以及局部 XYZ 三条轴的方向偏差；q 和 -q 等价。"""
+    """返回最短旋转角，以及 XYZ 三条轴的方向偏差；q 和 -q 等价。"""
     a, b = _quaternion(reference), _quaternion(current)
     # atan2 比 acos(dot) 在 0.1 度附近更稳定。
     if sum(x * y for x, y in zip(a, b)) < 0:
@@ -50,12 +50,42 @@ def _issue(kind, path, message, **details):
     return dict(type=kind, file=str(path), message=message, **details)
 
 
+def absolute_rotation(node, nodes_by_index):
+    """沿 parentIndex 累乘到根，包含根自身旋转；不加入场景或 Prefab 实例变换。"""
+    result = (0.0, 0.0, 0.0, 1.0)
+    visited = set()
+    while True:
+        index = node['index']
+        if index in visited:
+            raise ValueError(f'骨骼父链存在循环：index={index}')
+        visited.add(index)
+        x, y, z, w = _quaternion(node['rotation'])
+        u, v, t, s = result
+        # parent * child（xyzw），从叶子向上累计。
+        result = (w*u+x*s+y*t-z*v, w*v-x*t+y*s+z*u,
+                  w*t+x*v-y*u+z*s, w*s-x*u-y*v-z*t)
+        parent_index = node['parentIndex']
+        if type(parent_index) is not int:
+            raise ValueError(f'无效 parentIndex：{parent_index}')
+        if parent_index == -1:
+            return dict(zip('xyzw', _quaternion(dict(zip('xyzw', result)))))
+        if parent_index not in nodes_by_index:
+            raise ValueError(f'找不到父骨骼 index={parent_index}')
+        node = nodes_by_index[parent_index]
+
+
 def check_skeleton_data(data, path=''):
-    """骨骼的 rotation 已是相对 parentIndex 指向父骨骼的局部旋转。"""
+    """检查唯一性，并将局部 rotation 沿完整父链转换为骨架空间绝对方向。"""
     try:
         nodes = data['Skeleton']['nodes']
         if not isinstance(nodes, list) or not all(isinstance(n, dict) for n in nodes):
             raise ValueError('Skeleton.nodes 格式无效')
+        nodes_by_index = {}
+        for node in nodes:
+            index = node['index']
+            if type(index) is not int or index < 0 or index in nodes_by_index:
+                raise ValueError(f'骨骼 index 无效或重复：{index}')
+            nodes_by_index[index] = node
     except (KeyError, TypeError, ValueError) as exc:
         return [_issue('character_anchor_invalid', path, f'无法检查角色骨骼：{exc}')]
     issues = []
@@ -66,7 +96,8 @@ def check_skeleton_data(data, path=''):
                 f'挂点 {name} 必须存在且唯一，当前数量：{len(matches)}；停止上传。', anchor=name))
             continue
         try:
-            angle, axes = rotation_difference(BASELINE_ROTATIONS[name], matches[0]['rotation'])
+            current = absolute_rotation(matches[0], nodes_by_index)
+            angle, axes = rotation_difference(BASELINE_ABSOLUTE_ROTATIONS[name], current)
         except (KeyError, TypeError, ValueError, OverflowError) as exc:
             issues.append(_issue('character_anchor_invalid', path,
                 f'挂点 {name} 旋转数据无效：{exc}；停止上传。', anchor=name))
@@ -74,10 +105,11 @@ def check_skeleton_data(data, path=''):
         # 仅吸收浮点运算舍入误差，边界 0.1° 允许通过。
         if max(angle, *axes.values()) > MAX_ANGLE_DEGREES + 1e-9:
             issues.append(_issue('character_anchor_rotation', path,
-                f'挂点 {name} 相对父骨骼的局部旋转偏离 140620：{angle:.6f}°；'
+                f'挂点 {name} 在骨架空间的绝对旋转偏离 140620：{angle:.6f}°；'
                 f'XYZ 轴方向偏差：{axes["X"]:.6f}° / {axes["Y"]:.6f}° / {axes["Z"]:.6f}°；'
                 f'允许 ≤ {MAX_ANGLE_DEGREES}°，停止上传。',
-                anchor=name, angle_degrees=angle, axis_degrees=axes))
+                anchor=name, angle_degrees=angle, axis_degrees=axes,
+                absolute_rotation=current, rotation_space='skeleton'))
     return issues
 
 
