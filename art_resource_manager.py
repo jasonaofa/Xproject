@@ -5641,7 +5641,7 @@ class ResourceChecker(QThread):
             self.status_updated.emit("开始检查资源...")
 
             # 只读前置校验：失败时不重置 Git，也不进入后续上传流程。
-            self.status_updated.emit("检查角色骨骼六个挂点（Timeline除外，140620基准，绝对旋转 ≤ 0.1°）...")
+            self.status_updated.emit("检查角色骨骼六个挂点（Timeline除外，仅自身rotation，140620偏差 ≤ 0.1°）...")
             anchor_issues = check_uploaded_character_skeletons(self.upload_files)
             if anchor_issues:
                 self.detailed_report.emit(self._generate_detailed_report(anchor_issues, len(self.upload_files)))
@@ -9422,9 +9422,9 @@ class ResourceChecker(QThread):
                         'impact': '停止上传', 'solution': '在源资源中恢复六个唯一挂点后重新导出骨骼'
                     },
                     'character_anchor_rotation': {
-                        'icon': '🔴', 'title': '角色挂点绝对旋转超出 0.1°',
-                        'description': 'Timeline除外；累乘完整父链（含根节点）后，在骨架空间比较挂点绝对方向与 140620 的差异，容差 0.1°，覆盖 XYZ 轴',
-                        'impact': '停止上传', 'solution': '对照 140620 修正挂点绝对方向后重新导出骨骼'
+                        'icon': '🔴', 'title': '角色挂点自身旋转超出 0.1°',
+                        'description': 'Timeline除外；只比较挂点自身rotation与140620对应挂点的旋转，不累计父节点，容差0.1°，覆盖XYZ轴',
+                        'impact': '停止上传', 'solution': '对照140620修正挂点自身rotation后重新导出骨骼'
                     },
                     'character_anchor_invalid': {
                         'icon': '🔴', 'title': '角色骨骼挂点无法校验',
@@ -13119,7 +13119,7 @@ class ArtResourceManager(QMainWindow):
             f"• 清理未跟踪文件 (git clean -f)\n"
             f"• 拉取最新代码 (git pull)\n\n"
             f"🔍 **检查项目** (14项)：\n"
-            f"• 角色骨骼六个挂点完整、唯一，绝对旋转与140620偏差 ≤ 0.1°（XYZ，Timeline除外）\n"
+            f"• 角色骨骼六个挂点完整、唯一，自身rotation与140620偏差 ≤ 0.1°（不累计父节点，Timeline除外）\n"
             f"• Meta文件完整性\n"
             f"• 中文字符检查\n"
             f"• 图片尺寸检查\n"
@@ -16559,12 +16559,12 @@ class UpdateDialog(QDialog):
 def run_anchor_check_cli(arguments):
     """只读命令行检查，便于验证发行版中的真实检测逻辑。"""
     import argparse
-    parser = argparse.ArgumentParser(description='角色骨骼挂点只读检查（骨架空间绝对旋转）')
+    parser = argparse.ArgumentParser(description='角色骨骼挂点只读检查（仅自身rotation，不累计父节点）')
     parser.add_argument('--report', required=True, help='JSON报告保存路径')
     parser.add_argument('paths', nargs='+', help='角色Prefab、骨架或角色目录')
     args = parser.parse_args(arguments)
     issues = check_uploaded_character_skeletons(args.paths)
-    report = dict(version=APP_VERSION, rotation_space='skeleton', max_angle_degrees=0.1,
+    report = dict(version=APP_VERSION, rotation_space='node', max_angle_degrees=0.1,
                   checked_inputs=args.paths, passed=not issues, issues=issues)
     Path(args.report).write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return 0 if not issues else 1

@@ -1,89 +1,12 @@
 {
   "commit": "c84d00e62e1280d5d954064c3f4be8e8fe355f63",
   "repository_path": "Assets/Resources/minigame/remotes/entity/140616/Model/body_sk.skeleton",
-  "note": "Exact name/index/parentIndex/rotation fields for the six anchors AND all ancestors extracted from actual Git blobs; includes root rotation.",
+  "note": "Exact six anchor name/index/parentIndex/rotation fields extracted from actual Git blobs; parent transforms are not used by the rule.",
   "before": {
     "blob": "fffafbfe0f94b0609e4a43baeebe61b8d4442291",
     "sha256": "45d2d865d34e8e45a9152fba2739ee748f1bed39053cd0983a2dee4684cfb203",
     "Skeleton": {
       "nodes": [
-        {
-          "index": 0,
-          "parentIndex": -1,
-          "name": "root",
-          "rotation": {
-            "x": 3.090862321641907e-08,
-            "y": 0.7071068286895752,
-            "z": 0.7071068286895752,
-            "w": -3.090862321641907e-08
-          }
-        },
-        {
-          "index": 21,
-          "parentIndex": 0,
-          "name": "Bip01",
-          "rotation": {
-            "x": 0.0015700245276093483,
-            "y": 0.0023744371719658375,
-            "z": 0.7108757495880127,
-            "w": 0.7033118605613708
-          }
-        },
-        {
-          "index": 22,
-          "parentIndex": 21,
-          "name": "Bip01 Pelvis",
-          "rotation": {
-            "x": -0.49999967217445374,
-            "y": 0.5000003576278687,
-            "z": 0.5000003576278687,
-            "w": 0.49999967217445374
-          }
-        },
-        {
-          "index": 23,
-          "parentIndex": 22,
-          "name": "Bip01 Spine",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 24,
-          "parentIndex": 23,
-          "name": "Bip01 Spine1",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 25,
-          "parentIndex": 24,
-          "name": "Neck",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 26,
-          "parentIndex": 25,
-          "name": "Head",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
         {
           "index": 28,
           "parentIndex": 26,
@@ -93,50 +16,6 @@
             "y": -0.7069659233093262,
             "z": -0.010623394511640072,
             "w": 0.7071653008460999
-          }
-        },
-        {
-          "index": 95,
-          "parentIndex": 24,
-          "name": "Bip01 R Clavicle",
-          "rotation": {
-            "x": 0.7071064710617065,
-            "y": 2.1603543132187042e-07,
-            "z": 0.7071071863174438,
-            "w": 2.2790952414197818e-07
-          }
-        },
-        {
-          "index": 96,
-          "parentIndex": 95,
-          "name": "Bip01 R UpperArm",
-          "rotation": {
-            "x": -3.5774135653809935e-08,
-            "y": 0.46174854040145874,
-            "z": 3.9134980056587665e-07,
-            "w": 0.8870108723640442
-          }
-        },
-        {
-          "index": 97,
-          "parentIndex": 96,
-          "name": "Bip01 R Forearm",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 98,
-          "parentIndex": 97,
-          "name": "Bip01 R Hand",
-          "rotation": {
-            "x": 0.7071068286895752,
-            "y": -8.067807044653819e-08,
-            "z": 8.067807044653819e-08,
-            "w": 0.7071068286895752
           }
         },
         {
@@ -162,39 +41,6 @@
           }
         },
         {
-          "index": 111,
-          "parentIndex": 22,
-          "name": "Bip01 L Thigh",
-          "rotation": {
-            "x": 0.0,
-            "y": -1.0,
-            "z": 0.0,
-            "w": -4.371138828673793e-08
-          }
-        },
-        {
-          "index": 112,
-          "parentIndex": 111,
-          "name": "Bip01 L Calf",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 113,
-          "parentIndex": 112,
-          "name": "Bip01 L Foot",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
           "index": 116,
           "parentIndex": 113,
           "name": "102",
@@ -203,39 +49,6 @@
             "y": 0.7070466876029968,
             "z": -0.003078364534303546,
             "w": 0.7070998549461365
-          }
-        },
-        {
-          "index": 117,
-          "parentIndex": 22,
-          "name": "Bip01 R Thigh",
-          "rotation": {
-            "x": 0.0,
-            "y": -1.0,
-            "z": 0.0,
-            "w": -4.371138828673793e-08
-          }
-        },
-        {
-          "index": 118,
-          "parentIndex": 117,
-          "name": "Bip01 R Calf",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 119,
-          "parentIndex": 118,
-          "name": "Bip01 R Foot",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
           }
         },
         {
@@ -269,83 +82,6 @@
     "Skeleton": {
       "nodes": [
         {
-          "index": 0,
-          "parentIndex": -1,
-          "name": "root",
-          "rotation": {
-            "x": 3.090862321641907e-08,
-            "y": -0.7071068286895752,
-            "z": -0.7071068286895752,
-            "w": -3.090862321641907e-08
-          }
-        },
-        {
-          "index": 21,
-          "parentIndex": 0,
-          "name": "Bip01",
-          "rotation": {
-            "x": 0.0015700333751738071,
-            "y": 0.002374437637627125,
-            "z": 0.7108757495880127,
-            "w": 0.7033118605613708
-          }
-        },
-        {
-          "index": 22,
-          "parentIndex": 21,
-          "name": "Bip01 Pelvis",
-          "rotation": {
-            "x": -0.4999995529651642,
-            "y": 0.5000004768371582,
-            "z": 0.5000004768371582,
-            "w": 0.4999995529651642
-          }
-        },
-        {
-          "index": 23,
-          "parentIndex": 22,
-          "name": "Bip01 Spine",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 24,
-          "parentIndex": 23,
-          "name": "Bip01 Spine1",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 25,
-          "parentIndex": 24,
-          "name": "Neck",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 26,
-          "parentIndex": 25,
-          "name": "Head",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
           "index": 28,
           "parentIndex": 26,
           "name": "106",
@@ -354,50 +90,6 @@
             "y": 0.0,
             "z": 0.0,
             "w": 1.0
-          }
-        },
-        {
-          "index": 95,
-          "parentIndex": 24,
-          "name": "Bip01 R Clavicle",
-          "rotation": {
-            "x": 0.7071065902709961,
-            "y": 1.167726622952614e-06,
-            "z": 0.7071069478988647,
-            "w": 2.877429210457194e-07
-          }
-        },
-        {
-          "index": 96,
-          "parentIndex": 95,
-          "name": "Bip01 R UpperArm",
-          "rotation": {
-            "x": -8.395153372475761e-08,
-            "y": 0.46174824237823486,
-            "z": 9.28729548377305e-07,
-            "w": 0.8870110511779785
-          }
-        },
-        {
-          "index": 97,
-          "parentIndex": 96,
-          "name": "Bip01 R Forearm",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 98,
-          "parentIndex": 97,
-          "name": "Bip01 R Hand",
-          "rotation": {
-            "x": 0.7069846987724304,
-            "y": 4.471119723348238e-07,
-            "z": -4.469576140309073e-07,
-            "w": 0.7072288393974304
           }
         },
         {
@@ -423,39 +115,6 @@
           }
         },
         {
-          "index": 111,
-          "parentIndex": 22,
-          "name": "Bip01 L Thigh",
-          "rotation": {
-            "x": 0.0,
-            "y": 1.0,
-            "z": 0.0,
-            "w": -4.371138828673793e-08
-          }
-        },
-        {
-          "index": 112,
-          "parentIndex": 111,
-          "name": "Bip01 L Calf",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 113,
-          "parentIndex": 112,
-          "name": "Bip01 L Foot",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
           "index": 116,
           "parentIndex": 113,
           "name": "102",
@@ -464,39 +123,6 @@
             "y": 0.7070479393005371,
             "z": -0.003079755697399378,
             "w": 0.7070984840393066
-          }
-        },
-        {
-          "index": 117,
-          "parentIndex": 22,
-          "name": "Bip01 R Thigh",
-          "rotation": {
-            "x": 0.0,
-            "y": 1.0,
-            "z": 0.0,
-            "w": -4.371138828673793e-08
-          }
-        },
-        {
-          "index": 118,
-          "parentIndex": 117,
-          "name": "Bip01 R Calf",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
-          }
-        },
-        {
-          "index": 119,
-          "parentIndex": 118,
-          "name": "Bip01 R Foot",
-          "rotation": {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "w": 1.0
           }
         },
         {
