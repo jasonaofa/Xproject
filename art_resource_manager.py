@@ -22,7 +22,7 @@ from typing import List, Dict, Set, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from character_anchor_check import check_uploaded_character_skeletons, ISSUE_TYPES as ANCHOR_ISSUE_TYPES
 
-APP_VERSION = '1.0.33'
+APP_VERSION = '1.0.32'
 
 # 添加Windows特定的subprocess标志
 if platform.system() == 'Windows':
