@@ -121,8 +121,13 @@ def _role_root(path):
     return None
 
 
+def _is_timeline_path(path, role):
+    """只排除角色目录内名为 Timeline 的整段目录，大小写不敏感。"""
+    return any(part.casefold() == 'timeline' for part in path.relative_to(role).parts[:-1])
+
+
 def check_uploaded_character_skeletons(upload_files):
-    """检查上传骨架及角色 prefab 实际引用的骨架；读取失败时禁止放行。"""
+    """检查角色骨架，排除 Timeline；读取应检文件失败时禁止放行。"""
     issues, skeletons, prefabs = [], {}, []
     for raw in upload_files:
         path = Path(raw)
@@ -131,7 +136,7 @@ def check_uploaded_character_skeletons(upload_files):
         candidates = path.rglob('*') if path.is_dir() else (path,)
         for candidate in candidates:
             role = _role_root(candidate)
-            if role is None:
+            if role is None or _is_timeline_path(candidate, role):
                 continue
             suffix = candidate.suffix.lower()
             if suffix == '.skeleton':
@@ -162,6 +167,11 @@ def check_uploaded_character_skeletons(upload_files):
                 rig_maps[role] = mapping
             for rig in set(rigs):
                 matches = rig_maps[role].get(rig, [])
+                eligible = [p for p in matches if not _is_timeline_path(p, role)]
+                # 引用仅指向 Timeline 时跳过；Timeline 副本不造成主骨架 GUID 歧义。
+                if matches and not eligible:
+                    continue
+                matches = eligible
                 if len(matches) != 1:
                     raise ValueError(f'无法唯一定位角色骨骼 GUID {rig}（找到 {len(matches)} 个）')
                 path = matches[0]

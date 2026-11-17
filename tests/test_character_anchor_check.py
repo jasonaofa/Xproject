@@ -182,6 +182,57 @@ class UploadGateTest(unittest.TestCase):
         self.skeleton.unlink()
         self.assertEqual('character_anchor_invalid', check_uploaded_character_skeletons([prefab])[0]['type'])
 
+    def test_timeline_files_meta_and_folder_are_excluded_case_insensitively(self):
+        for folder in ('Timeline', 'TimeLine', 'timeline', 'TIMELINE'):
+            directory = self.role/folder/'building/Model'
+            directory.mkdir(parents=True, exist_ok=True)
+            skeleton = directory/'bad.skeleton'
+            skeleton.write_text('{"Skeleton": {"nodes": []}}', encoding='utf-8')
+            prefab = directory/'bad.prefab'
+            prefab.write_text('broken JSON', encoding='utf-8')
+            for selected in (skeleton, str(skeleton)+'.meta', prefab, str(prefab)+'.meta',
+                             directory, self.role):
+                with self.subTest(folder=folder, selected=selected):
+                    self.assertEqual([], check_uploaded_character_skeletons([selected]))
+        # 普通主角色仍应阻止上传。
+        self.write_invalid()
+        issues = check_uploaded_character_skeletons([self.role])
+        self.assertEqual(1, len(issues))
+        self.assertEqual(str(self.skeleton), issues[0]['file'])
+
+    def test_timeline_substring_is_not_excluded(self):
+        directory = self.role/'Timeline_backup'
+        directory.mkdir()
+        skeleton = directory/'bad.skeleton'
+        skeleton.write_text('{"Skeleton": {"nodes": []}}', encoding='utf-8')
+        self.assertEqual(6, len(check_uploaded_character_skeletons([skeleton])))
+
+    def test_prefab_reference_to_timeline_rig_is_excluded(self):
+        directory = self.role/'Timeline/Model'
+        directory.mkdir(parents=True)
+        skeleton = directory/'scene.skeleton'
+        skeleton.write_text('broken JSON', encoding='utf-8')
+        Path(str(skeleton)+'.meta').write_text(json.dumps({'m_MetaHeader': {'m_GUID': 'timeline-rig'}}), encoding='utf-8')
+        prefab = self.role/'scene.prefab'
+        prefab.write_text(json.dumps({'m_Object_1': {'SkinnedSkeleton': {'m_Rig': {'m_GUID': 'timeline-rig'}}}}), encoding='utf-8')
+        self.assertEqual([], check_uploaded_character_skeletons([prefab]))
+
+    def test_timeline_duplicate_guid_does_not_hide_or_ambiguate_main_rig(self):
+        guid = 'same-rig'
+        Path(str(self.skeleton)+'.meta').write_text(json.dumps({'m_MetaHeader': {'m_GUID': guid}}), encoding='utf-8')
+        directory = self.role/'TimeLine/Model'
+        directory.mkdir(parents=True)
+        copy = directory/'copy.skeleton'
+        copy.write_text('broken JSON', encoding='utf-8')
+        Path(str(copy)+'.meta').write_text(json.dumps({'m_MetaHeader': {'m_GUID': guid}}), encoding='utf-8')
+        prefab = self.role/'body.prefab'
+        prefab.write_text(json.dumps({'m_Object_1': {'SkinnedSkeleton': {'m_Rig': {'m_GUID': guid}}}}), encoding='utf-8')
+        self.assertEqual([], check_uploaded_character_skeletons([prefab]))
+        self.write_invalid()
+        issues = check_uploaded_character_skeletons([prefab])
+        self.assertEqual(1, len(issues))
+        self.assertEqual('character_anchor_rotation', issues[0]['type'])
+
     def test_unreadable_or_malformed_skeleton_stops(self):
         for value in ('broken json', '[]', '{"Skeleton": {"nodes": null}}'):
             self.skeleton.write_text(value, encoding='utf-8')

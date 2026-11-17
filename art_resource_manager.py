@@ -22,7 +22,7 @@ from typing import List, Dict, Set, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from character_anchor_check import check_uploaded_character_skeletons, ISSUE_TYPES as ANCHOR_ISSUE_TYPES
 
-APP_VERSION = '1.0.32'
+APP_VERSION = '1.0.33'
 
 # 添加Windows特定的subprocess标志
 if platform.system() == 'Windows':
@@ -5641,7 +5641,7 @@ class ResourceChecker(QThread):
             self.status_updated.emit("开始检查资源...")
 
             # 只读前置校验：失败时不重置 Git，也不进入后续上传流程。
-            self.status_updated.emit("检查角色骨骼六个挂点（140620 基准，骨架空间绝对旋转 ≤ 0.1°）...")
+            self.status_updated.emit("检查角色骨骼六个挂点（Timeline除外，140620基准，绝对旋转 ≤ 0.1°）...")
             anchor_issues = check_uploaded_character_skeletons(self.upload_files)
             if anchor_issues:
                 self.detailed_report.emit(self._generate_detailed_report(anchor_issues, len(self.upload_files)))
@@ -9423,7 +9423,7 @@ class ResourceChecker(QThread):
                     },
                     'character_anchor_rotation': {
                         'icon': '🔴', 'title': '角色挂点绝对旋转超出 0.1°',
-                        'description': '累乘完整父链（含根节点）后，在骨架空间比较挂点绝对方向与 140620 的差异，容差 0.1°，覆盖 XYZ 轴',
+                        'description': 'Timeline除外；累乘完整父链（含根节点）后，在骨架空间比较挂点绝对方向与 140620 的差异，容差 0.1°，覆盖 XYZ 轴',
                         'impact': '停止上传', 'solution': '对照 140620 修正挂点绝对方向后重新导出骨骼'
                     },
                     'character_anchor_invalid': {
@@ -13119,7 +13119,7 @@ class ArtResourceManager(QMainWindow):
             f"• 清理未跟踪文件 (git clean -f)\n"
             f"• 拉取最新代码 (git pull)\n\n"
             f"🔍 **检查项目** (14项)：\n"
-            f"• 角色骨骼六个挂点完整、唯一，骨架空间绝对旋转与140620偏差 ≤ 0.1°（XYZ）\n"
+            f"• 角色骨骼六个挂点完整、唯一，绝对旋转与140620偏差 ≤ 0.1°（XYZ，Timeline除外）\n"
             f"• Meta文件完整性\n"
             f"• 中文字符检查\n"
             f"• 图片尺寸检查\n"
